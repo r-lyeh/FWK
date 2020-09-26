@@ -1,0 +1,14 @@
+git clone https://github.com/assimp/assimp && md assimp\build && pushd assimp\build
+cmake .. -DCMAKE_BUILD_TYPE=Release && msbuild assimp.sln -p:Configuration=Release
+popd
+
+xcopy assimp\include\assimp /yes
+move config.h.in config.h && fart config.h "cmakedefine" "//#define"
+
+xcopy assimp\build\bin\release\*.dll x64\ /s
+xcopy assimp\build\lib\release\*.lib x64\ /s
+rd /q /s assimp
+
+fart -r -- * "assimp/" "3rd/3rd_assimp/"
+
+echo full cook is advised now...

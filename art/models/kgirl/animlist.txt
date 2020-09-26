@@ -1,0 +1,29 @@
+Kgirl Animation List
+
+frame: 060	Idle (Loop)
+frame: 065	Run Intro
+frame: 085	Run (Loop)
+frame: 090	Run Outro
+frame: 101	Punch Loop
+frame: 117	Punch Low
+frame: 135	Punch Up
+frame: 172	Punch Mid
+frame: 185	Jump
+frame: 203	Kick
+frame: 221	Kick x3 (Loop)
+frame: 227-233	Fall Loop
+frame: 253	Land
+frame: 256-270  Air attack In
+frame: 282  Air attack Out
+frame: 290	Dash In
+frame: 288-299  Dash
+frame: 299-310  Punch reverse
+frame: 358  Punch super
+frame: 389  Charge
+frame: 409  Hit1
+frame: 426  Hit2
+frame: 456	Die
+frame: 474	Get up
+frame: 477	Walk intro
+frame: 506  Walk (loop)
+frame: 507  EOA
