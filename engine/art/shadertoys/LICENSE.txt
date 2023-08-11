@@ -1,0 +1,31 @@
+--------------------------------------------------------------------------------------
+
+Files:
+	1. webcamBig.png
+	2. tex10.png
+	3. tex11.png
+	4. tex12.png
+	5. tex12_orig.png
+	6. tex14.png
+	7. tex15.png
+	8. tex16.png
+
+Downloaded from Shadertoy.com by Inigo Quilez and Pol Jeremias (http://www.beautypi.com/)
+Licensed under CC NC-SA 3.0 Unported License
+http://creativecommons.org/licenses/by-nc-sa/3.0/deed.en_US
+
+--------------------------------------------------------------------------------------
+
+Files:
+	1. tex09.jpg
+	2. tex00.jpg
+	3. tex01.jpg
+	4. tex02.jpg
+	5. tex03.jpg
+	6. tex04.jpg
+	7. tex05.jpg
+	8. tex06.jpg
+	9. tex07.jpg
+	10. tex08.jpg
+
+Downloaded from Shadertoy.com

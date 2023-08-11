@@ -1,0 +1,23 @@
+version: 0.1.{build}
+environment:
+  global:
+    PYTHON: "C:\\Python35"
+install:
+  - set PATH=%cd%/.bins;%PYTHON%;%PYTHON%/Scripts;%PATH%
+  - python --version
+  - mkdir -p .bins
+  - cd .bins
+  - powershell "(New-Object Net.WebClient).DownloadFile('https://github.com/premake/premake-core/releases/download/v5.0.0-alpha6/premake-5.0.0-alpha6-windows.zip','premake-5.0.0-alpha6-windows.zip')"
+  - powershell "(new-object -com shell.application).namespace($pwd.Path).CopyHere((new-object -com shell.application).namespace(\"$pwd\premake-5.0.0-alpha6-windows.zip\").Items(),16)"
+  - powershell "(New-Object Net.WebClient).DownloadFile('https://github.com/martine/ninja/releases/download/v1.6.0/ninja-win.zip','ninja.zip')"
+  - powershell "(new-object -com shell.application).namespace($pwd.Path).CopyHere((new-object -com shell.application).namespace(\"$pwd\ninja.zip\").Items(),16)"
+  - premake5 --version
+  - ninja --version
+  - cd ..
+build: off
+test_script:
+  - call "%ProgramFiles(x86)%\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86
+  - cd tests
+  - python run_tests.py
+  - cd ..
+
