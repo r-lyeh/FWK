@@ -1,0 +1,9 @@
+LIBRARY wininet.dll
+
+EXPORTS
+InternetOpenA
+InternetOpenW
+InternetCloseHandle
+InternetOpenUrlA
+InternetOpenUrlW
+InternetReadFile

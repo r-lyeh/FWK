@@ -1,0 +1,14 @@
+frame: 0-50 AlienArmature|Alien_Clapping
+frame: 51-106 AlienArmature|Alien_Death
+frame: 107-207 AlienArmature|Alien_Idle
+frame: 208-308 AlienArmature|Alien_IdleHold
+frame: 309-334 AlienArmature|Alien_Jump
+frame: 335-357 AlienArmature|Alien_Punch
+frame: 358-379 AlienArmature|Alien_Run
+frame: 380-401 AlienArmature|Alien_RunHold
+frame: 402-432 AlienArmature|Alien_RunningJump
+frame: 433-459 AlienArmature|Alien_Sitting
+frame: 460-475 AlienArmature|Alien_Standing
+frame: 476-508 AlienArmature|Alien_Swimming
+frame: 509-534 AlienArmature|Alien_SwordSlash
+frame: 535-560 AlienArmature|Alien_Walk
