@@ -16,14 +16,12 @@
 	exit /b
 )
 
-cl ..\editor2.c -I ..\..\tools -DCOOK_ON_DEMAND
-
-pushd ..\.. && call make amalgamation && popd
+if not exist "*.zip" ..\..\..\tools\cook --cook-ini=..\..\cook.ini
 
 taskkill /im "oscedit.exe" > nul 2> nul
-call ..\..\tools\tcc oscgame.c -I ..\.. -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %*
-call ..\..\tools\tcc oscsend.c -I ..\.. -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %*
-call ..\..\tools\tcc oscedit.c -I ..\.. -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %* && start oscedit.exe
+call ..\..\..\tools\tcc oscgame.c -I ..\..\..\engine\joint -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %*
+call ..\..\..\tools\tcc oscsend.c -I ..\..\..\engine\joint -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %*
+call ..\..\..\tools\tcc oscedit.c -I ..\..\..\engine\joint -DFWK_IMPLEMENTATION -DCOOK_ON_DEMAND %* && start oscedit.exe
 
 timeout 3
 

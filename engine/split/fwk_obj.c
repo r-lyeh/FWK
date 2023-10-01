@@ -1,291 +1,773 @@
-void *obj_initialize( void **ptr, char *type ) {
-    unsigned payload = ((unsigned char)type[0]) << 8; type[0] = '\1'; // @fixme: actually use this '\1' custom tag
-#ifndef NDEBUG
-    strcatf(&type, "%s", callstack(+16)); // debug: for debugging purposes only
-#endif
-    ptr[0] = OBJBOX((void *)type, payload);
+// C objects framework
+// - rlyeh, public domain.
 
-    return &ptr[1];
+// --- implement new vtables
+
+obj_vtable(ctor, void,  {} );
+obj_vtable(dtor, void,  {} );
+
+obj_vtable_null(save, char* );
+obj_vtable_null(load, bool  );
+obj_vtable_null(test, int   );
+
+obj_vtable_null(init, int   );
+obj_vtable_null(quit, int   );
+obj_vtable_null(tick, int   );
+obj_vtable_null(draw, int   );
+
+obj_vtable_null(lerp, int   );
+obj_vtable_null(edit, int   ); // OSC cmds: argc,argv "undo","redo","cut","copy","paste","edit","view","menu"
+
+// ----------------------------------------------------------------------------
+
+const char *OBJTYPES[256] = { 0 }; // = { REPEAT256("") };
+
+// ----------------------------------------------------------------------------
+// heap/stack ctor/dtor
+
+void *obj_malloc(unsigned sz) {
+    //sz = sizeof(obj) + sz + sizeof(array(obj*))); // useful?
+    obj *ptr = CALLOC(1, sz);
+    OBJ_CTOR_HDR(ptr,1,sz,OBJTYPE_obj);
+    return ptr;
 }
-
-void obj_free( void *obj ) {
-    void *ptr = *((void**)obj - 1);
-    FREE( OBJUNBOX(ptr) );
-    obj = (void**)obj - 1;
-    FREE( obj );
-}
-
-void obj_del( void *obj ) {
-    unsigned type = obj_typeid(obj);
-    (type[dtor])(obj);
-    obj_free( obj );
-}
-
-unsigned obj_instances( const void *obj ) {
-    return OBJPAYLOAD3(obj) + 1;
-}
-
-// ---
-
-const char *obj_output( const void *obj ) {
-    void* ptr = *((void**)obj - 1);
-    char *str = OBJUNBOX(ptr);
-
-    while( *str != '\n' ) ++str;
-    return (const char *)str + 1;
-}
-void (obj_printf)( void *obj, const char *text ) {
-    void* ptr = *((void**)obj - 1);
-    char* str = OBJUNBOX(ptr);
-    unsigned payload = OBJPAYLOAD16(ptr);
-
-    strcatf(&str, "%s", text);
-
-    *((void**)obj - 1) = OBJBOX(str, payload);
-}
-
-// ---
-
-const char *obj_typeof( const void *obj ) {
-    void* ptr = *((void**)obj - 1);
-    ptr = OBJUNBOX(ptr);
-
-    char name[256]; sscanf((const char*)ptr + 1, "%[^\n]", name); // @fixme: overflow
-    return va("%s", name);
-}
-
-unsigned obj_typeid(const void *obj) {
-    void* ptr = *((void**)obj - 1);
-    unsigned payload = OBJPAYLOAD16(ptr);
-    return payload >> 8;
-}
-
-bool obj_typeeq( const void *obj1, const void *obj2 ) {
-    if( obj_typeid(obj1) != obj_typeid(obj2) ) return false;
-    return !strcmp( obj_typeof(obj1), obj_typeof(obj2) );
-}
-
-unsigned obj_typeid_from_name(const char *name) {
-    name += strbegi(name, "struct ") ? 8 : strbegi(name, "union ") ? 7 : 0;
-    unsigned typeid = hash_str(name) & 255; // @fixme: increase bits / decrease colliders (256 types only!)
-    ASSERT( typeid, "Name of given class has an empty (zeroed) hash. Limitation by design" );
-
-    static map(unsigned, char *) registered; // @fixme: add mutex
-    do_once map_init(registered, less_int, hash_int);
-    do_once map_insert(registered, 1, "(typeless)");
-    char **found = map_find(registered, typeid);
-    if(!found) map_insert(registered, typeid, STRDUP(name));
-    else ASSERT( !strcmp(name, *found), "Uh-oh, types collided. Please rename one of these two classes '%s'/'%s'", name, *found);
-
-    return typeid;
-}
-
-// ---
-
-unsigned obj_sizeof(const void *obj) {
-    void *ptr = (void**)obj - 1;
-    return ALLOCSIZE(ptr) - sizeof(void*);
-}
-
-void obj_zero(void *obj) {
-    // clear console log
-    void* ptr = *((void**)obj - 1);
-    char* str = OBJUNBOX(ptr);
-    if( str[0] ) {
-        unsigned payload = OBJPAYLOAD16(ptr);
-
-        unsigned namelen = strlen(obj_typeof(obj));
-        str = REALLOC(str, 1+namelen+2); // preserve \1+name+\n+\0
-        str[1+namelen+2-1] = '\0';
-
-        *((void**)obj - 1) = OBJBOX(str, payload);
-    }
-
-    // reset data
-    dtor(obj);
-    memset(obj, 0, obj_sizeof(obj));
-    ctor(obj);
-}
-
-void obj_hexdumpf(FILE *out, const void *obj) {
-    hexdumpf(out, obj, obj_sizeof(obj), 16);
-
-    const char *output = obj_output(obj);
-    fprintf( out, "; ptr=[%p] sizeof=%d typeof=%s typeid=%#x refs=%d\n%s%s\n",
-        obj, obj_sizeof(obj), obj_typeof(obj), obj_typeid(obj), (int)(OBJPAYLOAD16(obj) & 0xFF),
-        output[0] ? output : "(no output)", output[0] ? "---" : "");
-}
-
-void obj_hexdump(const void *obj) {
-    obj_hexdumpf( stdout, obj );
-}
-
-// object: load/save
-
-unsigned obj_load_buffer(void *obj, const void *src, unsigned srclen) {
-    unsigned objlen = obj_sizeof(obj);
-    if( srclen > objlen ) return 0; // @fixme: do something clever
-    memcpy(obj, src, srclen); // @fixme: do something clever
-    return objlen;
-}
-unsigned obj_load(void *obj, const array(char) buffer) {
-    unsigned bytes = buffer ? obj_load_buffer(obj, buffer, array_count((char*)buffer)) : 0;
-    return bytes;
-}
-unsigned obj_load_file(void *obj, FILE *fp) {
-    unsigned len = obj_sizeof(obj);
-    char *buffer = va("%*.s", len, "");
-    unsigned read = fread(buffer, 1, len, fp);
-    if( read != (1*len) ) {
+void *obj_free(void *o) {
+    if( !((obj*)o)->objrefs ) {
+        obj_detach(o);
+        obj_dtor(o);
+        //obj_zero(o);
+        if( ((obj*)o)->objheap ) {
+            FREE(o);
+        }
         return 0;
     }
-    unsigned bytes = obj_load_buffer(obj, buffer, len);
-    return bytes;
+    return o; // cannot destroy: object is still referenced
 }
 
-unsigned obj_save_buffer(void *dst, unsigned cap, const void *obj) {
-    unsigned len = obj_sizeof(obj);
-    if( len > cap ) return 0;
-    memcpy(dst, obj, len); // @fixme: do something clever
-    return len;
+// ----------------------------------------------------------------------------
+// core
+
+uintptr_t obj_header(const void *o) {
+    return ((obj*)o)->objheader;
 }
-array(char) obj_save(const void *obj) { // empty if error. must array_free() after use
-    array(char) data = 0;
-    unsigned len = obj_sizeof(obj);
-    array_resize(data, len);
-    unsigned bytes = obj_save_buffer(data, len, obj);
-    array_resize(data, bytes);
-    return data;
+uintptr_t obj_id(const void *o) {
+    return ((obj*)o)->objid;
 }
-unsigned obj_save_file(FILE *fp, const void *obj) {
-    unsigned len = obj_sizeof(obj);
-    char *buffer = va("%*.s", len, "");
-    unsigned bytes = obj_save_buffer(buffer, len, obj);
-    if( bytes > 0 ) {
-        unsigned written = fwrite(buffer, 1, len, fp);
-        if( written == (1*len) ) {
-            return written;
+unsigned obj_typeid(const void *o) {
+    return ((obj*)o)->objtype;
+}
+const char *obj_type(const void *o) {
+    return OBJTYPES[ (((obj*)o)->objtype) ];
+}
+//const char *obj_name(const void *o) {
+//    return quark(((obj*)o)->objnameid);
+//}
+int obj_sizeof(const void *o) {
+    return (int)( ((const obj*)o)->objsizew << OBJ_MIN_PRAGMAPACK_BITS );
+}
+int obj_size(const void *o) { // size of all members together in struct. may include padding bytes.
+    static int obj_sizes[256] = {0};
+    unsigned objtypeid = ((obj*)o)->objtype;
+    if( objtypeid > 1 && !obj_sizes[objtypeid] ) { // check reflection for a more accurate objsize (without padding bits)
+        reflect_init();
+        array(reflect_t) *found = map_find(members, intern(obj_type(o)));
+        if(!found)
+            obj_sizes[objtypeid] = obj_sizeof(o) - sizeof(obj); // @fixme: -= sizeof(entity);
+        else
+        for each_array_ptr(*found, reflect_t, it)
+            obj_sizes[objtypeid] += it->bytes;
+    }
+    return obj_sizes[objtypeid];
+}
+char *obj_data(void *o) { // pointer to the first member in struct
+    return (char*)o + sizeof(obj);
+}
+const char *obj_datac(const void *o) { // const pointer to the first struct member
+    return (const char*)o + sizeof(obj);
+}
+void* obj_payload(const void *o) { // pointer right after last member in struct
+    return (char*)o + (((obj*)o)->objsizew<<OBJ_MIN_PRAGMAPACK_BITS);
+}
+void *obj_zero(void *o) { // reset all object members
+    return memset(obj_data(o), 0, obj_size(o)), o;
+}
+
+static
+void test_obj_core() {
+    obj *r = obj_new_ext(obj, "root");
+    obj *s = obj_new_ext(obj, "root");
+
+    test(r);
+    test( 0 == strcmp(obj_type(r), "obj") );
+    test( 0 == strcmp(obj_name(r), "root") );
+    test( OBJTYPE_obj == obj_typeid(r) );
+
+    test(s);
+    test( 0 == strcmp(obj_type(s), "obj") );
+    test( 0 == strcmp(obj_name(s), "root") );
+    test( OBJTYPE_obj == obj_typeid(s) );
+
+    test( obj_id(r) != 0 );
+    test( obj_id(s) != 0 );
+    test( obj_id(r) != obj_id(s) );
+
+    obj t = obj(obj); obj_setname(&t, "root");
+    obj u = obj(obj); obj_setname(&u, "root");
+
+    test(&t);
+    test( 0 == strcmp(obj_type(&t), "obj") );
+    test( 0 == strcmp(obj_name(&t), "root") );
+    test( OBJTYPE_obj == obj_typeid(&t) );
+
+    test(&u);
+    test( 0 == strcmp(obj_type(&u), "obj") );
+    test( 0 == strcmp(obj_name(&u), "root") );
+    test( OBJTYPE_obj == obj_typeid(&u) );
+
+    test( obj_id(&t) == 0 );
+    test( obj_id(&u) == 0 );
+    test( obj_id(&t) == obj_id(&u) );
+}
+
+// ----------------------------------------------------------------------------
+// refcounting
+
+// static int __thread global_ref_count; // @fixme: make it atomic
+// static void objref_check_atexit(void) {
+//     if(global_ref_count) tty_color(YELLOW), fprintf(stderr, "Warn! obj_refs not zero (%d)\n", global_ref_count), tty_color(0);
+// }
+// AUTORUN { (atexit)(objref_check_atexit); }
+
+void *obj_ref(void *oo) {
+    obj* o = (obj*)oo;
+    int num = o->objrefs;
+    ++o->objrefs;
+    assert( num < o->objrefs && "Object referenced too many times");
+    //++global_ref_count;
+    return o;
+}
+void *obj_unref(void *oo) {
+    obj* o = (obj*)oo;
+    if( o->objrefs ) --o->objrefs;
+    if( o->objrefs ) return o;
+    obj_free(o);
+    //--global_ref_count;
+    return 0;
+}
+
+// ----------------------------------------------------------------------------
+// scene tree
+
+array(obj*)* obj_children(const void *o) {
+    array(obj*) *c = &((obj*)o)->objchildren;
+    if(!(*c)) array_push((*c), NULL); // default parenting: none. @todo: optimize & move this at construction time
+    return c;
+}
+obj* obj_parent(const void *o) {
+    array(obj*) *c = obj_children(o);
+    return 0[*c]; // (*c) ? 0[*c] : NULL;
+}
+obj* obj_root(const void *o) {
+    while( obj_parent(o) ) o = obj_parent(o);
+    return (obj*)o;
+}
+array(obj*)* obj_siblings(const void *o) {
+    return obj_children(obj_parent(o));
+}
+
+static
+obj* obj_reparent(obj *o, const void *p) {
+    array(obj*) *c = obj_children(o);
+    0[*c] = (void*)p;
+    return o;
+}
+
+obj* obj_detach(void *c) {
+    obj *p = obj_parent(c);
+    if( p ) {
+        uintptr_t id = obj_id(c);
+
+        array(obj*) *oo = obj_children(p);
+        for( int i = 1, end = array_count(*oo); i < end; ++i) {
+            obj *v = (*oo)[i];
+            {
+                if( obj_id(v) == id ) {
+                    obj_reparent(c, 0);
+                    array_erase_slow(*oo, i);
+                    return c;
+                }
+            }
         }
     }
-    return 0; // error
+    return 0;
+}
+obj* obj_attach(void *o, void *c) {
+    // reattach
+    obj_detach(c);
+    obj_reparent(c, o);
+    // insert into children
+    array(obj*) *p = obj_children(o);
+    array_push(*p, c);
+    return o;
 }
 
-// ---
-
-static int __thread global_ref_count; // @fixme: make it atomic
-
-static void objref_check_atexit(void) {
-    if(global_ref_count > 0) fprintf(stderr, "Warn! Possible memory_leaks: %d refs not destroyed\n", global_ref_count);
-    if(global_ref_count < 0) fprintf(stderr, "Warn! Possible double free: %d refs double destroyed\n", -global_ref_count);
-}
-
-void* obj_ref(void *obj) {
-    do_once atexit(objref_check_atexit);
-
-    if( obj ) {
-        void *ptr = *((void**)obj - 1);
-        unsigned payload = OBJPAYLOAD16(ptr);
-        unsigned ref_count = payload & 255;
-        ASSERT(ref_count < 255, "Object cannot hold more than 256 refs. Limitation by design.");
-
-        *((void**)obj - 1) = OBJBOX(OBJUNBOX(ptr), payload + 1);
-        global_ref_count++;
+int obj_dumptree(const void *o) {
+    static int tabs = 0;
+    printf("%*s" "+- %s\n", tabs++, "", obj_name(o));
+    for each_objchild(o, obj*, v) {
+        obj_dumptree(v);
     }
-
-    return obj;
+    --tabs;
+    return 0;
 }
 
-void* obj_unref(void *obj) {
-    if( obj ) {
-        void *ptr = *((void**)obj - 1);
-        unsigned payload = OBJPAYLOAD16(ptr);
-        unsigned ref_count = payload & 255;
+static
+void test_obj_scene() {
+    obj *r = obj_new_ext(obj, "root");           // root
+    obj *c1 = obj_new_ext(obj, "child1");        // child1
+    obj *c2 = obj_new_ext(obj, "child2");        // child2
+    obj *gc1 = obj_new_ext(obj, "grandchild1");  // grandchild1
+    obj *gc2 = obj_new_ext(obj, "grandchild2");  // grandchild2
+    obj *gc3 = obj_new_ext(obj, "grandchild3");  // grandchild3
 
-        *((void**)obj - 1) = OBJBOX(OBJUNBOX(ptr), payload - 1);
-        global_ref_count--;
+    test( !obj_parent(r) );
+    test( !obj_parent(c1) );
+    test( !obj_parent(c2) );
+    test( !obj_parent(gc1) );
+    test( !obj_parent(gc2) );
+    test( !obj_parent(gc3) );
+    test( obj_root(r) == r );
+    test( obj_root(c1) == c1 );
+    test( obj_root(c2) == c2 );
+    test( obj_root(gc1) == gc1 );
+    test( obj_root(gc2) == gc2 );
+    test( obj_root(gc3) == gc3 );
 
-        if( ref_count <= 1 ) {
-            obj_del(obj);
-            return 0;
+                               // r
+    obj_attach(r, c1);         // +- c1
+    obj_attach(c1, gc1);       //  +- gc1
+    obj_attach(r, c2);         // +- c2
+    obj_attach(c2, gc2);       //  +- gc2
+    obj_attach(c2, gc3);       //  +- gc3
+
+    obj_dumptree(r);
+    // puts("---");
+
+    test( obj_parent(r) == 0 );
+    test( obj_parent(c1) == r );
+    test( obj_parent(c2) == r );
+    test( obj_parent(gc1) == c1 );
+    test( obj_parent(gc2) == c2 );
+    test( obj_parent(gc3) == c2 );
+
+    test( obj_root(r) == r );
+    test( obj_root(c1) == r );
+    test( obj_root(c2) == r );
+    test( obj_root(gc1) == r );
+    test( obj_root(gc2) == r );
+    test( obj_root(gc3) == r );
+
+    for each_objchild(r, obj*, o) test( o == c1 || o == c2 );
+    for each_objchild(c1, obj*, o) test( o == gc1 );
+    for each_objchild(c2, obj*, o) test( o == gc2 || o == gc3 );
+
+    obj_detach(c1);
+    test( !obj_parent(c1) );
+    for each_objchild(r, obj*, o) test( o != c1 );
+    for each_objchild(c1, obj*, o) test( o == gc1 );
+
+    obj_detach(c2);
+    test( !obj_parent(c2) );
+    for each_objchild(r, obj*, o) test( o != c2 );
+    for each_objchild(c2, obj*, o) test( o == gc2 || o == gc3 );
+}
+
+// ----------------------------------------------------------------------------
+// metadata
+
+static map(int,int) oms;
+static thread_mutex_t *oms_lock;
+void *obj_setmeta(void *o, const char *key, const char *value) {
+    do_threadlock(oms_lock) {
+        if(!oms) map_init_int(oms);
+        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        if(!*q && !value[0]) {} else *q = intern(value);
+        return quark(*q), o;
+    }
+    return 0; // unreachable
+}
+const char* obj_meta(const void *o, const char *key) {
+    do_threadlock(oms_lock) {
+        if(!oms) map_init_int(oms);
+        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        return quark(*q);
+    }
+    return 0; // unreachable
+}
+
+void *obj_setname(void *o, const char *name) {
+    ifdef(debug,((obj*)o)->objname = name);
+    return obj_setmeta(o, "name", name);
+}
+const char *obj_name(const void *o) {
+    const char *objname = obj_meta(o, "name");
+    return objname[0] ? objname : "obj";
+}
+
+
+static
+void test_obj_metadatas( void *o1 ) {
+    obj *o = (obj *)o1;
+    test( !strcmp("", obj_meta(o, "has_passed_test")) );
+    test( obj_setmeta(o, "has_passed_test", "yes") );
+    test( !strcmp("yes", obj_meta(o, "has_passed_test")) );
+}
+
+// ----------------------------------------------------------------------------
+// stl
+
+void* obj_swap(void *dst, void *src) { // @testme
+    int len = obj_size(dst);
+    char *buffer = ALLOCA(len);
+    memcpy(buffer,        obj_datac(dst), len);
+    memcpy(obj_data(dst), obj_datac(src), len);
+    memcpy(obj_data(src), buffer,         len);
+    return dst;
+}
+
+void* obj_copy_fast(void *dst, const void *src) {
+    // note: prefer obj_copy() as it should handle pointers and guids as well
+    return memcpy(obj_data(dst), obj_datac(src), obj_size(dst));
+}
+void* obj_copy(void *dst, const void *src) { // @testme
+    // @todo: use obj_copy_fast() silently if the object does not contain any pointers/guids
+    return obj_loadini(dst, obj_saveini(src));
+    // return obj_load(dst, obj_save(src));
+    // return obj_loadbin(dst, obj_savebin(src));
+    // return obj_loadini(dst, obj_saveini(src));
+    // return obj_loadjson(dst, obj_savejson(src));
+    // return obj_loadmpack(dst, obj_savempack(src));
+}
+
+int obj_comp_fast(const void *a, const void *b) {
+    // note: prefer obj_comp() as it should handle pointers and guids as well
+    return memcmp(obj_datac(a), obj_datac(b), obj_size(a));
+}
+int obj_comp(const void *a, const void *b) {
+    // @todo: use obj_comp_fast() silently if the object does not contain any pointers/guids
+    return strcmp(obj_saveini(a),obj_saveini(b));
+}
+int obj_lesser(const void *a, const void *b) {
+    return obj_comp(a,b) < 0;
+}
+int obj_greater(const void *a, const void *b) {
+    return obj_comp(a,b) > 0;
+}
+int obj_equal(const void *a, const void *b) {
+    return obj_comp(a,b) == 0;
+}
+
+uint64_t obj_hash(const void *o) {
+    return hash_bin(obj_datac(o), obj_size(o));
+}
+
+static
+void test_obj_similarity(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test( 0 == strcmp(obj_name(b),obj_name(c)) );
+    test( 0 == strcmp(obj_type(b),obj_type(c)) );
+}
+static
+void test_obj_equality(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test_obj_similarity(b, c);
+    test( obj_size(b) == obj_size(c) );
+    test( obj_hash(b) == obj_hash(c) );
+    test( 0 == obj_comp(b,c) );
+    test( obj_equal(b,c) );
+    test( !obj_lesser(b,c) );
+    test( !obj_greater(b,c) );
+}
+static
+void test_obj_exact(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test_obj_equality(b, c);
+    test( obj_header(b) == obj_header(c) );
+    test( 0 == memcmp(b, c, obj_sizeof(b)) );
+}
+
+// ----------------------------------------------------------------------------
+// debug
+
+bool obj_hexdump(const void *oo) {
+    const obj *o = (const obj *)oo;
+    int header = 1 * sizeof(obj);
+    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %llx\n",
+        obj_name(o), obj_type(o),
+        (int)o->objid>>16, (int)o->objid&0xffff, (int)o->objunused,
+        obj_sizeof(o), o->objheader);
+    return hexdump(obj_datac(o) - header, obj_size(o) + header), 1;
+}
+int obj_print(const void *o) {
+    char *sav = obj_saveini(o); // obj_savejson(o)
+    return puts(sav);
+}
+static char *obj_tempname = 0;
+static FILE *obj_filelog = 0;
+int (obj_printf)(const void *o, const char *text) {
+    if( !obj_tempname ) {
+        obj_tempname = stringf("%s.log", app_name());
+        unlink(obj_tempname);
+        obj_filelog = fopen(obj_tempname, "w+b");
+        if( obj_filelog ) fseek(obj_filelog, 0L, SEEK_SET);
+    }
+    int rc = 0;
+    for( char *end; (end = strchr(text, '\n')) != NULL; ) {
+        rc |= fprintf(obj_filelog, "[%p] %.*s\n", o, (int)(end - text), text );
+        text = end + 1;
+    }
+    if( text[0] ) rc |= fprintf(obj_filelog, "[%p] %s\n", o, text);
+    return rc;
+}
+int obj_console(const void *o) { // obj_output() ?
+    if( obj_filelog ) fflush(obj_filelog);
+    return obj_tempname && !system(va(ifdef(win32,"type \"%s\" | find \"[%p]\"", "cat %s | grep \"[%p]\""), obj_tempname, o));
+}
+
+static
+void test_obj_console(void *o1) {
+    obj *o = (obj *)o1;
+
+    obj_printf(o, "this is [%s], line 1\n", obj_name(o));
+    obj_printf(NULL, "this line does not belong to any object\n");
+    obj_printf(o, "this is [%s], line 2\n", obj_name(o));
+    obj_console(o);
+}
+
+// ----------------------------------------------------------------------------
+// serialization
+
+const char *p2s(const char *type, void *p) {
+    // @todo: p2s(int interned_type, void *p)
+    /**/ if( !strcmp(type, "int") ) return itoa1(*(int*)p);
+    else if( !strcmp(type, "unsigned") ) return itoa1(*(unsigned*)p);
+    else if( !strcmp(type, "float") ) return ftoa1(*(float*)p);
+    else if( !strcmp(type, "double") ) return ftoa1(*(double*)p);
+    else if( !strcmp(type, "uintptr_t") ) return va("%08llx", *(uintptr_t*)p);
+    else if( !strcmp(type, "vec2i") ) return itoa2(*(vec2i*)p);
+    else if( !strcmp(type, "vec3i") ) return itoa3(*(vec3i*)p);
+    else if( !strcmp(type, "vec2") ) return ftoa2(*(vec2*)p);
+    else if( !strcmp(type, "vec3") ) return ftoa3(*(vec3*)p);
+    else if( !strcmp(type, "vec4") ) return ftoa4(*(vec4*)p);
+    else if( !strcmp(type, "char*") || !strcmp(type, "string") ) return va("%s", *(char**)p);
+    // @todo: if strchr('*') assume obj, if reflected save guid: obj_id();
+    return tty_color(YELLOW), printf("p2s: cannot serialize `%s` type\n", type), tty_color(0), "";
+}
+bool s2p(void *P, const char *type, const char *str) {
+    int i; unsigned u; float f; double g; char *s = 0; uintptr_t p;
+    vec2 v2; vec3 v3; vec4 v4; vec2i v2i; vec3i v3i;
+    /**/ if( !strcmp(type, "int") )       return !!memcpy(P, (i = atoi1(str), &i), sizeof(i));
+    else if( !strcmp(type, "unsigned") )  return !!memcpy(P, (u = atoi1(str), &u), sizeof(u));
+    else if( !strcmp(type, "vec2i") )     return !!memcpy(P, (v2i = atoi2(str), &v2i), sizeof(v2i));
+    else if( !strcmp(type, "vec3i") )     return !!memcpy(P, (v3i = atoi3(str), &v3i), sizeof(v3i));
+    else if( !strcmp(type, "float") )     return !!memcpy(P, (f = atof1(str), &f), sizeof(f));
+    else if( !strcmp(type, "double") )    return !!memcpy(P, (g = atof1(str), &g), sizeof(g));
+    else if( !strcmp(type, "vec2") )      return !!memcpy(P, (v2 = atof2(str), &v2), sizeof(v2));
+    else if( !strcmp(type, "vec3") )      return !!memcpy(P, (v3 = atof3(str), &v3), sizeof(v3));
+    else if( !strcmp(type, "vec4") )      return !!memcpy(P, (v4 = atof4(str), &v4), sizeof(v4));
+    else if( !strcmp(type, "uintptr_t") ) return !!memcpy(P, (p = strtol(str, NULL, 16), &p), sizeof(p));
+    else if( !strcmp(type, "char*") || !strcmp(type, "string") ) {
+        char substring[128] = {0};
+        sscanf(str, "%[^\r\n]", substring);
+
+        strcatf(&s, "%s", substring);
+
+        *(uintptr_t*)(P) = (uintptr_t)s;
+        return 1;
+    }
+    // @todo: if strchr('*') assume obj, if reflected load guid: obj_id();
+    return tty_color(YELLOW), printf("s2p: cannot deserialize `%s` type\n", type), tty_color(0), 0;
+}
+
+char *obj_saveini(const void *o) { // @testme
+    char *out = 0;
+    const char *T = obj_type(o);
+    strcatf(&out, "[%s] ; v100\n", T);
+    for each_member(T,R) {
+        const char *sav = p2s(R->type,(char*)(o)+R->sz);
+        if(!sav) return FREE(out), NULL;
+        strcatf(&out,"%s.%s=%s\n", R->type,R->name,sav );
+    }
+    char *cpy = va("%s", out);
+    FREE(out);
+    return cpy;
+}
+obj *obj_mergeini(void *o, const char *ini) { // @testme
+    const char *sqr = strchr(ini, '[');
+    if( !sqr ) return 0;
+    ini = sqr+1;
+
+    char T[64] = {0};
+    if( sscanf(ini, "%63[^]]", T) != 1 ) return 0; // @todo: parse version as well
+    ini += strlen(T);
+
+    for each_member(T,R) {
+        char *lookup = va("\n%s.%s=", R->type,R->name), *found = 0;
+
+        // type needed? /*
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        if(!found) { *lookup = '\r'; }
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        // */
+
+        if(!found) lookup = va("\n%s=", R->name);
+
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        if(!found) { *lookup = '\r'; }
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+
+        if( found) {
+            if(!s2p((char*)(o)+R->sz, R->type, found))
+                return 0;
         }
     }
-
-    return obj;
+    return o;
+}
+obj *obj_loadini(void *o, const char *ini) { // @testme
+    return obj_mergeini(obj_zero(o), ini);
 }
 
-// ---
-
-void dummy1() {}
-#define dummy8   dummy1,dummy1,dummy1,dummy1,dummy1,dummy1,dummy1,dummy1
-#define dummy64  dummy8,dummy8,dummy8,dummy8,dummy8,dummy8,dummy8,dummy8
-#define dummy256 dummy64,dummy64,dummy64,dummy64
-
-void (*dtor[256])() = { dummy256 };
-void (*ctor[256])() = { dummy256 };
-
-// ---
-
-static set(uintptr_t) vtables; // @fixme: add mutex
-
-void (obj_override)(const char *objclass, void (**vtable)(), void(*fn)()) {
-    do_once set_init(vtables, less_64, hash_64);
-    set_find_or_add(vtables, (uintptr_t)vtable);
-
-    vtable[ obj_typeid_from_name(objclass) ] = fn;
+char *obj_savejson(const void *o) {
+    char *j = 0;
+    const char *T = obj_type(o);
+    for each_member(T,R) {
+        const char *sav = p2s(R->type,(char*)(o)+R->sz);
+        if(!sav) return FREE(j), NULL;
+        char is_string = !strcmp(R->type,"char*") || !strcmp(R->type,"string");
+        strcatf(&j," %s: %s%s%s,\n", R->name,is_string?"\"":"",sav,is_string?"\"":"" );
+    }
+    char *out = va("%s: { // v100\n%s}\n", T,j);
+    FREE(j);
+#if is(debug)
+    json5 root = { 0 };
+    char *error = json5_parse(&root, va("%s", out), 0);
+    assert( !error );
+    json5_free(&root);
+#endif
+    return out;
 }
-
-void (obj_extend)(const char *dstclass, const char *srcclass) { // wip, @testme
-    unsigned dst_id = obj_typeid_from_name(dstclass);
-    unsigned src_id = obj_typeid_from_name(srcclass);
-
-    // iterate src vtables, and assign them to dst
-    if(dst_id != src_id)
-    for each_set(vtables, void **, src_table) {
-        if( src_table[src_id] ) {
-            src_table[dst_id] = (void(*)()) (src_table[ src_id ]);
+obj *obj_mergejson(void *o, const char *json) {
+    // @fixme: va() call below could be optimized out since we could figure it out if json was internally provided (via va or strdup), or user-provided
+    json5 root = { 0 };
+    char *error = json5_parse(&root, va("%s", json), 0); // @todo: parse version comment
+    if( !error && root.type == JSON5_OBJECT && root.count == 1 ) {
+        json5 *n = &root.nodes[0];
+        char *T = n->name;
+        for each_member(T,R) {
+            for( int i = 0; i < n->count; ++i ) {
+                if( !strcmp(R->name, n->nodes[i].name) ) {
+                    void *p = (char*)o + R->sz;
+                    /**/ if( n->nodes[i].type == JSON5_UNDEFINED ) {}
+                    else if( n->nodes[i].type == JSON5_NULL ) {
+                        *(uintptr_t*)(p) = (uintptr_t)0;
+                    }
+                    else if( n->nodes[i].type == JSON5_BOOL ) {
+                        *(bool*)p = n->nodes[i].boolean;
+                    }
+                    else if( n->nodes[i].type == JSON5_INTEGER ) {
+                        if( strstr(R->type, "64" ) )
+                        *(int64_t*)p = n->nodes[i].integer;
+                        else
+                        *(int*)p = n->nodes[i].integer;
+                    }
+                    else if( n->nodes[i].type == JSON5_STRING ) {
+                        char *s = 0;
+                        strcatf(&s, "%s", n->nodes[i].string);
+                        *(uintptr_t*)(p) = (uintptr_t)s;
+                    }
+                    else if( n->nodes[i].type == JSON5_REAL ) {
+                        if( R->type[0] == 'f' )
+                        *(float*)(p) = n->nodes[i].real;
+                        else
+                        *(double*)(p) = n->nodes[i].real;
+                    }
+                    else if( n->nodes[i].type == JSON5_OBJECT ) {}
+                    else if( n->nodes[i].type == JSON5_ARRAY ) {}
+                    break;
+                }
+            }
         }
     }
+    json5_free(&root);
+    return error ? 0 : o;
+}
+obj *obj_loadjson(void *o, const char *json) { // @testme
+    return obj_mergejson(obj_zero(o), json);
 }
 
-// ---
-
-void *obj_clone(const void *obj) { // @fixme: clone object console as well?
-    unsigned sz = obj_sizeof(obj);
-    const char *nm = obj_typeof(obj);
-    unsigned id = obj_typeid(obj);
-
-    void *obj2 = obj_initialize((void**)MALLOC(sizeof(void*)+sz), stringf("%c%s\n" "cloned" "\n", id, nm)); // STRDUP( OBJUNBOX(*((void**)obj - 1)) ));
-    memcpy(obj2, obj, sz);
-    return obj2;
+char *obj_savebin(const void *o) { // PACKMSG("ss", "entity_v1", quark(self->objnameid)); // = PACKMSG("p", obj_data(&b), (uint64_t)obj_size(&b));
+    int len = cobs_bounds(obj_size(o));
+    char *sav = va("%*.s", len, "");
+    len = cobs_encode(obj_datac(o), obj_size(o), sav, len);
+    sav[len] = '\0';
+    return sav;
+}
+obj *obj_mergebin(void *o, const char *sav) { // UNPACKMSG(sav, "p", obj_data(c), (uint64_t)obj_size(c));
+    int outlen = cobs_decode(sav, strlen(sav), obj_data(o), obj_size(o));
+    return outlen != obj_size(o) ? NULL : o;
+}
+obj *obj_loadbin(void *o, const char *sav) {
+    return obj_mergebin(obj_zero(o), sav);
 }
 
-void *obj_copy(void **dst, const void *src) {
-    if(!*dst) return *dst = obj_clone(src);
+char *obj_savempack(const void *o) { // @todo
+    return "";
+}
+obj *obj_mergempack(void *o, const char *sav) { // @todo
+    return 0;
+}
+obj *obj_loadmpack(void *o, const char *sav) { // @todo
+    return obj_mergempack(obj_zero(o), sav);
+}
 
-    if( obj_typeeq(*dst, src) ) {
-        return memcpy(*dst, src, obj_sizeof(src));
+static __thread map(void*,array(char*)) obj_stack;
+int obj_push(const void *o) {
+    if(!obj_stack) map_init_ptr(obj_stack);
+    array(char*) *found = map_find_or_add(obj_stack,(void*)o,0);
+
+    char *bin = STRDUP(obj_saveini(o)); // @todo: savebin
+    array_push(*found, bin);
+    return 1;
+}
+int obj_pop(void *o) {
+    if(!obj_stack) map_init_ptr(obj_stack);
+    array(char*) *found = map_find_or_add(obj_stack,(void*)o,0);
+
+    char **bin = array_back(*found);
+    if( bin ) {
+        int rc = !!obj_loadini(o, *bin); // @todo: loadbin
+        if( array_count(*found) > 1 ) {
+            FREE(*bin);
+            array_pop(*found);
+        }
+        return rc;
     }
-
-    return NULL;
+    return 0;
 }
 
-void *obj_mutate(void **dst_, const void *src) {
+static
+void test_obj_serialization(void *o1, void *o2) {
+    obj* b = (obj*)o1;
+    obj* c = (obj*)o2;
+
+    char *json = obj_savejson(b); // puts(json);
+    test( json[0] );
+    char *ini = obj_saveini(b); // puts(ini);
+    test( ini[0] );
+    char *bin = obj_savebin(b); // puts(bin);
+    test( bin[0] );
+
+    obj_push(c);
+
+        test( obj_copy(c,b) );
+        test( obj_comp(b,c) == 0 ) || obj_hexdump(b) & obj_hexdump(c);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadbin(c, bin) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadini(c, ini) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadjson(c, json) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+    obj_pop(c);
+    obj_hexdump(c);
+}
+
+// ----------------------------------------------------------------------------
+// components
+
+bool obj_addcomponent(entity *e, unsigned c, void *ptr) {
+    e->cflags |= (3ULL << c);
+    e->c[c & (OBJCOMPONENTS_MAX-1)] = ptr;
+    return 1;
+}
+bool obj_hascomponent(entity *e, unsigned c) {
+    return !!(e->cflags & (3ULL << c));
+}
+void* obj_getcomponent(entity *e, unsigned c) {
+    return e->c[c & (OBJCOMPONENTS_MAX-1)];
+}
+bool obj_delcomponent(entity *e, unsigned c) {
+    e->cflags &= ~(3ULL << c);
+    e->c[c & (OBJCOMPONENTS_MAX-1)] = NULL;
+    return 1;
+}
+bool obj_usecomponent(entity *e, unsigned c) {
+    e->cflags |= (1ULL << c);
+    return 1;
+}
+bool obj_offcomponent(entity *e, unsigned c) {
+    e->cflags &= ~(1ULL << c);
+    return 0;
+}
+
+char *entity_save(entity *self) {
+    char *sav = obj_saveini(self);
+    return sav;
+}
+
+static
+void entity_register() {
+    do_once {
+        STRUCT(entity, uintptr_t, cflags);
+        obj_extend(entity, save);
+    }
+}
+
+AUTORUN{
+    entity_register();
+}
+
+static
+void test_obj_ecs() {
+    entity_register(); // why is this required here? autorun init fiasco?
+
+    entity *e = entity_new(entity);
+    puts(obj_save(e));
+
+    for( int i = 0; i < 32; ++i) test(0 == obj_hascomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(1 == obj_addcomponent(e, i, NULL));
+    for( int i = 0; i < 32; ++i) test(1 == obj_hascomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(1 == obj_delcomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(0 == obj_hascomponent(e, i));
+}
+
+// ----------------------------------------------------------------------------
+// reflection
+
+void* obj_mutate(void *dst, const void *src) {
+    ((obj*)dst)->objheader = ((const obj *)src)->objheader;
+
+#if 0
     // mutate a class. ie, convert a given object class into a different one,
-    // while preserving the original metas and references as much as possible.
-    //
-    // @fixme: systems might be tracking objects in the future. the fact that we
-    // can reallocate a pointer (and hence, change its address) seems way too dangerous,
-    // as the tracking systems could crash when referencing a mutated object.
-    // solutions: do not reallocate if sizeof(new_class) > sizeof(old_class) maybe? good enough?
-    // also, optimization hint: no need to reallocate if both sizes matches, just copy contents.
+    // while preserving the original metas, components and references as much as possible.
+    // @todo iterate per field
 
-    if(!*dst_) return *dst_ = obj_clone(src);
-
-    void *dst = *dst_;
     dtor(dst);
 
         unsigned src_sz = obj_sizeof(src);
-        unsigned src_id = obj_typeid(src);
+        unsigned src_id = obj_id(src);
 
         void *dst_ptr = *((void**)dst - 1);
         unsigned payload = (OBJPAYLOAD16(dst_ptr) & 255) | src_id << 8;
@@ -299,206 +781,48 @@ void *obj_mutate(void **dst_, const void *src) {
         memcpy(dst, src, src_sz);
 
     ctor(dst);
+#endif
     return dst;
 }
 
-
-#ifdef OBJ_DEMO
-
-typedef struct MyObject {
-    char* id;
-    int x,y;
-    float rotation;
-    struct MyObject *next;
-} MyObject;
-
-void tests1() {
-    // Construct two objects
-    MyObject *root = obj_new(MyObject, 0);
-    MyObject *obj = obj_new(MyObject, "An identifier!", 0x11, 0x22, 3.1415f, root );
-
-    // Log some lines
-    obj_printf(root, "this is a logline #1\n");
-    obj_printf(root, "this is a logline #2\n");
-    obj_printf(root, "this is a logline #3\n");
-
-    obj_printf(obj, "yet another logline #1\n");
-    obj_printf(obj, "yet another logline #2\n");
-
-    // Dump contents of our objects
-
-    obj_hexdump(root);
-    obj_hexdump(obj);
-
-    // Save to mem
-
-    array(char) buffer = obj_save(obj);
-    printf("%d bytes\n", (int)array_count(buffer));
-
-    // Clear
-
-    obj_zero( obj );
-    obj_hexdump( obj );
-
-    // Reload
-
-    obj_load( obj, buffer );
-    obj_hexdump( obj );
-
-    // Copy tests
-
-    {
-        MyObject *clone = obj_clone(obj);
-        obj_hexdump(clone);
-        obj_del(clone);
-    }
-
-    {
-        MyObject *copy = 0;
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    {
-        MyObject *copy = obj_new(MyObject, "A different identifier!", 0x33, 0x44, 0.0f, root );
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    {
-        void *copy = obj_malloc(100, "an untyped class" );
-        obj_mutate(&copy, obj);
-        obj_hexdump(copy);
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    // Benchmarking call overhead.
-    // We're here using dtor as a method to test. Since there is actually no
-    // destructor associated to this class, it will be safe to call it extensively (no double frees).
-    //
-    // results:
-    // 427 million calls/s @ old i5-4300/1.90Ghz laptop. compiled with "cl /Ox /Os /MT /DNDEBUG /GL /GF /arch:AVX2"
-
-    #ifndef N
-    #define N (INT32_MAX-1)
-    #endif
-
-    double t = (puts("benchmarking..."), -clock() / (double)CLOCKS_PER_SEC);
-    for( int i = 0; i < N; ++i ) {
-        dtor(root);
-    }
-    t += clock() / (double)CLOCKS_PER_SEC;
-    printf("Benchmark: %5.2f objcalls/s %5.2fM objcalls/s\n", N/(t), (N/1000)/(t*1000)); // ((N+N)*5) / (t) );
-
+void *obj_clone(const void *src) {
+    int sz = sizeof(obj) + obj_size(src) + sizeof(array(obj*));
+    enum { N = 8 }; sz = ((sz + (N - 1)) & -N);  // Round up to N-byte boundary
+    obj *ptr = obj_malloc( sz );
+    obj_mutate(ptr, src); // ptr->objheader = ((const obj *)src)->objheader;
+    obj_loadini(ptr, obj_saveini(src));
+    return ptr;
 }
 
-// --------------
-
-#define dump(obj) dump[obj_typeid(obj)](obj)
-#define area(obj) area[obj_typeid(obj)](obj)
-
-extern void  (*dump[256])();
-extern float (*area[256])();
-
-void  (*dump[256])() = {0};
-float (*area[256])() = {0};
-
-// --------------
-
-typedef struct box {
-    float w;
-} box;
-
-void  box_ctor(box *b) { printf("box already constructed: box-w:%f\n", b->w); }
-void  box_dtor(box *b) { puts("deleting box..."); }
-void  box_dump(box *b) { printf("box-w:%f\n", b->w); }
-float box_area(box *b) { return b->w * b->w; }
-
-#define REGISTER_BOX \
-    obj_override(box, ctor); \
-    obj_override(box, dump); \
-    obj_override(box, area); \
-    obj_override(box, dtor);
-
-typedef struct rect {
-    float w, h;
-} rect;
-
-void  rect_dump(rect *r) { printf("rect-w:%f rect-h:%f\n", r->w, r->h); }
-float rect_area(rect *r) { return r->w * r->h; }
-void  rect_dtor(rect *r) { puts("deleting rect..."); }
-
-#define REGISTER_RECT \
-    obj_override(rect, dump); \
-    obj_override(rect, area); \
-    obj_override(rect, dtor);
-
-void tests2() {
-    REGISTER_BOX
-    REGISTER_RECT
-
-    box *b = obj_new(box, 100);
-    rect *r = obj_new(rect, 100, 200);
-
-    dump(b);
-    dump(r);
-
-    printf("%f\n", area(b));
-    printf("%f\n", area(r));
-
-    obj_del(b);
-    obj_ref(r); obj_unref(r); //obj_del(r);
-
-    int *untyped = obj_malloc( sizeof(int) );
-    int *my_number = obj_malloc( sizeof(int), "a comment about my_number" );
-    char *my_text = obj_malloc( 32, "some debug info here" );
-
-    *untyped = 100;
-    *my_number = 123;
-    sprintf( my_text, "hello world" );
-
-    struct my_bitmap { int w, h, bpp; const char *pixels; };
-    struct my_bitmap *my_bitmap = obj_new(struct my_bitmap, 2,2,8, "\1\2\3\4");
-
-    printf( "%p(%s,%u)\n", my_bitmap, obj_typeof(my_bitmap), obj_typeid(my_bitmap) );
-    printf( "%d(%s,%d)\n", *untyped, obj_typeof(untyped), obj_typeid(untyped) );
-    printf( "%d(%s,%d)\n", *my_number, obj_typeof(my_number), obj_typeid(my_number) );
-    printf( "%s(%s,%d)\n", my_text, obj_typeof(my_text), obj_typeid(my_text) );
-
-    obj_printf(my_text, "hello world #1\n");
-    obj_printf(my_text, "hello world #2\n");
-    puts(obj_output(my_text));
-
-    printf( "%s(%s,%d)\n", my_text, obj_typeof(my_text), obj_typeid(my_text) );
-
-    printf( "equal?:%d\n", obj_typeeq(my_number, untyped) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_number) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_text) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_bitmap) );
-
-    obj_free( untyped );
-    obj_free( my_text );
-    obj_free( my_bitmap );
-    obj_del( my_number ); // should not crash, even if allocated with obj_malloc()
+void* obj_merge(void *dst, const void *src) { // @testme
+    char *bin = obj_savebin(src);
+    return obj_mergebin(dst, bin);
 }
 
-int main() {
-    tests1();
-    tests2();
-    puts("ok");
+void *obj_make(const char *str) {
+    const char *T;
+    const char *I = strchr(str, '['); // is_ini
+    const char *J = strchr(str, '{'); // is_json
+    if( !I && !J ) return 0;
+    else if( I && !J ) T = I;
+    else if( !I && J ) T = J;
+    else T = I < J ? I : J;
+
+    char name[64] = {0};
+    if( sscanf(T+1, T == I ? "%63[^]]" : "%63[^:=]", name) != 1 ) return 0;
+
+    int has_components = 0; // @todo: support entities too
+
+    unsigned Tid = intern(name);
+    reflect_init();
+    reflect_t *found = map_find(reflects, Tid);
+    if(!found) return obj_new(obj);
+
+    obj *ptr = CALLOC(1, found->sz + (has_components+1) * sizeof(array(obj*)));
+    void *ret = (T == I ? obj_mergeini : obj_mergejson)(ptr, str);
+    OBJTYPES[ found->objtype ] = found->name;
+    OBJ_CTOR_PTR(ptr,1,/*found->id,*/found->sz,found->objtype);
+    obj_setname(ptr, name); // found->id);
+
+    return ptr; // returns partial construction as well. @todo: just return `ret` for a more strict built/failed policy
 }
-
-/*
-    MEMBER( MyObject, char*, id );
-    MEMBER( MyObject, int, x );
-    MEMBER( MyObject, int, y );
-    MEMBER( MyObject, float, rotation, "(degrees)" );
-    MEMBER( MyObject, MyObject*, next, "(linked list)" );
-*/
-
-#define main main__
-#endif

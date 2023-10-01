@@ -96,15 +96,7 @@ int main() {
             ui_section("Script");
             if( ui_button("Test Lua") ) script_run("ui_notify(nil, \"Hello from Lua! Version: \" .. _VERSION)");
 
-            ui_section("Camera");
-            if( ui_float("Speed", &cam.speed) ) {}
-            if( ui_float3("Position", cam.position.v3) ) {}
-
             ui_section("Audio");
-            static float bgm = 1, sfx = 1, master = 1;
-            if( ui_slider2("BGM", &bgm, va("%.2f", bgm))) audio_volume_stream(bgm);
-            if( ui_slider2("SFX", &sfx, va("%.2f", sfx))) audio_volume_clip(sfx);
-            if( ui_slider2("Master", &master, va("%.2f", master))) audio_volume_master(master);
             if( ui_label2_toolbar("BGM: Waterworld Map", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM1, 0);
             if( ui_label2_toolbar("BGM: Leisure Suit Larry", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM2, 0);
             if( ui_label2_toolbar("SFX: Coin", ICON_MD_VOLUME_UP)) audio_play(SFX1, 0);

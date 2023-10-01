@@ -9,6 +9,7 @@
 - [x] No gamepads (fixed)
 - [x] No multi-touch (fixed)
 - [x] No threads (fixed)
+- [ ] Scaling artifacts on high DPI + fullscreen combo (via FS button only)
 - [ ] No audio
 - [ ] No file writing (untested)
 - [ ] No glTexture1D()

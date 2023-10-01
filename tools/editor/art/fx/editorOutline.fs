@@ -17,5 +17,8 @@ void main() {
         }
     }
 
-    FRAGCOLOR = vec4(border_color.rgb, outline * border_color.a); // mix(texel, border_color, outline * border_color.a);
+    if( outline == 0.0 )
+        discard;
+
+    FRAGCOLOR = vec4(border_color.rgb, outline * border_color.a);
 }

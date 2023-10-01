@@ -16,7 +16,55 @@
 #else
 #include <unistd.h> // getcwd()
 #include <pwd.h>    // getpwuid()
+#define _popen popen
+#define _pclose pclose
 #endif
+
+const char** old_file_list(const char *cwd, const char *masks) {
+    ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
+
+    static __thread array(char*) list = 0;
+    const char *arg0 = cwd; // app_path();
+    int larg0 = strlen(arg0);
+
+    for( int i = 0; i < array_count(list); ++i ) {
+        FREE(list[i]);
+    }
+    array_resize(list, 0);//array_free(list);
+
+    for each_substring(masks,";",it) {
+        int recurse = !!strstr(it, "**");
+        #if is(win32)
+        char *glob = va("dir %s/b/o:n \"%s\\%s\" 2> NUL", recurse ? "/s":"", cwd, it);
+        #else // linux, osx
+        char *glob = va("find %s %s -name \"%s\" | sort", cwd, !recurse ? "-maxdepth 1":"-type f", it);
+        #endif
+        for( FILE *in = _popen(glob, "r"); in; _pclose(in), in = 0) {
+            char buf[1024], *line = buf;
+            while( fgets(buf, sizeof(buf), in) ) {
+                // clean up
+                if( strstr(line, arg0) ) line = buf + larg0;
+                if( !memcmp(line, "./", 2) ) line += 2;
+                int len = strlen(line); while( len > 0 && line[len-1] < 32 ) line[--len] = 0;
+                if( line[0] == '\0' ) continue;
+                // do not insert system folders/files
+                for(int i = 0; i < len; ++i ) if(line[i] == '\\') line[i] = '/';
+                if( line[0] == '.' ) if( !strcmp(line,".git") || !strcmp(line,".vs") || !strcmp(line,".") || !strcmp(line,"..") ) continue;
+                if( strstr(line, "/.") ) continue;
+                // insert copy
+                #if is(win32)
+                char *copy = STRDUP(line); // full path already provided
+                #else
+                // while(line[0] == '/') ++line;
+                char *copy = STRDUP(va("%s%s", cwd, line)); // need to prepend path
+                #endif
+                array_push(list, copy);
+            }
+        }
+    }
+    array_push(list, 0); // terminator
+    return (const char**)list;
+}
 
 #if 1
 #define BROWSER_PRINTF(...) do {} while(0)
@@ -81,6 +129,10 @@ struct browser {
     size_t file_count;
     size_t dir_count;
 
+    /* filtered directory content */
+    array(char*) ffiles;
+    array(char*) fdirectories;
+
     /* view mode */
     bool listing;
     float zooming;
@@ -117,7 +169,7 @@ static void browser_reload_directory_content(struct browser *browser, const char
 
     BROWSER_PRINTF("searching at %s\n", path);
 
-    const char **list = file_list(path, "*");
+    const char** list = old_file_list(path, "*");
     for( int i = 0; list[i]; ++i ) {
 
         char *absolute = file_pathabs(ifndef(win32, list[i], va("%s/%s", path, list[i]))); // ../dir/./file.ext -> c:/prj/dir/file.ext
@@ -183,6 +235,9 @@ static void browser_free(struct browser *browser) {
     for(int i = 0; i < array_count(browser->directories); ++i) FREE(browser->directories[i]);
     array_free(browser->files);
     array_free(browser->directories);
+    array_free(browser->ffiles);
+    array_free(browser->fdirectories);
+
     memset(browser, 0, sizeof(*browser));
 }
 
@@ -263,10 +318,33 @@ if( cols < 1 ) cols=1;
 
     /* output directory content window */
     if(nk_group_begin(ctx, "Content", windowed ? NK_WINDOW_NO_SCROLLBAR : 0)) {
+
+        array(char*) *directories = &browser->directories;
+        array(char*) *files = &browser->files;
+
+        if( ui_filter && ui_filter[0] ) {
+            array_resize(browser->fdirectories, 0);
+            array_resize(browser->ffiles, 0);
+
+            for each_array(browser->directories,char*,k)
+                if( strstri(k, ui_filter) )
+                    array_push(browser->fdirectories, k);
+
+            for each_array(browser->files,char*,k)
+                if( strstri(k, ui_filter) )
+                    array_push(browser->ffiles, k);
+
+            directories = &browser->fdirectories;
+            files = &browser->ffiles;
+        }
+
+        int dir_count = array_count(*directories);
+        int file_count = array_count(*files);
+
         int index = -1;
         size_t i = 0, j = 0, k = 0;
         size_t rows = 0;
-        size_t count = browser->dir_count + browser->file_count;
+        size_t count = dir_count + file_count;
 
         rows = count / cols;
         for (i = 0; i <= rows; i += 1) {
@@ -274,16 +352,18 @@ if( cols < 1 ) cols=1;
             {size_t n = j + cols;
             nk_layout_row_dynamic(ctx, icon_height, (int)cols);
             for (; j < count && j < n; ++j) {
+                size_t t = j-dir_count;
+
                 /* draw one row of icons */
-                if (j < browser->dir_count) {
+                if (j < dir_count) {
                     /* draw and execute directory buttons */
                     if (nk_button_image(ctx,media.custom_folders[BROWSER_FOLDER]))
                         index = (int)j;
                 } else {
                     /* draw and execute files buttons */
                     struct nk_image *icon;
-                    size_t fileIndex = ((size_t)j - browser->dir_count);
-                    icon = media_icon_for_file(browser->files[fileIndex]);
+                    size_t fileIndex = ((size_t)j - dir_count);
+                    icon = media_icon_for_file((*files)[fileIndex]);
                     if (nk_button_image(ctx, *icon)) {
                         snprintf(browser->file, BROWSER_MAX_PATH, "%s%s", browser->directory, browser->files[fileIndex]);
                         clicked = 1;
@@ -294,30 +374,32 @@ if( cols < 1 ) cols=1;
             {size_t n = k + cols;
             nk_layout_row_dynamic(ctx, 20, (int)cols);
             for (; k < count && k < n; k++) {
+                size_t t = k-dir_count;
+
                 /* draw one row of labels */
-                if (k < browser->dir_count) {
-                    nk_label(ctx, browser->directories[k], NK_TEXT_CENTERED);
+                if (k < dir_count) {
+                    nk_label(ctx, (*directories)[k], NK_TEXT_CENTERED);
                 } else {
-                    size_t t = k-browser->dir_count;
-                    nk_label(ctx,browser->files[t],NK_TEXT_CENTERED);
+                    nk_label(ctx, (*files)[t], NK_TEXT_CENTERED);
                 }
             }}
             if(tiny)
             {size_t n = j + cols;
             nk_layout_row_dynamic(ctx, icon_height, (int)cols);
             for (; j < count && j < n; ++j) {
+                size_t t = j-dir_count;
+
                 /* draw one row of icons */
-                if (j < browser->dir_count) {
+                if (j < dir_count) {
                     /* draw and execute directory buttons */
-                    if (nk_button_image_label(ctx,media.custom_folders[BROWSER_FOLDER], browser->directories[j],NK_TEXT_RIGHT))
+                    if (nk_button_image_label(ctx,media.custom_folders[BROWSER_FOLDER], (*directories)[j], NK_TEXT_RIGHT))
                         index = (int)j;
                 } else {
                     /* draw and execute files buttons */
                     struct nk_image *icon;
-                    size_t fileIndex = ((size_t)j - browser->dir_count);
-                    icon = media_icon_for_file(browser->files[fileIndex]);
-                    size_t t = j-browser->dir_count;
-                    if (nk_button_image_label(ctx, *icon, browser->files[t],NK_TEXT_RIGHT)) {
+                    size_t fileIndex = ((size_t)j - dir_count);
+                    icon = media_icon_for_file((*files)[fileIndex]);
+                    if (nk_button_image_label(ctx, *icon, (*files)[t],NK_TEXT_RIGHT)) {
                         snprintf(browser->file, BROWSER_MAX_PATH, "%s%s", browser->directory, browser->files[fileIndex]);
                         clicked = 1;
                     }
@@ -329,7 +411,7 @@ if( cols < 1 ) cols=1;
                     struct nk_rect bounds = nk_widget_bounds(ctx);
                     if (nk_input_is_mouse_hovering_rect(&ctx->input, bounds) ) {
 
-                        char *name = j < browser->dir_count ?  browser->directories[j] : browser->files[j-browser->dir_count];
+                        char *name = j < dir_count ? (*directories)[j] : (*files)[j-dir_count];
 
                         char fullpath[PATH_MAX];
                         snprintf(fullpath, PATH_MAX, "%s%s", browser->directory, name);

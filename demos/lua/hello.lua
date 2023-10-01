@@ -34,7 +34,7 @@ while fwk.window_swap() == 1 do
       local wasdec3 = fwk.vec3(fwk.input(fwk.KEY_D)-fwk.input(fwk.KEY_A),fwk.input(fwk.KEY_E)-(fwk.input(fwk.KEY_C)),fwk.input(fwk.KEY_W)-fwk.input(fwk.KEY_S))
       local look2 = fwk.scale2(fwk.vec2(fwk.input_diff(fwk.MOUSE_X), -fwk.input_diff(fwk.MOUSE_Y)), 0.2)
       local move3 = fwk.scale3(wasdec3, cam.speed)
-      fwk.camera_move(cam, wasdec3.x,wasdec3.y,wasdec3.z)
+      fwk.camera_moveby(cam, wasdec3)
       fwk.camera_fps(cam, look2.x,look2.y)
    end
 

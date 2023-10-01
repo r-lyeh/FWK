@@ -64,7 +64,9 @@ API bool        input_touch_active();
 
 API void        input_mappings(const char *filename); // update gamepad mappings (usually "gamecontrollerdb.txt" file)
 API char        input_keychar(unsigned code); // Converts keyboard code to its latin char (if any)
+API int         input_enum(const char *sym);
 API int         input_anykey();
+API int         input_eval(const char *expression); // "down(X)*input(CTRL)"
 
 // inject state
 API void        input_send( int vk ); // @todo
@@ -114,4 +116,10 @@ enum INPUT_ENUMS {
 
     // -- strings: x2 gamepad
     GAMEPAD_GUID, GAMEPAD_NAME,
+};
+// these aliases do check both left and right counterparts
+enum INPUT_ALIASES {
+    KEY_SHIFT = KEY_LSHIFT,
+    KEY_ALT = KEY_LALT,
+    KEY_CTRL = KEY_LCTRL,
 };

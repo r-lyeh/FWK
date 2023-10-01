@@ -355,8 +355,8 @@ array(struct fs) zipscan_filter(int threadid, int numthreads) {
     array(struct fs) fs = 0;
     for( int i = 0, end = array_count(fs_now); i < end; ++i ) {
         // during workload distribution, we assign random files to specific thread buckets.
-        // we achieve this by hashing the basename of the file. we used to hash also the path 
-        // long time ago but that is less resilient to file relocations across the repository. 
+        // we achieve this by hashing the basename of the file. we used to hash also the path
+        // long time ago but that is less resilient to file relocations across the repository.
         // excluding the file extension from the hash also helps from external file conversions.
         char *fname = file_name(fs_now[i].fname);
         char *sign = strrchr(fname, '@'); if(sign) *sign = '\0'; // special char (multi-pass cooks)
@@ -364,7 +364,7 @@ array(struct fs) zipscan_filter(int threadid, int numthreads) {
 
         // skip if list item does not belong to this thread bucket
         uint64_t hash = hash_str(fname);
-        unsigned bucket = (hash >> 32) % numthreads;
+        unsigned bucket = (hash /*>> 32*/) % numthreads;
         if(bucket != threadid) continue;
 
         array_push(fs, fs_now[i]);
@@ -398,7 +398,7 @@ int zipscan_diff( zip* old, array(struct fs) now ) {
             uint64_t oldstamp = atoi64(zip_modt(old,found)+20); // format is "YYYY/MM/DD hh:mm:ss", then +20 chars later a hidden epoch timestamp in base10 can be found
             int64_t diffstamp = oldstamp < now[i].stamp ? now[i].stamp - oldstamp : oldstamp - now[i].stamp;
             if( oldsize != now[i].bytes || diffstamp > 1 ) { // @fixme: should use hash instead. hashof(tool) ^ hashof(args used) ^ hashof(rawsize) ^ hashof(rawdate)
-                printf("%s:\t%u vs %u, %llu vs %llu\n", now[i].fname, (unsigned)oldsize,(unsigned)now[i].bytes, oldstamp,now[i].stamp);
+                printf("%s:\t%u vs %u, %llu vs %llu\n", now[i].fname, (unsigned)oldsize,(unsigned)now[i].bytes, (long long unsigned)oldstamp, (long long unsigned)now[i].stamp);
                 array_push(changed, STRDUP(now[i].fname));
                 array_push(uncooked, STRDUP(now[i].fname));
             }
@@ -509,11 +509,14 @@ int cook(void *userdata) {
             cook_subscript_t cs = mcs.cs[pass];
 
             // log to batch file for forensic purposes, if explicitly requested
-            static __thread bool logging = 0; do_once logging = !!flag("--cook-debug") || cook_debug;
+            static __thread int logging = -1; if(logging < 0) logging = !!flag("--cook-debug") || cook_debug;
             if( logging ) {
-                FILE *logfile = fopen(va("cook%d.cmd",job->threadid), "a+t");
-                if( logfile ) { fprintf(logfile, "@rem %s\n%s\n", cs.outname, cs.script); fclose(logfile); }
-                fprintf(stderr, "%s\n", cs.script);
+                static __thread FILE *logfile = 0; if(!logfile) fseek(logfile = fopen(va("cook%d.cmd",job->threadid), "a+t"), 0L, SEEK_END);
+                if( logfile ) {
+                    fprintf(logfile, "@rem %s\n%s\n", cs.outname, cs.script);
+                    fprintf(logfile, "for %%%%i in (\"%s\") do md _cook\\%%%%~pi\\%%%%~ni%%%%~xi 1>nul 2>nul\n", infile);
+                    fprintf(logfile, "for %%%%i in (\"%s\") do xcopy /y %s _cook\\%%%%~pi\\%%%%~ni%%%%~xi\n\n", infile, file_normalize(cs.outfile));
+                }
             }
 
             // invoke cooking script and recap status
@@ -608,7 +611,7 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
         HOME[ strlen(HOME) - strlen(file_name(cook_ini)) ] = '\0'; // -> tools/ @leak
     #endif
 
-        ART_LEN = 0; //strlen(app_path()); 
+        ART_LEN = 0; //strlen(app_path());
         /* = MAX_PATH;
         for each_substring(ART, ",", art_folder) {
             ART_LEN = mini(ART_LEN, strlen(art_folder));
@@ -694,8 +697,8 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
     // scan disk: all subfolders in ART (comma-separated)
     static array(char *) list = 0; // @leak
     for each_substring(ART, ",", art_folder) {
-        const char **glob = file_list(art_folder, "**");
-        for( unsigned i = 0; glob[i]; ++i ) {
+        array(char *) glob = file_list(va("%s**",art_folder)); // art_folder ends with '/'
+        for( unsigned i = 0, end = array_count(glob); i < end; ++i ) {
             const char *fname = glob[i];
             if( !strmatchi(fname, masks)) continue;
 
@@ -715,9 +718,14 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
                 if( !memcmp(header, "\x64\x86", 2) ) continue;
                 if( !memcmp(header, "\x00\x00", 2) ) continue;
             }
-            // exclude vc/gcc files
-            if( strend(fname, ".a") || strend(fname, ".pdb") || strend(fname, ".lib") || strend(fname, ".ilk") || strend(fname, ".exp") ) {
-                continue;
+
+            char *dot = strrchr(fname, '.');
+            if( dot ) {
+                char extdot[32];
+                snprintf(extdot, 32, "%s.", dot); // .png -> .png.
+                // exclude vc/gcc/clang files
+                if( strstr(fname, ".a.o.pdb.lib.ilk.exp.dSYM.") ) // must end with dot
+                    continue;
             }
 
             // @todo: normalize path & rebase here (absolute to local)
@@ -741,7 +749,7 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
         fi.stamp = file_stamp10(fname); // timestamp in base10(yyyymmddhhmmss)
 
         array_push(fs_now, fi);
-    }        
+    }
 
     cook_debug = !!( flags & COOK_DEBUGLOG );
     cook_cancelable = !!( flags & COOK_CANCELABLE );
@@ -777,8 +785,7 @@ void cook_stop() {
         if(jobs[i].self) thread_join(jobs[i].self);
     }
     // remove all temporary outfiles
-    const char **temps = file_list("./", "temp_*");
-    for( int i = 0; temps[i]; ++i ) unlink(temps[i]);
+    for each_array(file_list("temp_*"), char*, tempfile) unlink(tempfile);
 }
 
 int cook_progress() {
@@ -799,10 +806,16 @@ void cook_cancel() {
 int cook_jobs() {
     int num_jobs = optioni("--cook-jobs", maxf(1.15,app_cores()) * 1.75), max_jobs = countof(jobs);
     ifdef(ems, num_jobs = 0);
+    ifdef(retail, num_jobs = 0);
     return clampi(num_jobs, 0, max_jobs);
 }
 
 void cook_config( const char *pathfile_to_cook_ini ) { // @todo: test run-from-"bin/" case on Linux.
     COOK_INI = pathfile_to_cook_ini;
     ASSERT( file_exist(COOK_INI) );
+}
+
+bool have_tools() {
+    static bool found; do_once found = file_exist(COOK_INI);
+    return ifdef(retail, false, found);
 }

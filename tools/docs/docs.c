@@ -417,6 +417,16 @@ char *prettify(char *raw, char **opt_name) {
         const char *line = buf;
         bool is_function = strchr(line, '(') && strchr(line, '(') < strrchr(line, ')');
 
+        if( strbeg(line, "TYPEDEF_STRUCT(") ) {
+            memcpy(buf, "typedef struct ", sizeof("typedef struct ")-1);
+            char *first_word = buf+15, symbol[32];
+            sscanf(first_word, "%[^,]", symbol);
+            first_word[strlen(symbol)] = '{';
+            strswap(buf, ")", "}");
+
+            is_function = false;
+        }
+
         char s[1024]; int n,nl,a;
         /**/ if( line[0] == '#' )          { sscanf(line, "%*s %s", s);   *opt_name = stringf("#%s",s); }
         else if( strbegi(line, "macro"))   { sscanf(line, "%*s %[^(]",s); *opt_name = stringf("m%s",s); }
@@ -829,7 +839,7 @@ int main(int argc, char **argv) {
             section = NULL;
         }
 
-        if(strendi(line, "/""//-")) continue; // discard explicitly excluded lines
+        if(strstr/*strendi*/(line, "/""//-")) continue; // discard explicitly excluded lines
 
         learn(line);
 

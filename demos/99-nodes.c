@@ -82,8 +82,10 @@ struct node {
     struct node_pin *inputs;
     struct node_pin *outputs;
     struct {
+        float in_padding_x;
         float in_padding_y;
         float in_spacing_y;
+        float out_padding_x;
         float out_padding_y;
         float out_spacing_y;
     } pin_spacing; /* Maybe this should be called "node_layout" and include the bounds? */
@@ -134,6 +136,10 @@ void* node_editor_eval_connected(struct node *node, int input_pin_number);
 /* ================== */
 
 /* === NODE TYPE IMPLEMENTATIONS === */
+
+#define NODE_DEFAULT_ROW_HEIGHT 25
+
+
 // ----------------------------------------------------------------------------------------------------
 // #include "node_output.h"
 
@@ -185,7 +191,7 @@ static float *node_float_eval(struct node* node, int oIndex) {
 
 static void node_float_draw(struct nk_context *ctx, struct node *node) {
     struct node_type_float *float_node = (struct node_type_float*)node;
-    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
     float_node->output_val = nk_propertyf(ctx, "#Value:", 0.0f, float_node->output_val, 1.0f, 0.01f, 0.01f);
 }
 
@@ -201,8 +207,6 @@ void node_float_create(struct node_editor *editor, struct nk_vec2 position) {
 
 // ----------------------------------------------------------------------------------------------------
 // #include "node_color.h"
-
-#define NODE_COLOR_ROW_HEIGHT 25
 
 struct node_type_color {
     struct node node;
@@ -225,11 +229,10 @@ static void node_color_draw(struct nk_context *ctx, struct node *node)
     float eval_result; /* Get the values from connected nodes into this so the inputs revert on disconnect */
     const char* labels[4] = {"#R:","#G:","#B:","#A:"};
     float color_val[4]; /* Because we can't just loop through the struct... */
-    int i;
-    nk_layout_row_dynamic(ctx, NODE_COLOR_ROW_HEIGHT, 1);
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
     nk_button_color(ctx, nk_rgba_cf(color_node->output_val));
 
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++)
     {
         if (color_node->node.inputs[i].is_connected) {
             eval_result = *(float*)node_editor_eval_connected(node, i);
@@ -253,15 +256,13 @@ void node_color_create(struct node_editor *editor, struct nk_vec2 position)
     struct node_type_color *color_node = (struct node_type_color*)node_editor_add(editor, sizeof(struct node_type_color), "Color", nk_rect(position.x, position.y, 180, 190), 4, 1);
     if (color_node)
     {
-        int i;
         const struct nk_colorf black = {0.0f, 0.0f, 0.0f, 1.0f};
 
-        color_node->node.pin_spacing.in_padding_y += NODE_COLOR_ROW_HEIGHT + 14; // 14 == ROWHEIGHT/2?
-//      color_node->node.pin_spacing.out_padding_y += NODE_COLOR_ROW_HEIGHT;
-
-        for (i = 0; i < color_node->node.input_count; i++)
+        for (int i = 0; i < color_node->node.input_count; i++)
             color_node->node.inputs[i].pin_type = type_float;
         color_node->node.outputs[0].pin_type = type_color;
+
+        color_node->node.pin_spacing.in_padding_y += NODE_DEFAULT_ROW_HEIGHT;
 
         color_node->input_val[0] = 0.0f;
         color_node->input_val[1] = 0.0f;
@@ -294,10 +295,9 @@ static void node_blend_display(struct nk_context *ctx, struct node *node) {
     struct node_type_blend *blend_node = (struct node_type_blend*)node;
     const struct nk_colorf blank = {0.0f, 0.0f, 0.0f, 0.0f};
     float blend_amnt;
-    int i;
 
-    nk_layout_row_dynamic(ctx, 25, 1);
-    for (i = 0; i < 2; i++){
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
+    for (int i = 0; i < 2; i++){
         if(node->inputs[i].is_connected) {
             blend_node->input_val[i] = *(struct nk_colorf*)node_editor_eval_connected(node, i);
         }
@@ -332,15 +332,14 @@ void node_blend_create(struct node_editor *editor, struct nk_vec2 position) {
     struct node_type_blend* blend_node = (struct node_type_blend*)node_editor_add(editor, sizeof(struct node_type_blend), "Blend", nk_rect(position.x, position.y, 180, 130), 3, 1);
     if (blend_node) {
         const struct nk_colorf blank = {0.0f, 0.0f, 0.0f, 0.0f};
-        int i;
-        for (i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
+        for (int i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
             blend_node->node.inputs[i].pin_type = type_color;
         blend_node->node.outputs[0].pin_type = type_color;
 
-        blend_node->node.pin_spacing.in_padding_y = 42.0f;
-        blend_node->node.pin_spacing.in_spacing_y = 29.0f;
+        // blend_node->node.pin_spacing.in_padding_y = 42.0f;
+        // blend_node->node.pin_spacing.in_spacing_y = 29.0f;
 
-        for (i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
+        for (int i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
             blend_node->input_val[i] = blank;
         blend_node->output_val = blank;
 
@@ -355,6 +354,7 @@ void node_blend_create(struct node_editor *editor, struct nk_vec2 position) {
 /* ================================= */
 
 #define NK_RGB3(r,g,b) {r,g,b,255}
+#define BG_COLOR ((struct nk_color){60,60,60,192}) // nk_rgba(0,0,0,192)
 
 static
 struct editor_node_style {
@@ -376,9 +376,12 @@ struct editor_node_style {
 #define COLOR_FLOW_HI styles[type_flow].color_hover
 #define COLOR_FLOW_LO styles[type_flow].color_idle
 
-#define GRID_SIZE 32.0f
-#define GRID_COLOR ((struct nk_color)NK_RGB3(60,60,80))
+#define GRID_SIZE 64.0f
+#define GRID_COLOR ((struct nk_color)NK_RGB3(80,80,120))
 #define GRID_THICKNESS 1.0f
+
+// 4 colors: top-left, top-right, bottom-right, bottom-left
+#define GRID_BG_COLORS ((struct nk_color){30,30,30,255}), ((struct nk_color){40,20,0,255}), ((struct nk_color){30,30,30,255}), ((struct nk_color){20,30,40,255})
 
 #define LINK_THICKNESS 1.0f
 #define LINK_DRAW(POINT_A,POINT_B,COLOR) do { \
@@ -533,10 +536,12 @@ struct node* node_editor_add(struct node_editor *editor, size_t nodeSize, const 
     }
 
     /* default pin spacing */
-    node->pin_spacing.in_padding_y = 32+2; // titlebar height+x2 borders
-    node->pin_spacing.in_spacing_y = 25+1; // row height+border
-    node->pin_spacing.out_padding_y = 32+2; // titlebar height+x2 borders
-    node->pin_spacing.out_spacing_y = 25+1; // row height+border
+    node->pin_spacing.in_padding_x = 2;
+    node->pin_spacing.in_padding_y = 32 + 25/2 + 6; // titlebar height + next half row + adjust
+    node->pin_spacing.in_spacing_y = 25; // row height+border
+    node->pin_spacing.out_padding_x = 3;
+    node->pin_spacing.out_padding_y = 32 + 25/2 + 6; // titlebar height + next half row + adjust
+    node->pin_spacing.out_spacing_y = 25; // row height+border
 
     strcpy(node->name, name);
     node_editor_push(editor, node);
@@ -556,8 +561,7 @@ static void node_editor_link(struct node_editor *editor, struct node *in_node, i
     if ((nk_size)editor->link_count < NK_LEN(editor->links)) {
         link = &editor->links[editor->link_count++];
     } else {
-        int i;
-        for (i = 0; i < (int)NK_LEN(editor->links); i++)
+        for (int i = 0; i < (int)NK_LEN(editor->links); i++)
         {
             if (editor->links[i].is_active == nk_false) {
                 link = &editor->links[i];
@@ -615,6 +619,9 @@ static int node_editor(struct node_editor *editor) {
             struct nk_rect size = nk_layout_space_bounds(ui_ctx);
             struct nk_panel *nodePanel = 0;
 
+            //nk_fill_rect(canvas, size, 0/*rounding*/, ((struct nk_color){30,30,30,255})); // 20,30,40,255
+            nk_fill_rect_multi_color(canvas, size, GRID_BG_COLORS);
+
             if (editor->show_grid) {
                 /* display grid */
                 for (float x = (float)fmod(size.x - editor->scrolling.x, GRID_SIZE); x < size.w; x += GRID_SIZE)
@@ -637,6 +644,10 @@ static int node_editor(struct node_editor *editor) {
 
                 /* execute node window */
                 char *name = va(" " ICON_MD_MENU " %s",it->name); //< @r-lyeh added some spacing+icon because of our UI customizations
+
+struct nk_color bak = ui_ctx->style.window.fixed_background.data.color;
+ui_ctx->style.window.fixed_background.data.color = BG_COLOR;
+
                 if (nk_group_begin(ui_ctx, name, nodePanel_flags))
                 {
                     /* always have last selected node on top */
@@ -685,6 +696,9 @@ static int node_editor(struct node_editor *editor) {
                     nk_group_end(ui_ctx);
 
                 }
+
+ui_ctx->style.window.fixed_background.data.color = bak;
+
                 if (!(nodePanel->flags & NK_WINDOW_HIDDEN))
                 {
                     /* node pin and linking */
@@ -698,8 +712,8 @@ static int node_editor(struct node_editor *editor) {
                     for (int n = 0; n < it->output_count; ++n) {
                         struct nk_rect circle;
                         struct nk_vec2 pt = {nodePanel->bounds.x, nodePanel->bounds.y};
-                        pt.x += nodePanel->bounds.w - PIN_RADIUS / 2;
-                        pt.y += it->pin_spacing.out_padding_y + it->pin_spacing.out_spacing_y * (float)n;
+                        pt.x += nodePanel->bounds.w - PIN_RADIUS / 2 + it->pin_spacing.out_padding_x;
+                        pt.y += it->pin_spacing.out_padding_y + it->pin_spacing.out_spacing_y * (n);
                         PIN_DRAW(it->outputs[n],pt,PIN_RADIUS);
 
                         /* start linking process */
@@ -722,7 +736,8 @@ static int node_editor(struct node_editor *editor) {
                     for (int n = 0; n < it->input_count; ++n) {
                         struct nk_rect circle;
                         struct nk_vec2 pt = {nodePanel->bounds.x, nodePanel->bounds.y};
-                        pt.y += it->pin_spacing.in_padding_y + it->pin_spacing.in_spacing_y * (float)n;
+                        pt.x += it->pin_spacing.in_padding_x;
+                        pt.y += it->pin_spacing.in_padding_y + it->pin_spacing.in_spacing_y * (n);
                         PIN_DRAW(it->inputs[n],pt,PIN_RADIUS);
 
                         /* Detach link */
@@ -766,8 +781,8 @@ static int node_editor(struct node_editor *editor) {
                 if (link->is_active == nk_true){
                     struct node *ni = link->input_node;
                     struct node *no = link->output_node;
-                    struct nk_vec2 l0 = nk_layout_space_to_screen(ui_ctx, nk_vec2(ni->bounds.x + ni->bounds.w, 3.0f + ni->bounds.y + ni->pin_spacing.out_padding_y + ni->pin_spacing.out_spacing_y * (float)(link->input_pin)));
-                    struct nk_vec2 l1 = nk_layout_space_to_screen(ui_ctx, nk_vec2(no->bounds.x, 3.0f + no->bounds.y + no->pin_spacing.in_padding_y + no->pin_spacing.in_spacing_y * (float)(link->output_pin)));
+                    struct nk_vec2 l0 = nk_layout_space_to_screen(ui_ctx, nk_vec2(ni->bounds.x + ni->bounds.w + ni->pin_spacing.out_padding_x, 3.0f + ni->bounds.y + ni->pin_spacing.out_padding_y + ni->pin_spacing.out_spacing_y * (link->input_pin)));
+                    struct nk_vec2 l1 = nk_layout_space_to_screen(ui_ctx, nk_vec2(no->bounds.x + no->pin_spacing.in_padding_x, 3.0f + no->bounds.y + no->pin_spacing.in_padding_y + no->pin_spacing.in_spacing_y * (link->output_pin)));
 
                     l0.x -= editor->scrolling.x;
                     l0.y -= editor->scrolling.y;

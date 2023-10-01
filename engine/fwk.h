@@ -27,7 +27,20 @@
 * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 * ------------------------------------------------------------------------------
-* ALTERNATIVE B - MIT-0 (No Attribution clause)
+* ALTERNATIVE B - 0-BSD License (https://opensource.org/licenses/FPL-1.0.0)
+* ------------------------------------------------------------------------------
+* Permission to use, copy, modify, and/or distribute this software for any
+* purpose with or without fee is hereby granted.
+*
+* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+* PERFORMANCE OF THIS SOFTWARE.
+* ------------------------------------------------------------------------------
+* ALTERNATIVE C - MIT-0 (No Attribution clause)
 * ------------------------------------------------------------------------------
 * Permission is hereby granted, free of charge, to any person obtaining a copy of this
 * software and associated documentation files (the "Software"), to deal in the Software
@@ -41,19 +54,6 @@
 * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-* ------------------------------------------------------------------------------
-* ALTERNATIVE C - Zero BSD License (https://opensource.org/licenses/FPL-1.0.0)
-* ------------------------------------------------------------------------------
-* Permission to use, copy, modify, and/or distribute this software for any
-* purpose with or without fee is hereby granted.
-*
-* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-* PERFORMANCE OF THIS SOFTWARE.
 *
 * ## License: Contributed Code ------------------------------------------------
 *
@@ -73,7 +73,7 @@
 * --
 *
 * "I dedicate any and all copyright interest in this software to the three
-* license terms listed above. I make this dedication for the benefit of the
+* licensing terms listed above. I make this dedication for the benefit of the
 * public at large and to the detriment of my heirs and successors. I intend
 * this dedication to be an overt act of relinquishment in perpetuity of all
 * present and future rights to this software under copyright law."
@@ -121,6 +121,14 @@ extern "C" {
 
 #ifndef ENABLE_LINUX_CALLSTACKS
 #define ENABLE_LINUX_CALLSTACKS 0 ///+
+#endif
+
+#ifndef ENABLE_AUTOTESTS
+#define ENABLE_AUTOTESTS        ifdef(debug, ifndef(ems, 1, 0), 0) ///+
+#endif
+
+#ifndef ENABLE_RETAIL
+#define ENABLE_RETAIL           0 // ifdef(retail, 1, 0) ///+
 #endif
 
 // -----------------------------------------------------------------------------
@@ -203,6 +211,34 @@ extern "C" {
 #define ifdef_release                  ifdef_false
 #endif
 
+#if ENABLE_RETAIL // NDEBUG>=2 ?
+#define ifdef_retail                   ifdef_true
+#else
+#define ifdef_retail                   ifdef_false
+#endif
+
+#if   defined NDEBUG && NDEBUG >= 3 // we use NDEBUG=[0,1,2,3] to signal the compiler optimization flags O0,O1,O2,O3
+#define ifdef_O3                       ifdef_true
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_false
+#elif defined NDEBUG && NDEBUG >= 2
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_true
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_false
+#elif defined NDEBUG && NDEBUG >= 1
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_true
+#define ifdef_O0                       ifdef_false
+#else
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_true
+#endif
+
 #include <stdint.h>
 #if (defined INTPTR_MAX && INTPTR_MAX == INT64_MAX) || defined(_M_X64) || defined(__amd64__) || defined(__x86_64__) || defined(__ppc64__) || __WORDSIZE == 64
 #define ifdef_64                       ifdef_true
@@ -214,23 +250,24 @@ extern "C" {
 
 // -----------------------------------------------------------------------------
 // new C keywords
-// @todo: autorun (needed?)
 
 #define countof(x)       (int)(sizeof (x) / sizeof 0[x])
 
 #define concat(a,b)      conc4t(a,b)
-#define conc4t(a,b)      a##b
+#define conc4t(a,b)      a##b ///-
 
 #define macro(name)      concat(name, __LINE__)
+#define unique(name)     concat(concat(concat(name,concat(_L,__LINE__)),_),__COUNTER__)
 #define defer(begin,end) for(int macro(i) = ((begin), 0); !macro(i); macro(i) = ((end), 1))
 #define scope(end)       defer((void)0, end)
-#define benchmark        for(double macro(t) = -time_ss(); macro(t) < 0; printf("%.2fs (" FILELINE ")\n", macro(t)+=time_ss()))
+#define benchmark        for(double macro(i) = 1, macro(t) = (time_ss(),-time_ss()); macro(i); macro(t)+=time_ss(), macro(i)=0, printf("%.4fs %2.f%% (" FILELINE ")\n", macro(t), macro(t)*100/0.0166667 ))
+#define benchmark_ms     for(double macro(i) = 1, macro(t) = (time_ss(),-time_ss()); macro(i); macro(t)+=time_ss(), macro(i)=0, printf("%.2fms %2.f%% (" FILELINE ")\n", macro(t)*1000, macro(t)*100/0.016666667 ))
 #define do_once          static int macro(once) = 0; for(;!macro(once);macro(once)=1)
 
 #if is(cl)
 #define __thread         __declspec(thread)
 #elif is(tcc) && is(win32)
-#define __thread         __declspec(thread) // compiles fine, but does not work apparently
+#define __thread         __declspec(thread) // compiles fine apparently, but does not work
 #elif is(tcc)
 #define __thread
 #endif
@@ -241,22 +278,45 @@ extern "C" {
 //-----------------------------------------------------------------------------
 // new C macros
 
-#define ASSERT(expr, ...)          do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; breakpoint(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)); } } while(0)
-#define ASSERT_ONCE(expr, ...)     do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; static int seen = 0; if(!seen) seen = 1, breakpoint(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)); } } while(0)
-#define STATIC_ASSERT(EXPR)        typedef struct { unsigned macro(static_assert_on_line_) : !!(EXPR); } macro(static_assert_on_line_)
+#if ENABLE_RETAIL
+#define ASSERT(expr, ...)          (void)0
+#define ASSERT_ONCE(expr, ...)     (void)0
+#else
+#define ASSERT(expr, ...)          do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
+#define ASSERT_ONCE(expr, ...)     do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; static int seen = 0; if(!seen) seen = 1, alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
+#endif
+#define STATIC_ASSERT(EXPR)        typedef struct { unsigned macro(static_assert_on_L) : !!(EXPR); } unique(static_assert_on_L)
 
 #define FILELINE                   __FILE__ ":" STRINGIZE(__LINE__)
 #define STRINGIZE(x)               STRINGIZ3(x)
-#define STRINGIZ3(x)               #x
+#define STRINGIZ3(x)               #x ///-
 
 #define EXPAND(name, ...)          EXPAND_QUOTE(EXPAND_JOIN(name, EXPAND_COUNT_ARGS(__VA_ARGS__)), (__VA_ARGS__))
-#define EXPAND_QUOTE(x, y)         x y
-#define EXPAND_JOIN(name, count)   EXPAND_J0IN(name, count)
-#define EXPAND_J0IN(name, count)   EXPAND_J01N(name, count)
-#define EXPAND_J01N(name, count)   name##count
-#define EXPAND_COUNT_ARGS(...)     EXPAND_ARGS((__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0))
-#define EXPAND_ARGS(args)          EXPAND_RETURN_COUNT args
-#define EXPAND_RETURN_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, count, ...) count
+#define EXPAND_QUOTE(x, y)         x y ///-
+#define EXPAND_JOIN(name, count)   EXPAND_J0IN(name, count) ///-
+#define EXPAND_J0IN(name, count)   EXPAND_J01N(name, count) ///-
+#define EXPAND_J01N(name, count)   name##count ///-
+#define EXPAND_COUNT_ARGS(...)     EXPAND_ARGS((__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)) ///-
+#define EXPAND_ARGS(args)          EXPAND_RETURN_COUNT args ///-
+#define EXPAND_RETURN_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, count, ...) count ///-
+
+// expands to the first argument
+#define VA_FIRST(...) VA_F1RST(__VA_ARGS__, throwaway)
+#define VA_F1RST(first, ...) first ///-
+// if there's only one argument, expands to nothing.  if there is more
+// than one argument, expands to a comma followed by everything but
+// the first argument.  only supports up to 9 arguments but can be expanded.
+#define VA_REST(...) VA_R3ST(VA_NUM(__VA_ARGS__), __VA_ARGS__)
+#define VA_R3ST(qty, ...) VA_R3S7(qty, __VA_ARGS__) ///-
+#define VA_R3S7(qty, ...) VA_R3S7_##qty(__VA_ARGS__) ///-
+#define VA_R3S7_ONE(first) ///-
+#define VA_R3S7_TWOORMORE(first, ...) , __VA_ARGS__ ///-
+#define VA_NUM(...) VA_SELECT_10TH(__VA_ARGS__, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, ONE, throwaway) ///-
+#define VA_SELECT_10TH(A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, ...) A10
+// VA_SPLIT() expands to A) 1 item OR B) 1 item + ',' + va_args[1..N]
+#define VA_SPLIT(...) VA_FIRST(__VA_ARGS__) VA_REST(__VA_ARGS__)
+// VA_COUNT() counts number of va args
+#define VA_COUNT(...)  (int)(sizeof((int[]){0, ##__VA_ARGS__})/sizeof(int)-1)
 
 #if is(cl) && !is(cpp)
 #define INLINE __inline
@@ -280,26 +340,75 @@ extern "C" {
 
 // usage: #define vec2(...) C_CAST(vec2, __VA_ARGS__)
 // typedef union vec2 { float X,Y; }; vec2 a = {0,1}, b = vec2(0,1);
-#if is(cpp)
-#define C_CAST(type, ...)  ( type { __VA_ARGS__ } )
+#define C_CAST(type, ...)  ( ifdef(c,(type),type) { __VA_ARGS__ } )
+
+// create a WARNING(...) macro
+// usage: WARNING("this is displayed at compile time")
+#if is(gcc)
+#   define WARNING(msg) WARN1NG( message( msg ) )
+#   define WARN1NG(msg) _Pragma(#msg)
+#elif is(cl)
+#   define WARNING(msg) __pragma( message( msg ) )
 #else
-#define C_CAST(type, ...)  ((type){ __VA_ARGS__ } )
+#   define WARNING(msg)
+#endif
+
+// document todos and fixmes via compiler warnings
+#define TODO(str)  ifdef(debug,WARNING("TO DO: " str " (" FILELINE ")"))
+#define FIXME(str) ifdef(debug,WARNING("FIXME: " str " (" FILELINE ")"))
+
+// -----------------------------------------------------------------------------
+// autorun initializers for C
+// - rlyeh, public domain
+//
+// note: based on code by Joe Lowe (public domain).
+// note: XIU for C initializers, XCU for C++ initializers, XTU for C deinitializers
+
+#define AUTORUN AUTORUN_( unique(fn) )
+#ifdef __cplusplus
+#define AUTORUN_(fn) \
+    static void fn(void); \
+    static const int concat(fn,__1) = (fn(), 1); \
+    static void fn(void)
+#elif defined _MSC_VER && !defined(__clang__) // cl, but not clang-cl
+#define AUTORUN_(fn) \
+    static void fn(void); \
+    static int concat(fn,__1) (){ fn(); return 0; } \
+    __pragma(section(".CRT$XIU", long, read)) \
+    __declspec(allocate(".CRT$XIU")) \
+    static int(* concat(fn,__2) )() = concat(fn,__1); \
+    static void fn(void)
+#elif defined __TINYC__ // tcc...
+#define AUTORUN_(fn) \
+    __attribute__((constructor)) \
+    static void fn(void)
+#else // gcc,clang,clang-cl...
+#define AUTORUN_(fn) \
+    __attribute__((constructor(__COUNTER__+101))) \
+    static void fn(void)
+#endif
+
+#if 0 // autorun demo
+void byebye(void) { puts("seen after main()"); }
+AUTORUN { puts("seen before main()"); }
+AUTORUN { puts("seen before main() too"); atexit( byebye ); }
+#endif
+
+// -----------------------------------------------------------------------------
+// build info
+
+#ifndef BUILD_VERSION
+#define BUILD_VERSION ""
 #endif
 
 // -----------------------------------------------------------------------------
 // visibility
 
-// win32 users would need to -DAPI=IMPORT/EXPORT as needed when using/building FWK as DLL.
+// win32 users would need to -DAPI=EXPORT/IMPORT as needed when building/using FWK as DLL.
 
-#if is(win32)
-#define IMPORT ifdef(gcc, __attribute__ ((dllimport)), __declspec(dllimport))
-#define EXPORT ifdef(gcc, __attribute__ ((dllexport)), __declspec(dllexport))
+#define IMPORT ifdef(win32, ifdef(gcc, __attribute__ ((dllimport)), __declspec(dllimport)))
+#define EXPORT ifdef(win32, ifdef(gcc, __attribute__ ((dllexport)), __declspec(dllexport)))
 #define STATIC
-#else
-#define IMPORT    
-#define EXPORT    
-#define STATIC
-#endif
 
 #ifndef API
 #define API STATIC
@@ -468,7 +577,7 @@ static __thread unsigned array_n_;
 #define array_vlen_(t)  ( vlen(t) - 0 )
 #define array_realloc_(t,n)  ( (t) = array_cast(t) vrealloc((t), ((n)+0) * sizeof(0[t])) )
 #define array_free(t) array_clear(t)
-#else // new: with reserve support (bugs?)
+#else // new: with reserve support (@todo: check for bugs?)
 #define array_reserve(t, n) ( array_realloc_((t),(n)), array_clear(t) )
 #define array_clear(t) ( array_realloc_((t),0) ) // -1
 #define array_vlen_(t)  ( vlen(t) - sizeof(0[t]) ) // -1
@@ -484,14 +593,16 @@ static __thread unsigned array_n_;
     } while(0)
 
 #define array_foreach(t,val_t,v) for each_array(t,val_t,v)
-#define each_array(t,val_t,v) \
-    ( int __it = 0, __end = array_count(t); __it < __end; ++__it ) \
-        for( val_t v = __it[t], *on__ = &v; on__; on__ = 0 )
+#define each_array(a,val_t,v) \
+    ( array(val_t) a_ = (a); a_; a_ = 0 ) \
+    for( int i_ = 0, e_ = array_count(a_); i_ < e_; ++i_ ) \
+        for( val_t v = i_[a_], *v_ = (void*)(uintptr_t)&v; v_; v_ = 0 )
 
 #define array_foreach_ptr(t,val_t,v) for each_array_ptr(t,val_t,v)
-#define each_array_ptr(t,val_t,v) \
-    ( int __it = 0, __end = array_count(t); __it < __end; ++__it ) \
-        for( val_t *v = (val_t*)&__it[t]; v; v = 0 )
+#define each_array_ptr(a,val_t,v) \
+    ( array(val_t) a_ = (a); a_; a_ = 0 ) \
+    for( int i_ = 0, e_ = array_count(a_); i_ < e_; ++i_ ) \
+        for( val_t *v = (val_t*)&i_[a_]; v; v = 0 )
 
 #define array_search(t, key, cmpfn) /* requires sorted array beforehand */ \
     bsearch(&key, t, array_count(t), sizeof(t[0]), cmpfn )
@@ -507,14 +618,19 @@ static __thread unsigned array_n_;
     } \
 } while(0)
 
-#define array_copy(t, src) do { /*todo: review old vrealloc call!*/ \
+#define array_copy(t, src) do { \
     array_free(t); \
-    (t) = vrealloc( (t), array_count(src) * sizeof(0[t])); \
+    (t) = array_realloc_( (t), array_count(src)); \
     memcpy( (t), src, array_count(src) * sizeof(0[t])); \
 } while(0)
 
-#define array_erase(t, i) do { /*may alter ordering*/ \
+#define array_erase_fast(t, i) do { /*alters ordering*/ \
     memcpy( &(t)[i], &(t)[array_count(t) - 1], sizeof(0[t])); \
+    array_pop(t); \
+} while(0)
+
+#define array_erase_slow(t, i) do { /*preserves ordering*/ \
+    memmove( &(t)[i], &(t)[i + 1], sizeof(0[t])*(array_count(t) - i - 1)); \
     array_pop(t); \
 } while(0)
 
@@ -820,18 +936,6 @@ API int   (map_count)(map *m);
 API void  (map_gc)(map *m); // only if using MAP_DONT_ERASE
 API bool  (map_sort)(map* m);
 API void  (map_clear)(map* m);
-
-// -----------------------------------------------------------------------------
-// four-cc, eight-cc
-
-API unsigned cc4(const char *id);
-API uint64_t cc8(const char *id);
-API char *cc4str(unsigned cc);
-API char *cc8str(uint64_t cc);
-
-// fast path
-#define cc4(abcd)      ( *(unsigned*) #abcd     "    "     ) // lil32() ?
-#define cc8(abcdefgh)  ( *(uint64_t*) #abcdefgh "        " ) // lil64() ?
 #line 0
 
 #line 1 "fwk_math.h"
@@ -842,9 +946,9 @@ API char *cc8str(uint64_t cc);
 // Credits: @ands+@krig+@vurtun (PD), @datenwolf (WTFPL2), @evanw+@barerose (CC0), @sgorsten (Unlicense).
 
 #define C_EPSILON  (1e-6)
-#define C_PI       (3.141592654f) // (3.14159265358979323846f)
-#define TO_RAD     (C_PI/180.f)
-#define TO_DEG     (180.f/C_PI)
+#define C_PI       (3.14159265358979323846f) // (3.141592654f)
+#define TO_RAD     (C_PI/180)
+#define TO_DEG     (180/C_PI)
 
 // ----------------------------------------------------------------------------
 
@@ -876,7 +980,6 @@ API void     randset(uint64_t state);
 API uint64_t rand64(void);
 API double   randf(void); // [0, 1) interval
 API int      randi(int mini, int maxi); // [mini, maxi) interval
-//API double rng(void); // [0..1) Lehmer RNG "minimal standard"
 
 // ----------------------------------------------------------------------------
 
@@ -884,68 +987,6 @@ API float simplex1( float x );
 API float simplex2( vec2 xy );
 API float simplex3( vec3 xyz );
 API float simplex4( vec4 xyzw );
-
-// ----------------------------------------------------------------------------
-
-API float ease_linear(float t);
-
-API float ease_out_sine(float t);
-API float ease_out_quad(float t);
-API float ease_out_cubic(float t);
-API float ease_out_quart(float t);
-API float ease_out_quint(float t);
-API float ease_out_expo(float t);
-API float ease_out_circ(float t);
-API float ease_out_back(float t);
-API float ease_out_elastic(float t);
-API float ease_out_bounce(float t);
-
-API float ease_in_sine(float t);
-API float ease_in_quad(float t);
-API float ease_in_cubic(float t);
-API float ease_in_quart(float t);
-API float ease_in_quint(float t);
-API float ease_in_expo(float t);
-API float ease_in_circ(float t);
-API float ease_in_back(float t);
-API float ease_in_elastic(float t);
-API float ease_in_bounce(float t);
-
-API float ease_inout_sine(float t);
-API float ease_inout_quad(float t);
-API float ease_inout_cubic(float t);
-API float ease_inout_quart(float t);
-API float ease_inout_quint(float t);
-API float ease_inout_expo(float t);
-API float ease_inout_circ(float t);
-API float ease_inout_back(float t);
-API float ease_inout_elastic(float t);
-API float ease_inout_bounce(float t);
-
-API float ease_inout_perlin(float t);
-
-enum EASE_FLAGS {
-    EASE_LINEAR,
-    EASE_SINE,
-    EASE_QUAD,
-    EASE_CUBIC,
-    EASE_QUART,
-    EASE_QUINT,
-    EASE_EXPO,
-    EASE_CIRC,
-    EASE_BACK,
-    EASE_ELASTIC,
-    EASE_BOUNCE,
-
-    EASE_IN,
-    EASE_INOUT = EASE_IN * 2,
-    EASE_OUT = 0,
-};
-
-API float ease(float t01, unsigned mode); // 0=linear,1=out_sine...31=inout_perlin
-
-API float ease_ping_pong(float t, float(*fn1)(float), float(*fn2)(float));
-API float ease_pong_ping(float t, float(*fn1)(float), float(*fn2)(float));
 
 // ----------------------------------------------------------------------------
 
@@ -1167,6 +1208,8 @@ API bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp);
 // ----------------------------------------------------------------------------
 // debugging and utils
 
+API void print2i( vec2i v );
+API void print3i( vec3i v );
 API void print2( vec2 v );
 API void print3( vec3 v );
 API void print4( vec4 v );
@@ -1174,20 +1217,348 @@ API void printq( quat q );
 API void print33( float *m );
 API void print34( float *m );
 API void print44( float *m );
+#line 0
 
-API vec2 atof2(const char *s);
-API vec3 atof3(const char *s);
-API vec4 atof4(const char *s);
+#line 1 "fwk_id.h"
+// -----------------------------------------------------------------------------
+// factory of handle ids, based on code by randy gaul (PD/Zlib licensed)
+// - rlyeh, public domain
+//
+// [src] http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp
+// [ref] http://bitsquid.blogspot.com.es/2011/09/managing-decoupling-part-4-id-lookup.html
+// [ref] http://glampert.com/2016/05-04/dissecting-idhashindex/
+// [ref] https://github.com/nlguillemot/dof/blob/master/viewer/packed_freelist.h
+// [ref] https://gist.github.com/pervognsen/ffd89e45b5750e9ce4c6c8589fc7f253
 
-API char* ftoa(float f);
-API char* ftoa2(vec2 v);
-API char* ftoa3(vec3 v);
-API char* ftoa4(vec4 v);
+// convert between hard refs (pointers) and weak refs (ids)
+uintptr_t id_make(void *ptr);
+void *     id_handle(uintptr_t id);
+void       id_dispose(uintptr_t id);
+bool        id_valid(uintptr_t id);
 
-API void swapf(float *a, float *b);
-API void swapf2(vec2 *a, vec2 *b);
-API void swapf3(vec3 *a, vec3 *b);
-API void swapf4(vec4 *a, vec4 *b);
+// configuration:
+// ideally, these two should be 32 each. they were changed to fit our OBJHEADER bits
+#ifndef ID_INDEX_BITS
+#define ID_INDEX_BITS 16
+#endif
+#ifndef ID_COUNT_BITS
+#define ID_COUNT_BITS  3
+#endif
+// you cannot change this one: the number of ID_DATA_BITS you can store in a handle depends on ID_COUNT_BITS
+#define ID_DATA_BITS (64-ID_COUNT_BITS)
+#line 0
+
+#line 1 "fwk_obj.h"
+// C objects framework
+// - rlyeh, public domain.
+//
+// ## object limitations
+// - 8-byte overhead per object
+// - XX-byte overhead per object-entity
+// - 32 components max per object-entity
+// - 256 classes max per game
+// - 256 references max per object
+// - 1024K bytes max per object
+// - 8 generations + 64K IDs per running instance (19-bit IDs)
+// - support for pragma pack(1) structs not enabled by default.
+
+/* /!\ if you plan to use pragma pack(1) on any struct, you need #define OBJ_MIN_PRAGMAPACK_BITS 0 at the expense of max class size /!\ */
+#ifndef   OBJ_MIN_PRAGMAPACK_BITS
+//#define OBJ_MIN_PRAGMAPACK_BITS 3 // allows pragma packs >= 8. objsizew becomes 8<<3, so 2048 bytes max per class (default)
+#define   OBJ_MIN_PRAGMAPACK_BITS 2 // allows pragma packs >= 4. objsizew becomes 8<<2, so 1024 bytes max per class
+//#define OBJ_MIN_PRAGMAPACK_BITS 1 // allows pragma packs >= 2. objsizew becomes 8<<1, so  512 bytes max per class
+//#define OBJ_MIN_PRAGMAPACK_BITS 0 // allows pragma packs >= 1. objsizew becomes 8<<0, so  256 bytes max per class
+#endif
+
+#define OBJHEADER \
+    struct { \
+        ifdef(debug, const char *objname;) \
+        union { \
+            uintptr_t objheader; \
+            struct {  \
+            uintptr_t objtype:8; \
+            uintptr_t objsizew:8; \
+            uintptr_t objrefs:8; \
+            uintptr_t objheap:1; \
+            uintptr_t objcomps:1; /* << can be removed? check payload ptr instead? */ \
+            uintptr_t objunused:64-8-8-8-1-1-ID_INDEX_BITS-ID_COUNT_BITS; /*19*/ \
+            uintptr_t objid:ID_INDEX_BITS+ID_COUNT_BITS; /*16+3*/ \
+            }; \
+        }; \
+        array(struct obj*) objchildren; \
+    };
+
+#define OBJ \
+    OBJHEADER
+
+// ----------------------------------------------------------------------------
+// syntax sugars
+
+#ifdef OBJTYPE
+#undef OBJTYPE
+#endif
+
+#define OBJTYPE(T) \
+    OBJTYPE_##T
+
+#define OBJTYPEDEF(NAME,N) \
+     enum { OBJTYPE(NAME) = N }; \
+     STATIC_ASSERT( N <= 255 ); \
+     STATIC_ASSERT( sizeof(NAME) == ((sizeof(NAME)>>OBJ_MIN_PRAGMAPACK_BITS)<<OBJ_MIN_PRAGMAPACK_BITS) ); // (sizeof(NAME) & ((1<<OBJ_MIN_PRAGMAPACK_BITS)-1)) == 0 );
+
+// ----------------------------------------------------------------------------
+// objects
+
+#define TYPEDEF_STRUCT(NAME,N,...) \
+    typedef struct NAME { OBJ \
+        __VA_ARGS__ \
+        char payload[0]; \
+    } NAME; OBJTYPEDEF(NAME,N);
+
+// TYPEDEF_STRUCT(obj,0);
+    typedef struct obj { OBJ } obj;
+
+// ----------------------------------------------------------------------------
+// entities
+
+#define OBJCOMPONENTS_MAX 32
+#define OBJCOMPONENTS_ALL_ENABLED 0xAAAAAAAAAAAAAAAAULL
+#define OBJCOMPONENTS_ALL_FLAGGED 0x5555555555555555ULL
+#define COMPONENTS_ONLY(x) ((x) & ~OBJCOMPONENTS_ALL_FLAGGED)
+
+#define ENTITY \
+    struct { OBJHEADER union { struct { uintptr_t objenabled:OBJCOMPONENTS_MAX, objflagged:OBJCOMPONENTS_MAX; }; uintptr_t cflags; }; void *c[OBJCOMPONENTS_MAX]; };
+
+#define TYPEDEF_ENTITY(NAME,N,...) \
+    typedef struct NAME { ENTITY \
+        __VA_ARGS__ \
+        char payload[0]; \
+    } NAME; OBJTYPEDEF(NAME,N);
+
+// OBJTYPEDEF(entity,1)
+    typedef struct entity { ENTITY } entity;
+
+#define entity_new(TYPE, ...)             OBJ_CTOR(TYPE, #TYPE, 1, 0, __VA_ARGS__)
+#define entity_new_ext(TYPE, NAME, ...)   OBJ_CTOR(TYPE,  NAME, 1, 0, __VA_ARGS__)
+
+// ----------------------------------------------------------------------------
+// heap/stack ctor/dtor
+
+static __thread obj *objtmp;
+#define OBJ_CTOR_HDR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE) ( \
+        (PTR)->objheader = HEAP ? id_make(PTR) : 0, /*should assign to .objid instead. however, id_make() returns shifted bits already*/ \
+        (PTR)->objtype = (OBJ_TYPE), \
+        (PTR)->objheap = (HEAP), \
+        (PTR)->objsizew = (SIZEOF_OBJ>>OBJ_MIN_PRAGMAPACK_BITS))
+#define OBJ_CTOR_PTR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE) ( \
+        OBJ_CTOR_HDR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE), \
+        obj_ctor(PTR))
+#define OBJ_CTOR(TYPE, NAME, HEAP, PAYLOAD_SIZE, ...) (TYPE*)( \
+        objtmp = (HEAP ? MALLOC(sizeof(TYPE)+(PAYLOAD_SIZE)) : ALLOCA(sizeof(TYPE)+(PAYLOAD_SIZE))), \
+        *(TYPE*)objtmp = ((TYPE){ {0,}, __VA_ARGS__}), \
+        ((PAYLOAD_SIZE) ? memset((char*)objtmp + sizeof(TYPE), 0, (PAYLOAD_SIZE)) : objtmp), \
+        ( OBJTYPES[ OBJTYPE(TYPE) ] = #TYPE ), \
+        OBJ_CTOR_PTR(objtmp, HEAP,sizeof(TYPE),OBJTYPE(TYPE)), \
+        ifdef(debug, (obj_printf)(objtmp, va("%s", callstack(+16))), 0), \
+        obj_setname(objtmp, NAME))
+
+#define obj(TYPE, ...)                *OBJ_CTOR(TYPE, #TYPE, 0, 0, __VA_ARGS__)
+#define obj_new(TYPE, ...)             OBJ_CTOR(TYPE, #TYPE, 1, 0, __VA_ARGS__)
+#define obj_new_ext(TYPE, NAME, ...)   OBJ_CTOR(TYPE,  NAME, 1, 0, __VA_ARGS__)
+
+void*   obj_malloc(unsigned sz);
+void*   obj_free(void *o);
+
+// ----------------------------------------------------------------------------
+// obj generics. can be extended.
+
+#define obj_ctor(o,...) obj_method(ctor, o, ##__VA_ARGS__)
+#define obj_dtor(o,...) obj_method(dtor, o, ##__VA_ARGS__)
+
+#define obj_save(o,...) obj_method(save, o, ##__VA_ARGS__)
+#define obj_load(o,...) obj_method(load, o, ##__VA_ARGS__)
+
+#define obj_test(o,...) obj_method(test, o, ##__VA_ARGS__)
+
+#define obj_init(o,...) obj_method(init, o, ##__VA_ARGS__)
+#define obj_quit(o,...) obj_method(quit, o, ##__VA_ARGS__)
+#define obj_tick(o,...) obj_method(tick, o, ##__VA_ARGS__)
+#define obj_draw(o,...) obj_method(draw, o, ##__VA_ARGS__)
+
+#define obj_lerp(o,...) obj_method(lerp, o, ##__VA_ARGS__)
+#define obj_edit(o,...) obj_method(edit, o, ##__VA_ARGS__)
+
+// --- syntax sugars
+
+#define EXTEND obj_extend
+#define obj_extend(T,func)               (obj_##func[OBJTYPE(T)] = (void*)T##_##func)
+#define obj_method(method,o,...)         (obj_##method[((obj*)(o))->objtype](o,##__VA_ARGS__)) // (obj_##method[((obj*)(o))->objtype]((o), ##__VA_ARGS__))
+
+#define obj_vtable(func,RC,...)          RC macro(obj_##func)(){ __VA_ARGS__ }; RC (*obj_##func[256])() = { REPEAT256(macro(obj_##func)) };
+#define obj_vtable_null(func,RC)         RC (*obj_##func[256])() = { 0 }; // null virtual table. will crash unless obj_extend'ed
+
+#define REPEAT16(f)  f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f
+#define REPEAT64(f)  REPEAT16(f),REPEAT16(f),REPEAT16(f),REPEAT16(f)
+#define REPEAT256(f) REPEAT64(f),REPEAT64(f),REPEAT64(f),REPEAT64(f)
+
+// --- declare vtables
+
+API extern void  (*obj_ctor[256])(); ///-
+API extern void  (*obj_dtor[256])(); ///-
+
+API extern char* (*obj_save[256])(); ///-
+API extern bool  (*obj_load[256])(); ///-
+API extern int   (*obj_test[256])(); ///-
+
+API extern int   (*obj_init[256])(); ///-
+API extern int   (*obj_quit[256])(); ///-
+API extern int   (*obj_tick[256])(); ///-
+API extern int   (*obj_draw[256])(); ///-
+
+API extern int   (*obj_lerp[256])(); ///-
+API extern int   (*obj_edit[256])(); ///-
+
+// ----------------------------------------------------------------------------
+// core
+
+API uintptr_t   obj_header(const void *o);
+API uintptr_t   obj_id(const void *o);
+
+API const char* obj_type(const void *o);
+API unsigned    obj_typeid(const void *o);
+
+API int         obj_sizeof(const void *o);
+API int         obj_size(const void *o); // size of all members together in struct. may include padding bytes.
+
+API char*       obj_data(void *o); // pointer to the first member in struct
+API const char* obj_datac(const void *o); // const pointer to the first struct member
+
+API void*       obj_payload(const void *o); // pointer right after last member in struct
+API void*       obj_zero(void *o); // reset all object members
+
+// ----------------------------------------------------------------------------
+// refcounting
+
+API void*       obj_ref(void *oo);
+API void*       obj_unref(void *oo);
+
+// ----------------------------------------------------------------------------
+// scene tree
+
+#define each_objchild(p,T,o) /*non-recursive*/ \
+    (array(obj*)* children = obj_children(p); children; children = 0) \
+        for(int _i = 1, _end = array_count(*children); _i < _end; ++_i) \
+            for(T o = (T)((*children)[_i]); o && (obj_parent(o) == p); o = 0)
+
+API obj*        obj_detach(void *c);
+API obj*        obj_attach(void *o, void *c);
+
+API obj*        obj_root(const void *o);
+API obj*        obj_parent(const void *o);
+API array(obj*)*obj_children(const void *o); // child[0]: parent, child[1]: 1st child, child[2]: 2nd child...
+API array(obj*)*obj_siblings(const void *o); // child[0]: grandpa, child[1]: sibling1, child[2]: sibling2...
+
+API int         obj_dumptree(const void *o);
+
+// ----------------------------------------------------------------------------
+// metadata
+
+API void*       obj_setmeta(void *o, const char *key, const char *value);
+API const char* obj_meta(const void *o, const char *key);
+
+API void*       obj_setname(void *o, const char *name);
+API const char* obj_name(const void *o);
+
+// ----------------------------------------------------------------------------
+// stl
+
+API void*       obj_swap(void *dst, void *src);
+API void*       obj_copy_fast(void *dst, const void *src);
+API void*       obj_copy(void *dst, const void *src);
+
+API int         obj_comp_fast(const void *a, const void *b);
+API int         obj_comp(const void *a, const void *b);
+API int         obj_lesser(const void *a, const void *b);
+API int         obj_greater(const void *a, const void *b);
+API int         obj_equal(const void *a, const void *b);
+
+API uint64_t    obj_hash(const void *o);
+
+// ----------------------------------------------------------------------------
+// debug
+
+API bool        obj_hexdump(const void *oo);
+API int         obj_print(const void *o);
+
+API int         obj_printf(const void *o, const char *text);
+API int         obj_console(const void *o); // obj_output() ?
+
+#define         obj_printf(o, ...) obj_printf(o, va(__VA_ARGS__))
+
+// ----------------------------------------------------------------------------
+// serialization
+
+API char*       obj_saveini(const void *o);
+API obj*        obj_mergeini(void *o, const char *ini);
+API obj*        obj_loadini(void *o, const char *ini);
+
+API char*       obj_savejson(const void *o);
+API obj*        obj_mergejson(void *o, const char *json);
+API obj*        obj_loadjson(void *o, const char *json);
+
+API char*       obj_savebin(const void *o);
+API obj*        obj_mergebin(void *o, const char *sav);
+API obj*        obj_loadbin(void *o, const char *sav);
+
+API char*       obj_savempack(const void *o); // @todo
+API obj*        obj_mergempack(void *o, const char *sav); // @todo
+API obj*        obj_loadmpack(void *o, const char *sav); // @todo
+
+API int         obj_push(const void *o);
+API int         obj_pop(void *o);
+
+// ----------------------------------------------------------------------------
+// components
+
+API bool        obj_addcomponent(entity *e, unsigned c, void *ptr);
+API bool        obj_hascomponent(entity *e, unsigned c);
+API void*       obj_getcomponent(entity *e, unsigned c);
+API bool        obj_delcomponent(entity *e, unsigned c);
+API bool        obj_usecomponent(entity *e, unsigned c);
+API bool        obj_offcomponent(entity *e, unsigned c);
+
+API char*       entity_save(entity *self);
+
+// ----------------------------------------------------------------------------
+// reflection
+
+#define each_objmember(oo,TYPE,NAME,PTR) \
+    (array(reflect_t) *found_ = members_find(obj_type(oo)); found_; found_ = 0) \
+        for(int it_ = 0, end_ = array_count(*found_); it_ != end_; ++it_ ) \
+            for(reflect_t *R = &(*found_)[it_]; R; R = 0 ) \
+                for(const char *NAME = R->name, *TYPE = R->type; NAME || TYPE; ) \
+                    for(void *PTR = ((char*)oo) + R->sz ; NAME || TYPE ; NAME = TYPE = 0 )
+
+API void*       obj_clone(const void *src);
+API void*       obj_merge(void *dst, const void *src); // @testme
+API void*       obj_mutate(void *dst, const void *src);
+API void*       obj_make(const char *str);
+
+// built-ins
+
+typedef enum OBJTYPE_BUILTINS {
+    OBJTYPE_obj    =  0,
+    OBJTYPE_entity =  1,
+    OBJTYPE_vec2   =  2,
+    OBJTYPE_vec3   =  3,
+    OBJTYPE_vec4   =  4,
+    OBJTYPE_quat   =  5,
+    OBJTYPE_mat33  =  6,
+    OBJTYPE_mat34  =  7,
+    OBJTYPE_mat44  =  8,
+    OBJTYPE_vec2i  =  9,
+    OBJTYPE_vec3i  = 10,
+} OBJTYPE_BUILTINS;
 
 #line 0
 
@@ -1249,173 +1620,6 @@ API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, ve
 // Behavior trees: decision planning and decision making.
 // Supersedes finite state-machines (FSM) and hierarchical finite state-machines (HFSM).
 // - rlyeh, public domain.
-//
-// [ref] https://outforafight.wordpress.com/2014/07/15/behaviour-behavior-trees-for-ai-dudes-part-1/
-// [ref] https://www.gameaipro.com/GameAIPro/GameAIPro_Chapter06_The_Behavior_Tree_Starter_Kit.pdf
-// [ref] https://gitlab.com/NotYetGames/DlgSystem/-/wikis/Dialogue-Manual
-// [ref] https://towardsdatascience.com/designing-ai-agents-behaviors-with-behavior-trees-b28aa1c3cf8a
-// [ref] https://docs.nvidia.com/isaac/packages/behavior_tree/doc/behavior_trees.html
-// [ref] https://docs.unrealengine.com/4.26/en-US/InteractiveExperiences/ArtificialIntelligence/BehaviorTrees/
-// [ref] gdc ChampandardDaweHernandezCerpa_BehaviorTrees.pdf @todo debugging
-// [ref] https://docs.cocos.com/cocos2d-x/manual/en/actions/
-
-// The nodes in a behavior tree can be broadly categorized into three main types: control nodes, task nodes, and decorator nodes. Here is a brief description of each category:
-
-// Control Nodes: Control nodes are used to control the flow of the behavior tree. They determine the order in which child nodes are executed and how the results of those nodes are combined. They are usually parent nodes.
-// Action Nodes: Action nodes are used to perform specific actions or tasks within the behavior tree. They can include actions such as moving, attacking, or interacting with objects in the game world. They are usually leaf nodes.
-// Decorator Nodes: Decorator nodes are used to modify the behavior of child nodes in some way. They can be used to repeat child nodes, invert the result of a child node, or add a cooldown period between executions. They are usually located between control and action nodes.
-
-// --- VARIABLES
-
-// Key Prefixes:
-//     {visiblity:(l)ocal,s(q)uad,(r)ace,(f)action,(g)lobal}
-//     [persistence:(t)emp,(u)serdata,(s)avegame,(c)loud] + '_' + name.
-//     [persistence:(tmp),(usr)data,(sav)egame,(net)cloud] + '_' + name.
-
-// Ie, l_health = 123.4, gsav_player = "john"
-
-// --- ACTION NODES
-
-// [ ] * Actions/Behaviors have a common structure:
-// [ ]     - Entry point (function name) for a C call or Lua script.
-// [ ] * Status:
-// [ ]     - Uninitialized (never run)
-// [ ]     - Running (in progress)
-// [ ]     - Suspended (on hold till resumed)
-// [ ]     - Success (finished and succeeded)
-// [ ]     - Failure (finished and failed)
-// [ ] * Optional callbacks:
-// [ ]     - on_enter
-// [ ]     - on_leave
-// [ ]     - on_success
-// [ ]     - on_failure
-// [ ]     - on_suspend
-// [ ]     - on_resume
-
-// [x] Action Node: This node performs a single action, such as moving to a specific location or attacking a target.
-// [ ] Blackboard Node: Node that reads and writes data to a shared memory space known as a blackboard. The blackboard can be used to store information that is relevant to multiple nodes in the behavior tree.
-// [ ]     SetKey(keyVar,object)
-// [ ]     HasKey(keyVar)
-// [ ]     CompareKeys(keyVar1, operator < <= > >= == !=, keyVar2)
-// [ ]     SetTags(names=blank,cooldownTime=inf,bIsCooldownAdditive=false)
-// [ ]     HasTags(names=blank,bAllRequired=true)
-// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesn’t exist, and stores it in the passed variable name, and then pushes ‘item’ object onto it.
-// [ ]     PopFromStack(keyVar,itemVar): pop pops an item off the stack, and stores it in the itemVar variable, failing if the stack is already empty.
-// [ ]     IsEmptyStack(keyVar): checks if the stack passed is empty and returns success if it is, and failure if its not.
-// [ ] Communication Node: This is a type of action node that allows an AI agent to communicate with other agents or entities in the game world. The node takes an input specifying the message to be communicated and the recipient(s) of the message (wildmask,l/p/f/g prefixes). The node then sends the message to the designated recipient(s) and returns success when the communication is completed. This node can be useful for implementing behaviors that require the AI agent to coordinate with other agents or to convey information to the player. It could use a radius argument to specify the maximum allowed distance for the recipients.
-// [ ] Condition Node: A leaf node that checks a specific condition, such as the distance to an object, the presence of an enemy, or the status of a health bar.
-// [ ]     Distance Condition Node: This is a type of condition node that evaluates whether an AI agent is within a specified distance of a target object or location. The node takes two inputs: the current position of the AI agent and the position of the target object or location. If the distance between the two is within a specified range, the node returns success. If the distance is outside of the specified range, the node returns failure. This node can be useful for implementing behaviors that require the AI agent to maintain a certain distance from a target, such as following or avoiding an object. Could use a flag to disambiguate between linear distance and path distance.
-// [ ]     Query Node: This node checks a condition and returns success or failure based on the result. For example, a query node could check whether an enemy is within range or whether a door is locked.
-// [ ]         Query Node: A type of decorator node that retrieves information from a database or external system, such as a web service or file system. The Query node can be used to retrieve data that is not available within the game engine, such as weather or traffic conditions.
-// [ ]     A condition is made of:
-// [ ]     - Optional [!] negate
-// [ ]     - Mandatory Value1(Int/Flt/Bool/VarName/FuncName)
-// [ ]     - Optional operator [< <= > >= == !=] and Value2(Int/Flt/Bool/VarName/FuncName)
-// [ ]     AllConditions(...) : SUCCESS if ( empty array || all conditions met)
-// [ ]     AnyConditions(...) : SUCCESS if (!empty array && one conditions met)
-
-// --- DECORATOR NODES
-
-// [ ] Cooldown Node: Decorator node that adds a cooldown period between the execution of a child node, preventing it from being executed again until the cooldown period has elapsed.
-// [x] Counter Node: Decorator node that limits the number of times that a child node can execute. For example, if the child node has executed a certain number of times, the Counter node will return a failure.
-// [x]     Once Node: Decorator node that triggers a specified action when a condition is met for the first time. This can be useful for triggering a one-time event, such as when an AI agent discovers a hidden item or reaches a new area of the game world.
-// [x] Inverter Node: Decorator node that inverts the result of a child node, returning success if the child node fails and failure if the child node succeeds. This can be useful for negating the outcome of a particular behavior, such as avoiding a certain area of the game world.
-// [x] Repeater Node: Decorator node that repeats the execution of a child node a specified number of times or indefinitely.
-// [x]     Repeat(times=inf): Runs child node given times. These are often used at the very base of the tree, to make the tree to run continuously.
-// [ ]         RepeatIf(strong/weak condition): Runs child node as long as the conditions are met.
-// [ ]         RepeatIfOk(times=inf): Runs child node if it succeedes, max given times.
-// [ ]         RepeatIfFail(times=inf): Runs child node if it fails, max given times.
-// [ ] Branch Node: 2 children [0] for true, [1] for false
-// [ ]     Resource Node: Decorator node that manages a shared resource, such as a limited supply of ammunition or a limited amount of processing power. The Resource node The node can be used to decide when to use or conserve the resource. For example, if the AI agent is low on ammunition, the node may decide to switch to a melee weapon or to retreat to a safer location. This node can be useful for implementing behaviors that require the AI agent to make strategic decisions about resource use.
-// [x] Result Node: Decorator node that tracks the result of a child action node and returns either success or failure depending on the outcome. This can be useful for determining whether an action was successful or not, and then adjusting the AI agent's behavior accordingly.
-// [x]     Succeeder Node: Decorator node that always returns success, regardless of the result of its child node. This can be useful for ensuring that certain behaviors are always executed, regardless of the overall success or failure of the behavior tree.
-// [x]     Success(): FAILURE becomes SUCCESS (TRUE).
-// [x]     Failure(): SUCCESS becomes FAILURE (FALSE).
-// [ ] Throttle Node: Decorator node that limits the rate at which a child node can execute. For example, a Throttle node might ensure that an AI agent can only fire its weapon, or using a special ability, only a certain number of times per second.
-// [x] Delay Node: Decorator node that adds a delay to the execution of a child node. The delay might be configured to sleep before the execution, after the execution, or both.
-// [x]     Defer Delay(duration_ss=1): Runs the child node, then sleeps for given seconds.
-// [ ] Ease(time,name): Clamps child time to [0,1] range, and applies easing function on it.
-// [ ] Dilate(Mul=1,Add=0): Dilates child time
-
-// --- CONTROL NODES
-
-// [x] Root Node: The topmost node in a behavior tree that represents the start of the decision-making process. Returns success if any of its child nodes suceedes.
-// [x] Root-Failure Node: Control node that only returns failure if all of its child nodes fail. This can be useful for ensuring that a behavior tree is not prematurely terminated if one or more child nodes fail.
-
-// [ ] Event(name): When name event is raised, it suspends current tree and calls child. "Incoming projectile" -> Evade. Stimulus types: may be disabled by event, or autodisabled.
-// [ ] Raise(name): Triggers event name.
-
-// [ ] Checkpoint Node: Control node that saves a state in memory and then continues the tree execution from that point the next time the tree is executed. It can be useful in situations where the behavior tree needs to be interrupted and resumed later.
-// [ ] Decision Making Node: Control node that implements a decision-making process for the AI agent. The node takes input specifying the available options for the AI agent and the criteria for evaluating each option. The node then evaluates each option based on the specified criteria and selects the best option. This node can be useful for implementing behaviors that require the AI agent to make strategic decisions, such as choosing a target or selecting a path through the game world.
-// [ ]     Could be extended with GOAP if dynamically inserting the scores on each update then calling a Probability Selector Node (0.2,0.3,0.5)
-// [ ]     https://cdn.cloudflare.steamstatic.com/apps/valve/2012/GDC2012_Ruskin_Elan_DynamicDialog.pdf
-// [ ] Evaluate Node / Recheck():
-// [ ]     Actively rechecks all existing sub-conditions on a regular basis after having made decisions about them.
-// [ ]     Use this feature to dynamically check for risks or opportunities in selected parts of the tree.
-// [ ]     For example, interrupting a patrol with a search behavior if a disturbance is reported.
-// [ ] Interrupt Node: Control node that interrupts the execution of a lower-priority node when a higher-priority node needs to be executed. It can be useful for handling urgent tasks or emergency situations.
-// [ ] Monitor Node: Control node that continuously monitors a condition and triggers a specified action when the condition is met. For example, a Monitor node might monitor the distance between an AI agent and a target and trigger a "retreat" behavior when the distance falls below a certain threshold.
-// [ ]     Observer Node: Control node that monitors the state of the game world and triggers a specified action when certain conditions are met. For example, an Observer node might trigger a "hide" behavior when an enemy is spotted.
-// [ ] Parallel Node: Control node that executes multiple child nodes simultaneously. The Parallel node continues to execute even if some of its child nodes fail.
-// [ ]     Parallel All Node(required_successes=100%): Control node that executes multiple child nodes simultaneously. Returns false when first child fails, and aborts any other running tasks. Returns true if all its children succeed.
-// [ ]     Parallel One Node(required_successes=1): Control node that executes multiple child nodes simultaneously. Returns true when first child suceedes, and aborts any other running tasks. Returns false if all its children fail.
-// [ ]     Subsumption Node: Control node that allows multiple behaviors to be executed simultaneously, with higher-priority behaviors taking precedence over lower-priority ones. This can be useful for implementing complex, multi-level behaviors in autonomous systems.
-// [ ] Semaphore Node: Control node that blocks the execution of its child nodes until a certain condition is met. For example, a Semaphore node might block the execution of a behavior until a certain object is in range or a certain event occurs.
-// [ ] Semaphore Wait Node: Control node that blocks the execution of its child nodes until a resource becomes available. This can be useful for controlling access to shared resources such as a pathfinding system or a communication channel.
-// [ ]     WaitTags(tags=blank,timeout_ss=inf): Stops execution of child node until the cooldown tag(s) do expire. May return earlier if timed out.
-// [ ]     WaitEvent(name=blank,timeout_ss=inf): Stops execution of child node until event is raised. May return earlier if timed out.
-// [x] Sequence Node(reversed,iterator(From,To)): Control node that executes a series of child nodes in order. If any of the child nodes fail, the Sequence node stops executing and returns a failure.
-// [ ]     Dynamic Sequence Node: Control node that dynamically changes the order in which its child nodes are executed based on certain conditions. For example, a Dynamic Sequence node might give higher priority to a child node that has recently failed or that is more likely to succeed.
-// [ ]     Reverse(): iterates children in reversed order (Iterator:(-1,0) equivalent)
-// [ ]     Iterator(from,to): allows negative indexing. increments if (abs from < abs to), decrements otherwise
-// [x] Selector Node: Control node that selects a child node to execute based on a predefined priority or set of conditions. The Selector node stops executing child nodes as soon as one of them succeeds.
-// [ ]     Priority Selector Node: Control node that executes its child nodes in order of priority. If the first child node fails, it moves on to the next child node in the list until a successful node is found. This can be useful for implementing behaviors that require a specific order of execution, such as a patrol route or a search pattern.
-// [ ]     Probability Selector Node: Control node that selects a child node to execute based on a probability distribution. For example, if there are three child nodes with probabilities of 0.2, 0.3, and 0.5, the Probability Selector node will execute the third child node 50% of the time.
-// [ ]     Dynamic Selector Node: Control node that dynamically changes the order in which its child nodes are executed based on certain conditions. For example, a Dynamic Selector node might give higher priority to a child node that has recently succeeded or that is more likely to succeed.
-// [ ]         Dynamic Selector Node: Control node that dynamically changes the order in which child nodes are executed based on certain conditions. For example, it may prioritize certain nodes when health is low, and other nodes when resources are scarce.
-// [ ]         Dynamic Priority Node: Control node that dynamically changes the priority of its child nodes based on certain conditions. For example, if a child node is more likely to result in success, the Dynamic Priority node will give it a higher priority.
-// [ ]     Weighted / Cover Selection Node: This is a type of selector node that evaluates the available cover options in the game world and selects the best cover position for the AI agent. The node takes input specifying the current position of the AI agent and the location of potential cover positions. The node then evaluates the cover positions based on criteria such as distance to enemy positions, line of sight, and available cover points, and selects the best option. This node can be useful for implementing behaviors that require the AI agent to take cover and avoid enemy fire.
-// [ ]     Random Selector Node: Control node that selects a child node to execute at random. This can be useful for introducing variety and unpredictability into the behavior of an AI agent.
-// [ ]     Random Weight / Stochastic Node(0.2,0.3,0.5): Control node that introduces randomness into the decision-making process of an AI agent. For example, a Stochastic node might randomly select a child node to execute, with the probability of each child node being proportional to its likelihood of success.
-// [ ] Break(bool): breaks parent sequence or selector. may return SUCCESS or FAILURE.
-// [ ] Hybrid Node: Control node that combines the functionality of multiple control nodes, such as a sequence node and a selector node. It can be useful for creating complex behavior patterns that require multiple control structures. The Hybrid Node has two modes of operation: strict mode and flexible mode. In strict mode, the child nodes are executed in a fixed order, similar to a Sequence Node. If any child node fails, the entire Hybrid Node fails. In flexible mode, the child nodes can be executed in any order, similar to a Selector Node. If any child node succeeds, the entire Hybrid Node succeeds. The Hybrid Node is often used when you need to create complex behavior patterns that require multiple control structures. For example, you might use a Hybrid Node to implement a search behavior where the AI agent first moves in a fixed direction for a certain distance (strict mode), but then switches to a more exploratory mode where it randomly explores nearby areas (flexible mode).
-// [ ] Subtree Node: Control node that calls another behavior tree as a subroutine. This is useful for breaking down complex behaviors into smaller, more manageable parts.
-// [ ]     Call(name): Calls to the child node with the matching name within behavior tree. Returns FAILURE if name is invalid or if invoked behavior returns FAILURE.
-// [ ]     Return(boolean): Exits current Call.
-// [ ]     AttachTree(Name,bDetachAfterUse=true): Attaches subtree to main tree. When a NPC founds the actor, it attaches the behavior to the tree. Ie, Level specific content: Patrols, Initial setups, Story driven events, etc. Ie, DLCs: Behaviors are added to actors in the DLC level (enticers).
-// [ ]     DetachTree(Name)
-// [ ] Switch Node: Control node that evaluates a condition and then selects one of several possible child nodes to execute based on the result of the condition.
-// [ ]     Switch(name): Jumps to the child node with the matching name within behavior tree. If name is invalid will defer to Fallback child node.
-// [ ] Timeout Node: Control node that aborts the execution of its child node after a certain amount of time has elapsed. This can be useful for preventing an AI agent from getting stuck in a loop or waiting indefinitely for a particular event to occur.
-// [ ]     TimeLimit(timeout_ss=inf): Give the child any amount of time to finish before it gets canceled. The timer is reset every time the node gains focus.
-// [ ] Timer Node: Control node which invokes its child node every XX seconds. The timer can repeat the action any given number of times, or indefinitely.
-
-// ## Proposal -----------------------------------------------------------------------------
-
-// BehaviorTrees as case-insensitive INI files. Then,
-// - INI -> C INTERPRETER, OR
-// - INI -> LUA TRANSPILER -> LUA BYTECODE -> LUA VM.
-
-// ```ini
-// [bt]
-// recheck
-// sequence                                  ;; Approach the player if seen!
-//  conditions=IsPlayerVisible,
-//  action=MoveTowardsPlayer
-// sequence                                  ;; Attack the player if seen!
-//  conditions=IsPlayerInRange,
-//  repeat=3
-//  action=FireAtPlayer
-// sequence                                  ;; Search near last known position
-//  conditions=HaveWeGotASuspectedLocation,
-//  action=MoveToPlayersLastKnownPosition
-//  action=LookAround
-// sequence                                  ;; Randomly scanning nearby
-//  action=MoveToRandomPosition
-//  action=LookAround
-// event=IncomingProjectile
-//  action=Evade
-// ```
 
 typedef int (*bt_func)();
 
@@ -1435,7 +1639,7 @@ API void    bt_addfun(const char *name, int(*func)());
 API bt_func bt_findfun(const char *name);
 API char   *bt_funcname(bt_func fn);
 
-API void ui_bt(bt_t *b);
+API int ui_bt(bt_t *b);
 #line 0
 
 #line 1 "fwk_audio.h"
@@ -1465,9 +1669,14 @@ API int     audio_play_gain_pitch( audio_t a, int flags, float gain, float pitch
 API int     audio_play_gain_pitch_pan( audio_t a, int flags, float gain, float pitch, float pan/*0*/ );
 API int     audio_stop( audio_t a );
 
-API float   audio_volume_clip(float gain);   // set     fx volume if gain is in [0..1] range. return current     fx volume in any case
-API float   audio_volume_stream(float gain); // set    bgm volume if gain is in [0..1] range. return current    bgm volume in any case
-API float   audio_volume_master(float gain); // set master volume if gain is in [0..1] range. return current master volume in any case
+API float   audio_volume_clip(float gain);   // set     fx volume if gain is in [0..1] range. returns current     fx volume in any case
+API float   audio_volume_stream(float gain); // set    bgm volume if gain is in [0..1] range. returns current    bgm volume in any case
+API float   audio_volume_master(float gain); // set master volume if gain is in [0..1] range. returns current master volume in any case
+
+API int     audio_mute(int mute);
+API int     audio_muted();
+
+API int ui_audio();
 
 enum AUDIO_FLAGS {
     AUDIO_1CH = 0, // default
@@ -1492,6 +1701,104 @@ enum AUDIO_FLAGS {
 };
 
 API int audio_queue( const void *samples, int num_samples, int flags );
+#line 0
+
+#line 1 "fwk_buffer.h"
+// ----------------------------------------------------------------------------
+// compression api
+
+enum COMPRESS_FLAGS {
+    COMPRESS_RAW     = 0,
+    COMPRESS_PPP     = (1<<4),
+    COMPRESS_ULZ     = (2<<4),
+    COMPRESS_LZ4     = (3<<4),
+    COMPRESS_CRUSH   = (4<<4),
+    COMPRESS_DEFLATE = (5<<4),
+    COMPRESS_LZP1    = (6<<4),
+    COMPRESS_LZMA    = (7<<4),
+    COMPRESS_BALZ    = (8<<4),
+    COMPRESS_LZW3    = (9<<4),
+    COMPRESS_LZSS    = (10<<4),
+    COMPRESS_BCM     = (11<<4),
+    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
+};
+
+API unsigned zbounds(unsigned inlen, unsigned flags);
+API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+API unsigned zexcess(unsigned flags);
+API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+
+// ----------------------------------------------------------------------------
+// array de/interleaving
+// - rlyeh, public domain.
+//
+// results:
+// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
+// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
+
+API void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
+
+// ----------------------------------------------------------------------------
+// cobs en/decoder
+
+API unsigned cobs_bounds(unsigned len);
+API unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
+API unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// base92 en/decoder
+
+API unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_bounds(unsigned inlen);
+
+// ----------------------------------------------------------------------------
+// netstring en/decoder
+
+API unsigned netstring_bounds(unsigned inlen);
+API unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
+API unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// delta en/decoder
+
+API void delta8_encode(void *buffer, unsigned count);
+API void delta8_decode(void *buffer, unsigned count);
+
+API void delta16_encode(void *buffer, unsigned count);
+API void delta16_decode(void *buffer, unsigned count);
+
+API void delta32_encode(void *buffer, unsigned count);
+API void delta32_decode(void *buffer, unsigned count);
+
+API void delta64_encode(void *buffer, unsigned count);
+API void delta64_decode(void *buffer, unsigned count);
+
+// ----------------------------------------------------------------------------
+// zigzag en/decoder
+
+API uint64_t zig64( int64_t value ); // convert sign|magnitude to magnitude|sign
+API int64_t zag64( uint64_t value ); // convert magnitude|sign to sign|magnitude
+
+API uint32_t enczig32u( int32_t n);
+API uint64_t enczig64u( int64_t n);
+API  int32_t deczig32i(uint32_t n);
+API  int64_t deczig64i(uint64_t n);
+
+// ----------------------------------------------------------------------------
+// arc4 en/decryptor
+
+API void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
+
+// ----------------------------------------------------------------------------
+// crc64
+
+API uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
+
+// ----------------------------------------------------------------------------
+// entropy encoder
+
+API void entropy( void *buf, unsigned n );
 #line 0
 
 #line 1 "fwk_collide.h"
@@ -1687,6 +1994,8 @@ API void cook_cancel();
 API int  cook_jobs();     // [0..N]
 API int  cook_progress(); // [0..100]
 
+// utils
+API bool have_tools();
 #line 0
 
 #line 1 "fwk_data.h"
@@ -1726,29 +2035,6 @@ API array(char)         xml_blob(char *key);
 API void            xml_pop();
 
 API bool data_tests();
-
-// compression api
-
-enum COMPRESS_FLAGS {
-    COMPRESS_RAW     = 0,
-    COMPRESS_PPP     = (1<<4),
-    COMPRESS_ULZ     = (2<<4),
-    COMPRESS_LZ4     = (3<<4),
-    COMPRESS_CRUSH   = (4<<4),
-    COMPRESS_DEFLATE = (5<<4),
-    COMPRESS_LZP1    = (6<<4),
-    COMPRESS_LZMA    = (7<<4),
-    COMPRESS_BALZ    = (8<<4),
-    COMPRESS_LZW3    = (9<<4),
-    COMPRESS_LZSS    = (10<<4),
-    COMPRESS_BCM     = (11<<4),
-    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
-};
-
-API unsigned zbounds(unsigned inlen, unsigned flags);
-API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
-API unsigned zexcess(unsigned flags);
-API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
 #line 0
 
 #line 1 "fwk_dll.h"
@@ -1771,12 +2057,19 @@ API void* dll(const char *filename, const char *symbol);
 // in-game editor
 // - rlyeh, public domain.
 //
-// @todo: merge editor1.c and editor2.c internals into this api
+// @todo: merge editor1.c and editor3.c internals into this api
 
 //API void  editor();
 //API bool  editor_active();
-API vec3  editor_pick(float mouse_x, float mouse_y);
-API char* editor_path(const char *path);
+API vec3   editor_pick(float mouse_x, float mouse_y);
+API char*  editor_path(const char *path);
+
+API float* engine_getf(const char *key);
+API int*   engine_geti(const char *key);
+API char** engine_gets(const char *key);
+API int    engine_send(const char *cmd, const char *optional_value);
+
+API int    ui_debug();
 
 // open file dialog
 
@@ -1791,19 +2084,19 @@ API bool  gizmo_hover();
 
 // localization kit (I18N, L10N)
 
-API void  kit_locale( const char *langcode_iso639_1 ); // set context language: enUS, ptBR, esES, ...
-API void  kit_set( const char *variable, const char *value ); // set context variable
-API void  kit_reset(); // reset all variables in context
-
-API void  kit_insert( const char *id, const char *translation ); // insert single translation
 API bool  kit_load( const char *filename ); // load translations file (xlsx)
 API bool  kit_merge( const char *filename ); // merge translations file into existing context
+API void  kit_insert( const char *id, const char *translation ); // insert single translation unit
 API void  kit_clear(); // delete all translations
 
-API char* kit_translate( const char *id ); // perform a translation, given current locale
+API void  kit_set( const char *variable, const char *value ); // set context variable
+API void  kit_reset(); // reset all variables in context
+API void  kit_dump_state( FILE *fp ); // debug
+
 API char* kit_translate2( const char *id, const char *langcode_iso639_1 ); // perform a translation given explicit locale
 
-API void  kit_dump_state( FILE *fp );
+API void  kit_locale( const char *langcode_iso639_1 ); // set current locale: enUS, ptBR, esES, ...
+API char* kit_translate( const char *id ); // perform a translation, given current locale
 #line 0
 
 #line 1 "fwk_file.h"
@@ -1819,7 +2112,7 @@ API void  kit_dump_state( FILE *fp );
 
 // physical filesystem. files
 
-API const char** file_list(const char *path, const char *masks); // **.png;*.c
+API array(char*) file_list( const char *pathmasks ); // folder/*.ico;**.png;*.c
 API bool         file_write( const char *file, const void *ptr, int len );
 API bool         file_append( const char *file, const void *ptr, int len );
 API char *       file_read(const char *filename);
@@ -1871,7 +2164,7 @@ API void         storage_flush();
 // virtual filesystem
 
 API bool         vfs_mount(const char *mount_point);
-API const char** vfs_list(const char *masks); // **.png;*.c
+API array(char*) vfs_list(const char *masks); // **.png;*.c
 
 API char *       vfs_read(const char *pathfile);
 API char *       vfs_load(const char *pathfile, int *size);
@@ -2065,7 +2358,9 @@ API bool        input_touch_active();
 
 API void        input_mappings(const char *filename); // update gamepad mappings (usually "gamecontrollerdb.txt" file)
 API char        input_keychar(unsigned code); // Converts keyboard code to its latin char (if any)
+API int         input_enum(const char *sym);
 API int         input_anykey();
+API int         input_eval(const char *expression); // "down(X)*input(CTRL)"
 
 // inject state
 API void        input_send( int vk ); // @todo
@@ -2116,6 +2411,12 @@ enum INPUT_ENUMS {
     // -- strings: x2 gamepad
     GAMEPAD_GUID, GAMEPAD_NAME,
 };
+// these aliases do check both left and right counterparts
+enum INPUT_ALIASES {
+    KEY_SHIFT = KEY_LSHIFT,
+    KEY_ALT = KEY_LALT,
+    KEY_CTRL = KEY_LCTRL,
+};
 #line 0
 
 #line 1 "fwk_memory.h"
@@ -2151,6 +2452,7 @@ API void*  forget( void *ptr );
 #define REALLOC(p,n)   REALLOC_((p),(n))
 #define CALLOC(m,n)    CALLOC_((m),(n))
 #define STRDUP(s)      STRDUP_(s)
+#define ALLOCA(n)      ifdef(gcc, __builtin_alloca(n), _alloca(n))
 
 static FORCE_INLINE void *(REALLOC_)(void *p, size_t n) { return n ? WATCH(xrealloc(p,n),n) : xrealloc(FORGET(p),0); } ///-
 static FORCE_INLINE void *(CALLOC_)(size_t m, size_t n) { return n *= m, memset(REALLOC(0,n),0,n); } ///-
@@ -2295,138 +2597,305 @@ API int64_t  client_join(const char *ip, int port);
 #define LOCALHOST_IPV6 "::1"
 #line 0
 
-#line 1 "fwk_obj.h"
+#line 1 "fwk_pack.h"
 // -----------------------------------------------------------------------------
-// C object framework (constructors/destructors, methods, rtti, refcounting)
+// semantic versioning in a single byte (octal)
 // - rlyeh, public domain.
 //
-// ## object api (low level)
+// - single octal byte that represents semantic versioning (major.minor.patch).
+// - allowed range [0000..0377] ( <-> [0..255] decimal )
+// - comparison checks only major.minor tuple as per convention.
+
+API int semver( int major, int minor, int patch );
+API int semvercmp( int v1, int v2 );
+
+#define SEMVER(major,minor,patch) (0100 * (major) + 010 * (minor) + (patch))
+#define SEMVERCMP(v1,v2) (((v1) & 0110) - ((v2) & 0110))
+#define SEMVERFMT "%03o"
+
+// -----------------------------------------------------------------------------
+// storage types. refer to vec2i/3i, vec2/3/4 if you plan to do math operations
+
+typedef struct byte2 { uint8_t x,y; } byte2;
+typedef struct byte3 { uint8_t x,y,z; } byte3;
+typedef struct byte4 { uint8_t x,y,z,w; } byte4;
+
+typedef struct int2 { int x,y; } int2;
+typedef struct int3 { int x,y,z; } int3;
+typedef struct int4 { int x,y,z,w; } int4;
+
+typedef struct uint2 { unsigned int x,y; } uint2;
+typedef struct uint3 { unsigned int x,y,z; } uint3;
+typedef struct uint4 { unsigned int x,y,z,w; } uint4;
+
+typedef struct float2 { float x,y; } float2;
+typedef struct float3 { float x,y,z; } float3;
+typedef struct float4 { float x,y,z,w; } float4;
+
+typedef struct double2 { double x,y; } double2;
+typedef struct double3 { double x,y,z; } double3;
+typedef struct double4 { double x,y,z,w; } double4;
+
+#define byte2(x,y)       M_CAST(byte2, (uint8_t)(x), (uint8_t)(y) )
+#define byte3(x,y,z)     M_CAST(byte3, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z) )
+#define byte4(x,y,z,w)   M_CAST(byte4, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z), (uint8_t)(w) )
+
+#define int2(x,y)        M_CAST(int2, (int)(x), (int)(y) )
+#define int3(x,y,z)      M_CAST(int3, (int)(x), (int)(y), (int)(z) )
+#define int4(x,y,z,w)    M_CAST(int4, (int)(x), (int)(y), (int)(z), (int)(w) )
+
+#define uint2(x,y)       M_CAST(uint2, (unsigned)(x), (unsigned)(y) )
+#define uint3(x,y,z)     M_CAST(uint3, (unsigned)(x), (unsigned)(y), (unsigned)(z) )
+#define uint4(x,y,z,w)   M_CAST(uint4, (unsigned)(x), (unsigned)(y), (unsigned)(z), (unsigned)(w) )
+
+#define float2(x,y)      M_CAST(float2, (float)(x), (float)(y) )
+#define float3(x,y,z)    M_CAST(float3, (float)(x), (float)(y), (float)(z) )
+#define float4(x,y,z,w)  M_CAST(float4, (float)(x), (float)(y), (float)(z), (float)(w) )
+
+#define double2(x,y)     M_CAST(double2, (double)(x), (double)(y) )
+#define double3(x,y,z)   M_CAST(double3, (double)(x), (double)(y), (double)(z) )
+#define double4(x,y,z,w) M_CAST(double4, (double)(x), (double)(y), (double)(z), (double)(w) )
+
+// -----------------------------------------------------------------------------
+// compile-time fourcc, eightcc
+
+API char *cc4str(unsigned cc);
+API char *cc8str(uint64_t cc);
+
+enum {
+#   define _(a,b,c,d,e) cc__##a, cc__##b, cc__##c, cc__##d, cc__##e
+    cc__1 = '1', _(2,3,4,5,6),_(7,8,9,0,_), cc__ = ' ',
+    cc__A = 'A', _(B,C,D,E,F),_(G,H,I,J,K),_(L,M,N,O,P),_(Q,R,S,T,U),_(V,W,X,Y,Z),
+    cc__a = 'a', _(b,c,d,e,f),_(g,h,i,j,k),_(l,m,n,o,p),_(q,r,s,t,u),_(v,w,x,y,z),
+#   undef _
+};
+
+#ifdef BIG
+#define cc4(a,b,c,d) ((uint32_t)(cc__##a<<24) | (cc__##b<<16) | (cc__##c<<8) | (cc__##d<<0))
+#define cc8(a,b,c,d,e,f,g,h) (((uint64_t)cc4(a,b,c,d) << 32ULL) | cc4(e,f,g,h))
+#else
+#define cc4(a,b,c,d) ((uint32_t)(cc__##d<<24) | (cc__##c<<16) | (cc__##b<<8) | (cc__##a<<0))
+#define cc8(a,b,c,d,e,f,g,h) (((uint64_t)cc4(e,f,g,h) << 32ULL) | cc4(a,b,c,d))
+#endif
+
+#define cc3(a,b,c) cc4(,a,b,c)
+#define cc5(a,b,c,d,e) cc6(,a,b,c,d,e)
+#define cc6(a,b,c,d,e,f) cc7(,a,b,c,d,e,f)
+#define cc7(a,b,c,d,e,f,g) cc8(,a,b,c,d,e,f,g)
+
+// ----------------------------------------------------------------------------
+// text conversions
+
+API char* ftoa1(float v);
+API char* ftoa2(vec2  v);
+API char* ftoa3(vec3  v);
+API char* ftoa4(vec4  v);
+
+API float atof1(const char *s);
+API vec2  atof2(const char *s);
+API vec3  atof3(const char *s);
+API vec4  atof4(const char *s);
+
+API char* itoa1(int   v);
+API char* itoa2(vec2i v);
+API char* itoa3(vec3i v);
+
+API int   atoi1(const char *s);
+API vec2i atoi2(const char *s);
+API vec3i atoi3(const char *s);
+
+// ----------------------------------------------------------------------------
+// endianness
+
+API int         is_big();
+API int         is_little();
+
+API uint16_t    swap16( uint16_t x );
+API uint32_t    swap32( uint32_t x );
+API uint64_t    swap64( uint64_t x );
+API float       swap32f(float n);
+API double      swap64f(double n);
+API void        swapf(float *a, float *b);
+API void        swapf2(vec2 *a, vec2 *b);
+API void        swapf3(vec3 *a, vec3 *b);
+API void        swapf4(vec4 *a, vec4 *b);
+
+API uint16_t    lil16(uint16_t n); // swap16 as lil
+API uint32_t    lil32(uint32_t n); // swap32 as lil
+API uint64_t    lil64(uint64_t n); // swap64 as lil
+API float       lil32f(float n);   // swap32 as lil
+API double      lil64f(double n);  // swap64 as lil
+
+API uint16_t    big16(uint16_t n); // swap16 as big
+API uint32_t    big32(uint32_t n); // swap32 as big
+API uint64_t    big64(uint64_t n); // swap64 as big
+API float       big32f(float n);   // swap32 as big
+API double      big64f(double n);  // swap64 as big
+
+API uint16_t*   lil16p(void *p, int sz);
+API uint32_t*   lil32p(void *p, int sz);
+API uint64_t*   lil64p(void *p, int sz);
+API float   *   lil32pf(void *p, int sz);
+API double  *   lil64pf(void *p, int sz);
+
+API uint16_t*   big16p(void *p, int sz);
+API uint32_t*   big32p(void *p, int sz);
+API uint64_t*   big64p(void *p, int sz);
+API float   *   big32pf(void *p, int sz);
+API double  *   big64pf(void *p, int sz);
+
+#if is(cl)
+#define swap16 _byteswap_ushort
+#define swap32 _byteswap_ulong
+#define swap64 _byteswap_uint64
+#elif is(gcc)
+#define swap16 __builtin_bswap16
+#define swap32 __builtin_bswap32
+#define swap64 __builtin_bswap64
+#endif
+
+#define hton16 big16
+#define ntoh16 big16
+#define hton32 big32
+#define ntoh32 big32
+#define hton64 big64
+#define ntoh64 big64
+
+#define IS_BIG    ((*(uint16_t *)"\0\1") == 1)
+#define IS_LITTLE ((*(uint16_t *)"\0\1") != 1)
+
+// ----------------------------------------------------------------------------
+// half packing
+
+typedef uint16_t half;
+API float half_to_float(half value);
+API half  float_to_half(float value);
+
+// ----------------------------------------------------------------------------
+// int packing
+
+// pack16i() -- store a 16-bit int into a char buffer (like htons())
+// pack32i() -- store a 32-bit int into a char buffer (like htonl())
+// pack64i() -- store a 64-bit int into a char buffer (like htonl())
+
+API void pack16i(uint8_t *buf, uint16_t i, int swap);
+API void pack32i(uint8_t *buf, uint32_t i, int swap);
+API void pack64i(uint8_t *buf, uint64_t i, int swap);
+
+// unpack16i() -- unpack a 16-bit int from a char buffer (like ntohs())
+// unpack32i() -- unpack a 32-bit int from a char buffer (like ntohl())
+// unpack64i() -- unpack a 64-bit int from a char buffer (like ntohl())
+// changes unsigned numbers to signed if needed.
+
+API int16_t unpack16i(const uint8_t *buf, int swap);
+API int32_t unpack32i(const uint8_t *buf, int swap);
+API int64_t unpack64i(const uint8_t *buf, int swap);
+
+// ----------------------------------------------------------------------------
+// float un/packing: 8 (micro), 16 (half), 32 (float), 64 (double) types
+
+#define pack754_8(f)    (  pack754((f),  8,  4))
+#define pack754_16(f)   (  pack754((f), 16,  5))
+#define pack754_32(f)   (  pack754((f), 32,  8))
+#define pack754_64(f)   (  pack754((f), 64, 11))
+#define unpack754_8(u)  (unpack754((u),  8,  4))
+#define unpack754_16(u) (unpack754((u), 16,  5))
+#define unpack754_32(u) (unpack754((u), 32,  8))
+#define unpack754_64(u) (unpack754((u), 64, 11))
+
+API    uint64_t pack754(long double f, unsigned bits, unsigned expbits);
+API long double unpack754(uint64_t i, unsigned bits, unsigned expbits);
+
+// ----------------------------------------------------------------------------
+// variable-length integer packing
+
+API uint64_t pack64uv( uint8_t *buffer, uint64_t value );
+API uint64_t unpack64uv( const uint8_t *buffer, uint64_t *value );
+API uint64_t pack64iv( uint8_t *buffer, int64_t value_ );
+API uint64_t unpack64iv( const uint8_t *buffer, int64_t *value );
+
+// ----------------------------------------------------------------------------
+// msgpack v5, schema based struct/buffer bitpacking
+
+// api v2
+
+API int  msgpack(const char *fmt, ... );                // va arg pack "n,b,u,d/i,s,p,f/g,e,[,{". returns number of written bytes
+API int  msgunpack(const char *fmt, ... );              // va arg pack "n,b,u,d/i,s,p,f/g,e,[,{". returns number of parsed args
+
+// api v1
+
+API int msgpack_new(uint8_t *w, size_t l);
+API int msgpack_nil();                                  // write null
+API int msgpack_chr(bool n);                            // write boolean
+API int msgpack_uns(uint64_t n);                        // write unsigned integer
+API int msgpack_int(int64_t n);                         // write integer
+API int msgpack_str(const char *s);                     // write string
+API int msgpack_bin(const char *s, size_t n);           // write binary pointer
+API int msgpack_flt(double g);                          // write real
+API int msgpack_ext(uint8_t key, void *val, size_t n);  // write extension type
+API int msgpack_arr(uint32_t n);                        // write array mark for next N items
+API int msgpack_map(uint32_t n);                        // write map mark for next N pairs (N keys + N values)
+API int msgpack_eof();                                  // write full?
+API int msgpack_err();                                  // write error?
+
+API bool msgunpack_new( const void *opaque_or_FILE, size_t bytes );
+API bool msgunpack_nil();
+API bool msgunpack_chr(bool *chr);
+API bool msgunpack_uns(uint64_t *uns);
+API bool msgunpack_int(int64_t *sig);
+API bool msgunpack_str(char **str);
+API bool msgunpack_bin(void **bin, uint64_t *len);
+API bool msgunpack_flt(float *flt);
+API bool msgunpack_dbl(double *dbl);
+API bool msgunpack_ext(uint8_t *key, void **val, uint64_t *len);
+API bool msgunpack_arr(uint64_t *len);
+API bool msgunpack_map(uint64_t *len);
+API bool msgunpack_eof();
+API bool msgunpack_err();
+
+// ----------------------------------------------------------------------------
+// Based on code by Brian "Beej Jorgensen" Hall (public domain) [1].
+// Based on code by Ginger Bill's half<->float (public domain) [2].
+// - rlyeh, public domain.
 //
-// - [ ] make object from reflected type (factory)
-// - [x] make object (if debug, include callstack as well)
-// - [x] ctor method (optional, ref to constructor)
-// - [x] dtor method (optional, ref to deleter)
-// - [x] zero mem object
-// - [x] object logger
-// - [ ] iterate members in a struct
+// pack.c  -- perl/python-ish pack/unpack functions
+// like printf and scanf, but for binary data.
 //
-// - [x] clone/copy/mutate classes
-// - [x] load/save objects from/to memory/disk
-// - [ ] diff/patch objects
-// - [ ] experimental: support for AoSoA layout (using objcnt, 3bits)
+// format flags:
+//  (<) little endian       (>) big endian (! also)     (=) native endian
+//  (c) 8-bit  char         (b) 8-bit  byte
+//  (h) 16-bit half         (w) 16-bit word
+//  (i) 32-bit integer      (u) 32-bit unsigned         (f) 32-bit float
+//  (l) 64-bit long         (q) 64-bit quad             (d) 64-bit double
+//  (v) varint
+//  (s) string   (64-bit varint length prepended)
+//  (S) string   (32-bit fixed  length prepended)
+//  (m) memblock (64-bit varint length prepended)
+//  (M) memblock (32-bit fixed  length prepended)
+//  (z) memblock (zeroed)
+//  (#) number of arguments processed (only when unpacking)
 //
-// ## object decomposition
-//
-//                             <---------|--------->
-//            OBJ-SHADOW (64-bits)       |   OBJ CONTENT (N bytes)
-// +-----+-----+-------------+-----------+-----+-----+-----+-----+--
-// |TYPE |REFS.|   OBJ NAME  |  obj cnt  | ... | ... | ... | ... | .
-// +-----+-----+-------------+-----------+-----+-----+-----+-----+--
-// \-16-bits--/\---45-bits--/\--3-bits--/\-------N-bytes-----------
-//
-// OBJ TYPE+NAME format:
-// - [type] custom tags at 0x0
-// - [1..N] name
-// - [\n]   blank separator
-// - [comments, logger, infos, etc] << obj_printf();
-//
-// ## object limitations
-// - 256 classes max
-// - 256 references max
-// - 8-byte overhead per object
-// - 2 total allocs per object (could be flattened into 1 with some more work)
-//
-// @todo: obj_extend( "class_src", "class_dst" ); call[super(obj)]()
-// @todo: preferred load/save format: [ver:1,user:2,type:1] ([eof|size:7/15/23/31][blob:N])+ [crc:1/2/3/4]
-// @todo: more serious loading/saving spec
+// @todo:
+// - (x) document & test flag
+// @totest:
+// - (s) string   (64-bit variable length automatically prepended)
+// - (S) string   (32-bit fixed    length automatically prepended)
+// - (m) memblock (64-bit variable length automatically prepended)
+// - (M) memblock (32-bit fixed    length automatically prepended)
+// - (z) memblock (zeroed)
+// - (#) number of arguments processed (only when unpacking)
 
-// object api (heap+rtti)
+// - save data dictated by the format string from the buffer. return: number of bytes written, or 0 if error.
+//   if first argument is zero, returns number of bytes required for packing.
 
-API void*       obj_malloc( int sz, ... );
-API void*       obj_calloc( int sz, ... );
-API void        obj_free( void *obj );
+API int savef(FILE *file, const char *format, ...);
+API int saveb(unsigned char *buf, const char *format, ...);
 
-API bool        obj_typeeq( const void *obj1, const void *obj2 );
-API const char* obj_typeof( const void *obj );
-API unsigned    obj_typeid( const void *obj );
-API unsigned    obj_typeid_from_name( const char *name );
+// - load data dictated by the format string into the buffer. return: number of bytes read, or 0 if error.
+//   if first argument is zero, returns number of bytes required for unpacking.
 
-// object api (ctor/dtor, refcounting, oop)
-
-API void        obj_new( const char *type, ... );
-API void        obj_del( void *obj );
-
-API void*       obj_ref( void *obj );
-API void*       obj_unref( void *obj );
-
-API void        obj_extend( const char *dstclass, const char *srcclass );
-API void        obj_override( const char *objclass, void (**vtable)(), void(*fn)() );
-
-// object: serialize
-
-API unsigned    obj_load(void *obj, const array(char) buffer);
-API unsigned    obj_load_file(void *obj, FILE *fp);
-API unsigned    obj_load_inplace(void *obj, const void *src, unsigned srclen);
-
-API array(char) obj_save(const void *obj); // empty if error. must array_free() after use
-API unsigned    obj_save_file(FILE *fp, const void *obj);
-API unsigned    obj_save_inplace(void *dst, unsigned cap, const void *obj);
-
-// object: utils
-
-API unsigned    obj_instances( const void *obj );
-
-API void        obj_zero( void *obj );
-API unsigned    obj_sizeof( const void *obj );
-
-API void        obj_hexdump( const void *obj );
-API void        obj_hexdumpf( FILE *out, const void *obj );
-
-API void        obj_printf( void *obj, const char *text );
-API const char* obj_output( const void *obj );
-
-API void *      obj_clone(const void *obj);
-API void *      obj_copy(void **dst, const void *src);
-API void *      obj_mutate(void **dst, const void *src);
-
-// object: method dispatch tables
-
-#define ctor(obj) obj_method0(obj, ctor) // ctor[obj_typeid(obj)](obj)
-#define dtor(obj) obj_method0(obj, dtor) // dtor[obj_typeid(obj)](obj)
-
-API extern void (*ctor[256])(); ///-
-API extern void (*dtor[256])(); ///-
-
-// object: syntax sugars
-
-#define     obj_malloc(sz, ...) obj_initialize((void**)MALLOC(  sizeof(void*)+sz), stringf("\1untyped\n%s\n", "" #__VA_ARGS__))
-#define     obj_calloc(sz, ...) obj_initialize((void**)CALLOC(1,sizeof(void*)+sz), stringf("\1untyped\n%s\n", "" #__VA_ARGS__))
-
-#define     obj_new0(type) obj_new(type, 0)
-#define     obj_new(type, ...) ( \
-                obj_tmpalloc = obj_initialize((void**)CALLOC(1, sizeof(void*)+sizeof(type)), stringf("%c" #type "\n", (char)obj_typeid_from_name(#type))), \
-                (*(type*)obj_tmpalloc = (type){ __VA_ARGS__ }), \
-                ctor(obj_tmpalloc), \
-                (type*)obj_tmpalloc )
-
-#define     obj_override(class, method)    obj_override(#class, (void(**)())method, (void(*)())class##_##method)
-#define     obj_method0(obj, method)       method[obj_typeid(obj)]((obj))
-#define     obj_method(obj, method, ...)   method[obj_typeid(obj)]((obj), __VA_ARGS__)
-
-#define     obj_printf(obj, ...)           obj_printf(obj, va(__VA_ARGS__))
-
-#define     obj_extend(dstclass, srcclass) obj_extend(#dstclass, #srcclass)
-
-// object: implementation details
-
-// https://stackoverflow.com/questions/16198700/using-the-extra-16-bits-in-64-bit-pointers (note: using 19-bits here)
-#define OBJBOX(ptr, payload16) (void*)(((long long unsigned)(payload16) << 48) | (long long unsigned)(ptr))
-#define OBJUNBOX(ptr)          (void*)((long long unsigned)(ptr) & 0x0000FFFFFFFFFFFFull)
-#define OBJPAYLOAD16(ptr)      (((long long unsigned)(ptr)) >> 48)
-#define OBJPAYLOAD3(ptr)       (((long long unsigned)(ptr)) & 7)
-
-API void* obj_initialize( void **ptr, char *type_and_info );
-static __thread void *obj_tmpalloc;
+API int loadf(FILE *file, const char *format, ...);
+API int loadb(const unsigned char *buf, const char *format, ...);
 #line 0
 
 #line 1 "fwk_profile.h"
@@ -2461,6 +2930,72 @@ extern API int profiler_enabled; ///-
 #endif
 #line 0
 
+#line 1 "fwk_reflect.h"
+// C reflection: enums, functions, structs, members and anotations.
+// - rlyeh, public domain
+//
+// @todo: nested structs? pointers in members?
+// @todo: declare TYPEDEF(vec3, float[3]), TYPEDEF(mat4, vec4[4]/*float[16]*/)
+
+#ifndef OBJTYPE
+#define OBJTYPE(T) 0
+#endif
+
+typedef struct reflect_t {
+    unsigned id, objtype;
+    union {
+    unsigned sz;
+    unsigned member_offset;
+    unsigned enum_value;
+    };
+    const char *name;
+    const char *info;
+    void *addr;
+    unsigned parent;
+    const char *type;
+    unsigned bytes;
+} reflect_t;
+
+// inscribe api
+
+#define ENUM(V, ...) \
+    enum_inscribe(#V,V, "E" __VA_ARGS__ " ("FILELINE")")
+
+#define FUNCTION(F, ...) \
+    function_inscribe(#F,(void*)F, "F" __VA_ARGS__ " ("FILELINE")")
+
+#define STRUCT(T, type, member, ...) \
+    struct_inscribe(#T,sizeof(T),OBJTYPE(T),"S" " ("FILELINE")"), \
+    type_inscribe(#type,sizeof(((T){0}).member),"T" __VA_ARGS__ " ("FILELINE")"), \
+    member_inscribe(#T, #member,(uintptr_t)&((T*)0)->member, "M" __VA_ARGS__ " ("FILELINE")", #type, sizeof(((T){0}).member) )
+
+// find api
+
+API unsigned           enum_find(const char *E);
+API void *             function_find(const char *F);
+
+API reflect_t          member_find(const char *T, const char *M); /// find specific member
+API void *             member_findptr(void *obj, const char *T, const char *M); // @deprecate
+API array(reflect_t)*  members_find(const char *T);
+
+// iterate members in a struct
+
+#define each_member(T,R) \
+    (array(reflect_t) *found_ = members_find(T); found_; found_ = 0) \
+        for(int it_ = 0, end_ = array_count(*found_); it_ != end_; ++it_ ) \
+            for(reflect_t *R = &(*found_)[it_]; R; R = 0 )
+
+// private api, still exposed
+
+API void               type_inscribe(const char *TY,unsigned TYsz,const char *infos);
+API void               enum_inscribe(const char *E,unsigned Eval,const char *infos);
+API void               struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos);
+API void               member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes);
+API void               function_inscribe(const char *F,void *func,const char *infos);
+
+API int                ui_reflect(const char *mask); // *, model* or NULL
+#line 0
+
 #line 1 "fwk_render.h"
 // -----------------------------------------------------------------------------
 // naive rendering framework
@@ -2479,7 +3014,7 @@ API unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
 API unsigned bgra( uint8_t b, uint8_t g, uint8_t r, uint8_t a );
 API unsigned rgbaf( float r, float g, float b, float a );
 API unsigned bgraf( float b, float g, float r, float a );
-API float    alpha( unsigned rgba );
+API unsigned alpha( unsigned rgba );
 
 #define RGBX(rgb,x)   ( ((rgb)&0xFFFFFF) | (((unsigned)(x))<<24) )
 #define RGB3(r,g,b)   ( (255<<24) | ((r)<<16) | ((g)<<8) | (b) )
@@ -2999,11 +3534,11 @@ typedef struct shadertoy_t {
     int uniforms[32];
     int texture_channels[4];
     int frame;
-    float clickx, clicky;
     uint64_t t;
     texture_t tx;
     vec2i dims;
     int flags;
+    vec4 mouse;
 } shadertoy_t;
 
 API shadertoy_t  shadertoy( const char *shaderfile, unsigned flags );
@@ -3407,9 +3942,10 @@ char* strtok_s(char* str,const char* delimiters,char** context); // tcc misses t
 
 #if 1
 #define each_substring(str, delims, keyname) \
-    ( int len_ = strlen(str) + 1; len_; len_ = 0 ) \
-    for( char buf_[1024], *ptr_ = len_ < 1024 ? buf_ : REALLOC(0, len_), *lit_ = (char*)(str), *_bak = (snprintf(ptr_, len_, "%s", lit_), ptr_); _bak; _bak = 0, (ptr_ == buf_ ? 0 : REALLOC(ptr_, 0)) ) \
-    for( char *next_token = 0, *keyname = strtok_r(_bak, delims, &next_token); keyname; keyname = strtok_r(NULL, delims, &next_token) )
+    ( char *str_ = (char*)(str); str_; str_ = 0 ) \
+    for( int len_ = strlen(str_) + 1, heap_ = len_ < 1024; len_ > 1; len_ = 0 ) \
+    for( char *ptr_ = (heap_ ? REALLOC(0, len_) : ALLOCA(len_)), *cpy_ = (snprintf(ptr_, len_, "%s", str_), ptr_); ptr_; (heap_ ? REALLOC(ptr_, 0) : 0), ptr_ = 0 ) \
+    for( char *next_token = 0, *keyname = strtok_r(cpy_, delims, &next_token); keyname; keyname = strtok_r(NULL, delims, &next_token) )
 #else
 #define each_substring(str, delims, keyname) \
     ( char** tokens_ = strsplit((str), (delims)), *keyname = 0; tokens_; tokens_ = 0) \
@@ -3459,6 +3995,21 @@ API char*           strjoin(array(char*) list, const char *separator);
 
 API char *          string8(const wchar_t *str);  /// convert from wchar16(win) to utf8/ascii
 API array(uint32_t) string32( const char *utf8 ); /// convert from utf8 to utf32
+
+// -----------------------------------------------------------------------------
+// ## string interning (quarks)
+// - rlyeh, public domain.
+
+API unsigned    intern( const char *string );
+API const char *quark( unsigned key );
+
+typedef struct quarks_db {
+	array(char) blob;
+	array(vec2i) entries;
+} quarks_db;
+
+API unsigned    quark_intern( quarks_db*, const char *string );
+API const char *quark_string( quarks_db*, unsigned key );
 #line 0
 
 #line 1 "fwk_system.h"
@@ -3476,25 +4027,82 @@ API int         argc();
 API char*       argv(int);
 
 API int         flag(const char *commalist); // --arg // app_flag?
-API const char* option(const char *commalist, const char *defaults); // --arg=value or --arg value
-API int         optioni(const char *commalist, int defaults); // argvi() ?
-API float       optionf(const char *commalist, float defaults); // app_option?
+API const char* option(const char *commalist, const char *defaults); // --arg=string or --arg string
+API int         optioni(const char *commalist, int defaults); // --arg=integer or --arg integer  // argvi() ?
+API float       optionf(const char *commalist, float defaults); // --arg=float or --arg float    // flagf() ?
 
-API void        tty_color(unsigned color);
-API void        tty_reset();
 API void        tty_attach();
 API void        tty_detach();
+API void        tty_color(unsigned color);
+API void        tty_reset();
 
 API const char* app_exec(const char *command); // returns ("%15d %s", retcode, output_last_line)
 API int         app_spawn(const char *command);
 API int         app_cores();
-API int         app_battery(); /// return battery level [1..100]. also positive if charging (+), negative if discharging (-), and 0 if no battery is present.
+API int         app_battery(); /// returns battery level [1..100]. also positive if charging (+), negative if discharging (-), and 0 if no battery is present.
 
 API const char* app_name();
 API const char* app_path();
 API const char* app_cache();
 API const char* app_temp();
 API const char* app_cmdline();
+
+API void        app_beep();
+API void        app_hang();
+API void        app_crash();
+API void        app_singleton(const char *guid);
+API bool        app_open(const char *folder_file_or_url);
+
+API const char* app_loadfile();
+API const char* app_savefile();
+
+
+API char*       callstack( int traces ); // write callstack into a temporary string. <0 traces to invert order. do not free().
+API int         callstackf( FILE *fp, int traces ); // write callstack to file. <0 traces to invert order.
+
+API void        die(const char *message);
+API void        alert(const char *message);
+API void        hexdump( const void *ptr, unsigned len );
+API void        hexdumpf( FILE *fp, const void *ptr, unsigned len, int width );
+API void        breakpoint();
+API bool        has_debugger();
+
+API void        trap_install(void);
+API const char *trap_name(int signal);      // helper util
+API void        trap_on_ignore(int signal); // helper util
+API void        trap_on_quit(int signal);   // helper util
+API void        trap_on_abort(int signal);  // helper util
+API void        trap_on_debug(int signal);  // helper util
+
+#define PANIC(...)   PANIC(va(""__VA_ARGS__), __FILE__, __LINE__) // die() ?
+API int (PANIC)(const char *error, const char *file, int line);
+
+#define PRINTF(...)  PRINTF(va(""__VA_ARGS__), 1[""#__VA_ARGS__] == '!' ? callstack(+48) : "", __FILE__, __LINE__, __FUNCTION__)
+API int (PRINTF)(const char *text, const char *stack, const char *file, int line, const char *function);
+
+#define test(expr) test(__FILE__,__LINE__,#expr,!!(expr))
+API int (test)(const char *file, int line, const char *expr, bool result);
+
+#if ENABLE_AUTOTESTS
+#define AUTOTEST AUTORUN
+#else
+#define AUTOTEST static void concat(concat(concat(disabled_test_, __LINE__), _), __COUNTER__)()
+#endif
+
+// AUTOTEST { test(1<2); }
+
+#if ENABLE_RETAIL
+#undef  PRINTF
+#define PRINTF(...) 0
+#undef  test
+#define test(expr)  0
+#endif
+#line 0
+
+#line 1 "fwk_time.h"
+// -----------------------------------------------------------------------------
+// time framework utils
+// - rlyeh, public domain.
 
 API uint64_t    date();        // YYYYMMDDhhmmss
 API uint64_t    date_epoch();  // linux epoch
@@ -3513,50 +4121,128 @@ API void        sleep_ns(double us);
 API unsigned    timer(unsigned ms, unsigned (*callback)(unsigned ms, void *arg), void *arg);
 API void        timer_destroy(unsigned timer_handle);
 
-API char*       callstack( int traces ); // write callstack into a temporary string. <0 traces to invert order. do not free().
-API int         callstackf( FILE *fp, int traces ); // write callstack to file. <0 traces to invert order.
+// time sortable unique identifier (similar to ksuid/tuid; others: sno/xid/cuid/ulid)
+// - rlyeh, public domain.
+//
+// also similar to a mongo object id, 12 bytes as follows:
+// - 4-byte timestamp (ss). epoch: Tuesday, 12 September 2023 6:06:56
+// - 2-byte (machine, hash or app id)
+// - 2-byte (thread-id)
+// - 4-byte (rand counter, that gets increased at every id creation)
 
-API void        die(const char *message);
-API void        alert(const char *message);
-API void        hexdump( const void *ptr, unsigned len );
-API void        hexdumpf( FILE *fp, const void *ptr, unsigned len, int width );
-API void        breakpoint(const char *optional_reason);
-API bool        has_debugger();
+typedef vec3i guid;
 
-API void        signal_hooks(void);
-API void        signal_handler_ignore(int signal);
-API void        signal_handler_quit(int signal);
-API void        signal_handler_abort(int signal);
-API void        signal_handler_debug(int signal);
-API const char *signal_name(int signal); // helper util
+API guid        guid_create();
 
-API uint16_t    lil16(uint16_t n); // swap16 as lil
-API uint32_t    lil32(uint32_t n); // swap32 as lil
-API float       lil32f(float n);   // swap32 as lil
-API uint64_t    lil64(uint64_t n); // swap64 as lil
-API double      lil64f(double n);  // swap64 as lil
-API uint16_t    big16(uint16_t n); // swap16 as big
-API uint32_t    big32(uint32_t n); // swap32 as big
-API float       big32f(float n);   // swap32 as big
-API uint64_t    big64(uint64_t n); // swap64 as big
-API double      big64f(double n);  // swap64 as big
+/*
+AUTORUN {
+    guid g1 = guid_create();
+    guid g2 = guid_create();
+    print3i(g1);
+    hexdump(&g1, sizeof(g1));
+    print3i(g2);
+    hexdump(&g2, sizeof(g2));
+}
+*/
+#line 0
 
-API uint16_t*   lil16p(void *n, int sz);
-API uint32_t*   lil32p(void *n, int sz);
-API float*      lil32pf(void *n, int sz);
-API uint64_t*   lil64p(void *n, int sz);
-API double*     lil64pf(void *n, int sz);
-API uint16_t*   big16p(void *n, int sz);
-API uint32_t*   big32p(void *n, int sz);
-API float*      big32pf(void *n, int sz);
-API uint64_t*   big64p(void *n, int sz);
-API double*     big64pf(void *n, int sz);
+#line 1 "fwk_tween.h"
+// ----------------------------------------------------------------------------
+// ease
 
-#define PANIC(...)   PANIC(va(__VA_ARGS__), __FILE__, __LINE__) // die() ?
-API int (PANIC)(const char *error, const char *file, int line);
+API float ease_nop(float t);
+API float ease_linear(float t);
 
-#define PRINTF(...)  PRINTF(va(__VA_ARGS__), 1[#__VA_ARGS__] == '!' ? callstack(+48) : "", __FILE__, __LINE__, __FUNCTION__)
-API int (PRINTF)(const char *text, const char *stack, const char *file, int line, const char *function);
+API float ease_out_sine(float t);
+API float ease_out_quad(float t);
+API float ease_out_cubic(float t);
+API float ease_out_quart(float t);
+API float ease_out_quint(float t);
+API float ease_out_expo(float t);
+API float ease_out_circ(float t);
+API float ease_out_back(float t);
+API float ease_out_elastic(float t);
+API float ease_out_bounce(float t);
+
+API float ease_in_sine(float t);
+API float ease_in_quad(float t);
+API float ease_in_cubic(float t);
+API float ease_in_quart(float t);
+API float ease_in_quint(float t);
+API float ease_in_expo(float t);
+API float ease_in_circ(float t);
+API float ease_in_back(float t);
+API float ease_in_elastic(float t);
+API float ease_in_bounce(float t);
+
+API float ease_inout_sine(float t);
+API float ease_inout_quad(float t);
+API float ease_inout_cubic(float t);
+API float ease_inout_quart(float t);
+API float ease_inout_quint(float t);
+API float ease_inout_expo(float t);
+API float ease_inout_circ(float t);
+API float ease_inout_back(float t);
+API float ease_inout_elastic(float t);
+API float ease_inout_bounce(float t);
+
+API float ease_inout_perlin(float t);
+
+enum EASE_FLAGS {
+    EASE_SINE,
+    EASE_QUAD,
+    EASE_CUBIC,
+    EASE_QUART,
+    EASE_QUINT,
+    EASE_EXPO,
+    EASE_CIRC,
+    EASE_BACK,
+    EASE_ELASTIC,
+    EASE_BOUNCE,
+
+    EASE_IN,
+    EASE_OUT = 0,
+    EASE_INOUT = EASE_IN * 2,
+
+    EASE_NOP = EASE_INOUT | (EASE_BOUNCE + 1),
+    EASE_LINEAR,
+    EASE_INOUT_PERLIN,
+
+    EASE_NUM
+};
+
+API float ease(float t01, unsigned fn); // / 0-to-1
+API float ease_pong(float t01, unsigned fn); // \ 1-to-0
+API float ease_ping_pong(float t, unsigned fn1, unsigned fn2); // /\ 0-to-1-to-0
+API float ease_pong_ping(float t, unsigned fn1, unsigned fn2); // \/ 1-to-0-to-1
+
+API const char *ease_enum(unsigned fn);
+API const char**ease_enums();
+
+// ----------------------------------------------------------------------------
+// tween
+
+typedef struct tween_keyframe_t {
+    float t;
+	vec3 v;
+    unsigned ease;
+} tween_keyframe_t;
+
+typedef struct tween_t {
+	array(tween_keyframe_t) keyframes;
+
+	vec3 result;
+	float time;
+	float duration;
+} tween_t;
+
+API tween_t tween();
+API void      tween_setkey(tween_t *tw, float t, vec3 v, unsigned easing_mode);
+API void        tween_delkey(tween_t *tw, float t);
+API float     tween_update(tween_t *tw, float dt);
+API void      tween_reset(tween_t *tw);
+API void    tween_destroy(tween_t *tw);
+
 #line 0
 
 #line 1 "fwk_ui.h"
@@ -3575,6 +4261,7 @@ API int ui_notify(const char *title, const char *body);
 API int ui_window(const char *title, int *enabled);
 API int  ui_panel(const char *title, int flags); // may be embedded inside a window, or standalone
 API int   ui_collapse(const char *label, const char *id);
+API int   ui_collapseo(const char *label, const char *id);
 API int   ui_contextual();
 API int    ui_section(const char *title);
 API int    ui_int(const char *label, int *value);
@@ -3622,7 +4309,7 @@ API int    ui_label2_float(const char *label, float value);
 API int    ui_label2_toolbar(const char *label, const char *icons);
 API int    ui_slider(const char *label, float *value);
 API int    ui_slider2(const char *label, float *value, const char *caption);
-API int   ui_contextual_end();
+API int   ui_contextual_end(int close);
 API int   ui_collapse_clicked();
 API int   ui_collapse_end();
 API int  ui_panel_end();
@@ -3647,6 +4334,7 @@ API int ui_hover(); // ui_is_hover()?
 API int ui_active(); // ui_is_active()?
 
 API int ui_demo(int do_windows);
+API void *ui_handle();
 #line 0
 
 #line 1 "fwk_video.h"
@@ -3731,7 +4419,6 @@ API void     window_loop(void (*function)(void* loopArg), void* loopArg ); // ru
 API void     window_loop_exit(); // exit from main loop function (emscripten only)
 
 API void     window_title(const char *title);
-API void     window_icon(const char *file_icon);
 API void     window_color(unsigned color);
 API vec2     window_canvas();
 API void*    window_handle();
@@ -3760,6 +4447,8 @@ API void     window_maximize(int enabled);
 API int      window_has_maximize();
 API void     window_transparent(int enabled);
 API int      window_has_transparent();
+API void     window_icon(const char *file_icon);
+API int      window_has_icon();
 
 API double   window_aspect();
 API void     window_aspect_lock(unsigned numer, unsigned denom);
@@ -3772,6 +4461,8 @@ API void     window_fps_unlock();
 
 API void     window_screenshot(const char* outfile_png); // , bool record_cursor
 API int      window_record(const char *outfile_mp4); // , bool record_cursor
+
+API vec2     window_dpi();
 
 enum CURSOR_SHAPES {
     CURSOR_NONE,

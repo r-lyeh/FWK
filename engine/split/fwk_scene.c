@@ -109,7 +109,7 @@ void camera_fov(camera_t *cam, float fov) {
 
     float DIMETRIC = 30.000f;
     float ISOMETRIC = 35.264f;
-    float aspect = window_width() / ((float)window_height()+!!window_height());
+    float aspect = window_width() / ((float)window_height()+!window_height());
     orthogonal(cam->proj, 45, aspect, -1000, 1000); // why -1000?
     // cam->yaw = 45;
     cam->pitch = -ISOMETRIC;
@@ -182,23 +182,26 @@ void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
 
 int ui_camera( camera_t *cam ) {
     int changed = 0;
-    changed |= ui_float("Speed", &cam->speed);
-    ui_separator();
     changed |= ui_bool("Damping", &cam->damping);
     if( !cam->damping ) ui_disable();
-    changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.2f", cam->move_friction));
-    changed |= ui_slider2("Move damping", &cam->move_damping, va("%5.2f", cam->move_damping));
-    changed |= ui_slider2("View driction", &cam->look_friction, va("%5.2f", cam->look_friction));
-    changed |= ui_slider2("View damping", &cam->look_damping, va("%5.2f", cam->look_damping));
+    changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.3f", cam->move_friction));
+    changed |= ui_slider2("Move damping", &cam->move_damping, va("%5.3f", cam->move_damping));
+    changed |= ui_slider2("View friction", &cam->look_friction, va("%5.3f", cam->look_friction));
+    changed |= ui_slider2("View damping", &cam->look_damping, va("%5.3f", cam->look_damping));
     if( !cam->damping ) ui_enable();
     ui_separator();
-    changed |= ui_float3("Position", &cam->position.x);
-    changed |= ui_float3("LookDir", &cam->lookdir.x);
-    changed |= ui_float3("UpDir", &cam->updir.x);
+    changed |= ui_float("Speed", &cam->speed);
+    changed |= ui_float3("Position", cam->position.v3);
+    changed |= ui_float3("LookDir", cam->lookdir.v3);
+    changed |= ui_float3("UpDir", cam->updir.v3);
+    ui_disable();
     changed |= ui_mat44("View matrix", cam->view);
+    ui_enable();
     ui_separator();
     changed |= ui_float("FOV (degrees)", &cam->fov);
+    ui_disable();
     changed |= ui_mat44("Projection matrix", cam->proj);
+    ui_enable();
     return changed;
 }
 

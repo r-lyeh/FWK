@@ -35,7 +35,7 @@
 
 /* Other definitions */
 #define MAX_ID_LEN  11      /* Max length of an identifier */
-#define OPERATORS   "+-*/%(),^" /* Valid operators */
+#define OPERATORS   "+-*/%(),^&|!" /* Valid operators */
 
 #define EVAL_PI         3.141592654
 #define EVAL_E          2.718281828
@@ -194,7 +194,7 @@ start:
     else if(isalpha(ev->p[0])) {
         /* Identifier */
         int i;
-        for(i = 0; isalnum(ev->p[0]) && i < MAX_ID_LEN - 1; i++, ev->p++)
+        for(i = 0; (isalnum(ev->p[0]) || ev->p[0] == '_') && i < MAX_ID_LEN - 1; i++, ev->p++)
             ev->token[next_tok].s_val[i] = ev->p[0];
 
         if(isalpha(ev->p[0])) longjmp(ev->j, ERR_LONGID);
@@ -241,7 +241,7 @@ static void expr(struct eval *ev) {
 static void add_expr(struct eval *ev) {
     int t;
     mul_expr(ev);
-    while((t =EVAL_TYPE(ev)) == '+' || t == '-') {
+    while((t =EVAL_TYPE(ev)) == '+' || t == '-' || t == '|') {
         double a,b;
         lex(ev);
         mul_expr(ev);
@@ -250,8 +250,10 @@ static void add_expr(struct eval *ev) {
 
         if(t == '+')
             push(ev, a + b);
-        else
+        else if(t == '-')
             push(ev, a - b);
+        else
+            push(ev, a || b);
     }
 }
 
@@ -259,7 +261,7 @@ static void add_expr(struct eval *ev) {
 static void mul_expr(struct eval *ev) {
     int t;
     pow_expr(ev);
-    while((t = EVAL_TYPE(ev)) == '*' || t == '/' || t == '%') {
+    while((t = EVAL_TYPE(ev)) == '*' || t == '/' || t == '%' || t == '&') {
         double a,b;
         lex(ev);
         pow_expr(ev);
@@ -270,8 +272,10 @@ static void mul_expr(struct eval *ev) {
             push(ev, a * b);
         else if(t == '/')
             push(ev, a / b);
-        else
+        else if(t == '%')
             push(ev, fmod(a, b));
+        else
+            push(ev, a && b);
     }
 }
 
@@ -293,7 +297,7 @@ static void pow_expr(struct eval *ev) {
 // uni_expr ::= ['+'|'-'] bra_expr
 static void uni_expr(struct eval *ev) {
     int t = '+';
-    if(EVAL_TYPE(ev) == '-' || EVAL_TYPE(ev) == '+') {
+    if(EVAL_TYPE(ev) == '-' || EVAL_TYPE(ev) == '+' || EVAL_TYPE(ev) == '!') {
         t = EVAL_TYPE(ev);
         lex(ev);
     }
@@ -303,6 +307,10 @@ static void uni_expr(struct eval *ev) {
     if(t == '-') {
         double a = pop(ev);
         push(ev, -a);
+    }
+    else if(t == '!') {
+        double a = pop(ev);
+        push(ev, !a);
     }
 }
 
@@ -329,18 +337,23 @@ static void id_expr(struct eval *ev) {
         strcpy(id, ev->token[ev->cur_tok].s_val);
         lex(ev);
         if(EVAL_TYPE(ev) != '(') {
-            /**/ if(!istrcmp(id, "true"))  push(ev, 1.0);
-            else if(!istrcmp(id, "false")) push(ev, 0.0);
-            else if(!istrcmp(id, "on"))  push(ev, 1.0);
-            else if(!istrcmp(id, "off")) push(ev, 0.0);
+#ifdef EVAL_EXTEND_CONSTANTS
+       EVAL_EXTEND_CONSTANTS
+#else
+       if(0) {}
+#endif
+            else if(!strcmp(id, "true"))  push(ev, 1.0);
+            else if(!strcmp(id, "false")) push(ev, 0.0);
+            else if(!strcmp(id, "on"))  push(ev, 1.0);
+            else if(!strcmp(id, "off")) push(ev, 0.0);
             // pi - 3.141592654
-            else if(!istrcmp(id, "pi"))
+            else if(!strcmp(id, "pi"))
                 push(ev, EVAL_PI);
             // e - base of natural logarithms, 2.718281828
-            else if(!istrcmp(id, "e"))
+            else if(!strcmp(id, "e"))
                 push(ev, EVAL_E);
             // deg - deg2rad, allows to degree conversion `sin(90*deg) = 1`
-            else if(!istrcmp(id, "deg"))
+            else if(!strcmp(id, "deg"))
                 push(ev, EVAL_DEG);
             else
                 EVAL_ERROR(ERR_CONST);
@@ -358,8 +371,13 @@ static void id_expr(struct eval *ev) {
             }
             lex(ev);
 
+#ifdef EVAL_EXTEND_FUNCTIONS
+       EVAL_EXTEND_FUNCTIONS
+#else
+       if(0) {}
+#endif
             // abs(x) - absolute value of x
-            if(!istrcmp(id, "abs")) {
+            else if(!istrcmp(id, "abs")) {
                 if(nargs != 1) EVAL_ERROR(ERR_ARGS);
                 push(ev, fabs(pop(ev)));
             }
@@ -482,20 +500,9 @@ static void id_expr(struct eval *ev) {
 
 #ifdef EVALDEMO
 #include <stdio.h>
-int main(int argc, char *argv[]) {
-    int i;
-    double e;
-
-    for(i = 1; i < argc; i++) {
-        e = eval(argv[i]);
-        if(e != e)
-            fprintf(stderr, "Error in expression %s\n", argv[i]);
-        else
-            printf("%s = %g\n", argv[i], e);
-    }
-
-    assert( eval("1+1") == 2 );
-    assert( eval("1+") != eval("1+") );
+int main() {
+    assert( eval("1+1") == 2 );         // common path
+    assert( eval("1+") != eval("1+") ); // check that errors return NAN
     assert(~puts("Ok") );
 }
 #endif

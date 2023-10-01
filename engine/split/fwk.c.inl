@@ -27,7 +27,20 @@
 * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 * ------------------------------------------------------------------------------
-* ALTERNATIVE B - MIT-0 (No Attribution clause)
+* ALTERNATIVE B - 0-BSD License (https://opensource.org/licenses/FPL-1.0.0)
+* ------------------------------------------------------------------------------
+* Permission to use, copy, modify, and/or distribute this software for any
+* purpose with or without fee is hereby granted.
+*
+* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+* PERFORMANCE OF THIS SOFTWARE.
+* ------------------------------------------------------------------------------
+* ALTERNATIVE C - MIT-0 (No Attribution clause)
 * ------------------------------------------------------------------------------
 * Permission is hereby granted, free of charge, to any person obtaining a copy of this
 * software and associated documentation files (the "Software"), to deal in the Software
@@ -41,19 +54,6 @@
 * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-* ------------------------------------------------------------------------------
-* ALTERNATIVE C - Zero BSD License (https://opensource.org/licenses/FPL-1.0.0)
-* ------------------------------------------------------------------------------
-* Permission to use, copy, modify, and/or distribute this software for any
-* purpose with or without fee is hereby granted.
-*
-* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-* PERFORMANCE OF THIS SOFTWARE.
 *
 * ## License: Contributed Code ------------------------------------------------
 *
@@ -73,7 +73,7 @@
 * --
 *
 * "I dedicate any and all copyright interest in this software to the three
-* license terms listed above. I make this dedication for the benefit of the
+* licensing terms listed above. I make this dedication for the benefit of the
 * public at large and to the detriment of my heirs and successors. I intend
 * this dedication to be an overt act of relinquishment in perpetuity of all
 * present and future rights to this software under copyright law."
@@ -89,6 +89,10 @@
 #include "fwk.h"
 #endif
 
+#if is(win32) // hack to boost exit time. there are no critical systems that need to shutdown properly on Windows,
+#define atexit(...) // however Linux needs proper atexit() to deinitialize 3rd_miniaudio.h; likely OSX as well.
+#endif
+
 #ifndef FWK_3RD
 #define FWK_3RD
 #include "fwk"
@@ -97,9 +101,7 @@
 //-----------------------------------------------------------------------------
 // C files
 
-#if is(win32) // hack to boost exit time. there are no critical systems that need to shutdown properly on Windows,
-#define atexit(...) // however Linux needs proper atexit() to deinitialize 3rd_miniaudio.h; likely OSX as well.
-#endif
+{{FILE:fwk_begin.c}}
 
 {{FILE:fwk_ds.c}}
 
@@ -107,7 +109,12 @@
 
 {{FILE:fwk_compat.c}}
 
+{{FILE:fwk_ui.c}}
+
+
 {{FILE:fwk_audio.c}}
+
+{{FILE:fwk_buffer.c}}
 
 {{FILE:fwk_collide.c}}
 
@@ -121,6 +128,8 @@
 
 {{FILE:fwk_font.c}}
 
+{{FILE:fwk_id.c}}
+
 {{FILE:fwk_input.c}}
 
 {{FILE:fwk_math.c}}
@@ -130,6 +139,10 @@
 {{FILE:fwk_network.c}}
 
 {{FILE:fwk_netsync.c}}
+
+{{FILE:fwk_pack.c}}
+
+{{FILE:fwk_reflect.c}}
 
 {{FILE:fwk_render.c}}
 
@@ -141,7 +154,9 @@
 
 {{FILE:fwk_system.c}}
 
-{{FILE:fwk_ui.c}}
+{{FILE:fwk_time.c}}
+
+{{FILE:fwk_tween.c}}
 
 {{FILE:fwk_profile.c}}
 
@@ -160,3 +175,5 @@
 // editor is last in place, so it can use all internals from above headers
 
 {{FILE:fwk_main.c}}
+
+{{FILE:fwk_end.c}}

@@ -382,25 +382,3 @@ void (set_free)(set* m) {
     set zero = {0};
     *m = zero;
 }
-
-char *cc4str(unsigned x) {
-    static __thread char type[4+1] = {0};
-    type[3] = (x >> 24ULL) & 255;
-    type[2] = (x >> 16ULL) & 255;
-    type[1] = (x >>  8ULL) & 255;
-    type[0] = (x >>  0ULL) & 255;
-    return type;
-}
-char *cc8str(uint64_t x) {
-    static __thread char type[8+1] = {0};
-    type[7] = (x >> 56ULL) & 255;
-    type[6] = (x >> 48ULL) & 255;
-    type[5] = (x >> 40ULL) & 255;
-    type[4] = (x >> 32ULL) & 255;
-    type[3] = (x >> 24ULL) & 255;
-    type[2] = (x >> 16ULL) & 255;
-    type[1] = (x >>  8ULL) & 255;
-    type[0] = (x >>  0ULL) & 255;
-    return type;
-}
-

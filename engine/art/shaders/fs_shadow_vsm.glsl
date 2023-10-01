@@ -2,7 +2,7 @@ in vec4 v_position;
 out vec4 outColor;
 
 void main() {
-    #if VSMCUBE
+    #ifdef VSMCUBE
     float depth = length( vec3(v_position) ) / 20;
     #else
     float depth = v_position.z / v_position.w;

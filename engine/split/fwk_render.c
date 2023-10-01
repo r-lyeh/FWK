@@ -81,7 +81,7 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
         // dump log with line numbers
         shader_print( source );
-        PANIC("ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
+        PRINTF("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
         return 0;
     }
 
@@ -104,9 +104,10 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
 
     const char *glsl_version = ifdef(ems, "300 es", "150");
 
-    vs = vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
-    fs = fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
-    if (gs) gs = gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
+    if(gs)
+    gs = gs && gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
+    vs = vs && vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
+    fs = fs && fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
 
 #if is(ems)
     {
@@ -229,22 +230,31 @@ char** shader_property(unsigned shader, unsigned property) {
 void shader_apply_param(unsigned shader, unsigned param_no) {
     unsigned num_properties = shader_properties(shader);
     if( param_no < num_properties ) {
-        char *line = *shader_property(shader, param_no);
+        char *buf = *shader_property(shader, param_no);
 
-        char type[32], name[32];
+        char type[32], name[32], line[128]; snprintf(line, 127, "%s", buf);
         if( sscanf(line, "%*s %s %[^ =;/]", type, name) != 2 ) return;
 
+        char *mins = strstr(line, "min:");
+        char *sets = strstr(line, "set:");
+        char *maxs = strstr(line, "max:");
+        char *tips = strstr(line, "tip:");
+        if( mins ) *mins = 0, mins += 4;
+        if( sets ) *sets = 0, sets += 4;
+        if( maxs ) *maxs = 0, maxs += 4;
+        if( tips ) *tips = 0, tips += 4;
+
         int is_color = !!strstri(name, "color"), top = is_color ? 1 : 10;
-        vec4 minv = strstr(line, "min:") ? atof4(strstr(line, "min:") + 4) : vec4(0,0,0,0);
-        vec4 setv = strstr(line, "set:") ? atof4(strstr(line, "set:") + 4) : vec4(0,0,0,0);
-        vec4 maxv = strstr(line, "max:") ? atof4(strstr(line, "max:") + 4) : vec4(top,top,top,top);
+        vec4 minv = mins ? atof4(mins) : vec4(0,0,0,0);
+        vec4 setv = sets ? atof4(sets) : vec4(0,0,0,0);
+        vec4 maxv = maxs ? atof4(maxs) : vec4(top,top,top,top);
 
         if(minv.x > maxv.x) swapf(&minv.x, &maxv.x);
         if(minv.y > maxv.y) swapf(&minv.y, &maxv.y);
         if(minv.z > maxv.z) swapf(&minv.z, &maxv.z);
         if(minv.w > maxv.w) swapf(&minv.w, &maxv.w);
 
-        if( !strstr(line, "max:") ) {
+        if( !maxs ) {
         if(setv.x > maxv.x) maxv.x = setv.x;
         if(setv.y > maxv.y) maxv.y = setv.y;
         if(setv.z > maxv.z) maxv.z = setv.z;
@@ -286,26 +296,35 @@ int ui_shader(unsigned shader) {
     for( unsigned i = 0; i < num_properties; ++i ) {
         char **ptr = shader_property(shader,i);
 
-        const char *line = *ptr; // debug: ui_label(line);
-        char* tip = strstr(line, "tip:"); tip = tip && tip[4] ? tip + 4 : 0;
+        char line[128]; snprintf(line, 127, "%s", *ptr); // debug: ui_label(line);
 
         char uniform[32], type[32], name[32], early_exit = '\0';
         if( sscanf(line, "%s %s %[^ =;/]", uniform, type, name) != 3 ) continue; // @todo optimize: move to shader()
-        if( strcmp(uniform, "uniform") && strcmp(uniform, "}uniform") ) { if(tip) ui_label(va(ICON_MD_INFO "%s", tip)); continue; } // @todo optimize: move to shader()
+
+        char *mins = strstr(line, "min:");
+        char *sets = strstr(line, "set:");
+        char *maxs = strstr(line, "max:");
+        char *tips = strstr(line, "tip:");
+        if( mins ) *mins = 0, mins += 4;
+        if( sets ) *sets = 0, sets += 4;
+        if( maxs ) *maxs = 0, maxs += 4;
+        if( tips ) *tips = 0, tips += 4;
+
+        if( strcmp(uniform, "uniform") && strcmp(uniform, "}uniform") ) { if(tips) ui_label(va(ICON_MD_INFO "%s", tips)); continue; } // @todo optimize: move to shader()
 
         int is_color = !!strstri(name, "color"), top = is_color ? 1 : 10;
-        vec4 minv = strstr(line, "min:") ? atof4(strstr(line, "min:") + 4) : vec4(0,0,0,0);
-        vec4 setv = strstr(line, "set:") ? atof4(strstr(line, "set:") + 4) : vec4(0,0,0,0);
-        vec4 maxv = strstr(line, "max:") ? atof4(strstr(line, "max:") + 4) : vec4(top,top,top,top);
-        char *label = !tip ? va("%c%s", name[0] - 32 * !!(name[0] >= 'a'), name+1) :
-            va("%c%s  " ICON_MD_INFO  "@%s", name[0] - 32 * !!(name[0] >= 'a'), name+1, tip);
+        vec4 minv = mins ? atof4(mins) : vec4(0,0,0,0);
+        vec4 setv = sets ? atof4(sets) : vec4(0,0,0,0);
+        vec4 maxv = maxs ? atof4(maxs) : vec4(top,top,top,top);
+        char *label = !tips ? va("%c%s", name[0] - 32 * !!(name[0] >= 'a'), name+1) :
+            va("%c%s  " ICON_MD_INFO  "@%s", name[0] - 32 * !!(name[0] >= 'a'), name+1, tips);
 
         if(minv.x > maxv.x) swapf(&minv.x, &maxv.x); // @optimize: move to shader()
         if(minv.y > maxv.y) swapf(&minv.y, &maxv.y); // @optimize: move to shader()
         if(minv.z > maxv.z) swapf(&minv.z, &maxv.z); // @optimize: move to shader()
         if(minv.w > maxv.w) swapf(&minv.w, &maxv.w); // @optimize: move to shader()
 
-        if( !strstr(line, "max:") ) {
+        if( !maxs ) {
         if(setv.x > maxv.x) maxv.x = setv.x;
         if(setv.y > maxv.y) maxv.y = setv.y;
         if(setv.z > maxv.z) maxv.z = setv.z;
@@ -332,7 +351,7 @@ int ui_shader(unsigned shader) {
         }
         else if( type[0] == 'f' ) {
             setv.x = clampf(setv.x, minv.x, maxv.x);
-            char *caption = va("%5.2f", setv.x);
+            char *caption = va("%5.3f", setv.x);
             setv.x = (setv.x - minv.x) / (maxv.x - minv.x);
 
             if( (touched = ui_slider2(label, &setv.x, caption)) != 0 ) {
@@ -360,12 +379,12 @@ int ui_shader(unsigned shader) {
                 setv = clamp4(setv,minv,maxv);
             }
         }
-        else if( tip ) ui_label( tip );
+        else if( tips ) ui_label( tips );
 
         if( touched ) {
             // upgrade value
             *ptr = FREE(*ptr);
-            *ptr = stringf("%s %s %s ///set:%s min:%s max:%s tip:%s", uniform,type,name,ftoa4(setv),ftoa4(minv),ftoa4(maxv),tip?tip:"");
+            *ptr = stringf("%s %s %s ///set:%s min:%s max:%s tip:%s", uniform,type,name,ftoa4(setv),ftoa4(minv),ftoa4(maxv),tips?tips:"");
 
             // apply
             shader_apply_param(shader, i);
@@ -532,13 +551,13 @@ void shader_colormap(const char *name, colormap_t c ) {
 // colors
 
 unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a ) {
-    return (unsigned)a << 24 | r << 16 | g << 8 | b;
+    return (unsigned)a << 24 | b << 16 | g << 8 | r;
 }
 unsigned bgra( uint8_t b, uint8_t g, uint8_t r, uint8_t a ) {
     return rgba(r,g,b,a);
 }
-float alpha( unsigned rgba ) {
-    return ( rgba >> 24 ) / 255.f;
+unsigned alpha( unsigned rgba ) {
+    return rgba >> 24;
 }
 
 unsigned rgbaf(float r, float g, float b, float a) {
@@ -1792,7 +1811,7 @@ tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols
 int tileset_ui( tileset_t t ) {
     ui_subimage(va("Selection #%d (%d,%d)", t.selected, t.selected % t.cols, t.selected / t.cols), t.tex.id, t.tex.w, t.tex.h, (t.selected % t.cols) * t.tile_w, (t.selected / t.cols) * t.tile_h, t.tile_w, t.tile_h);
     int choice;
-    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) { 
+    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) {
         int px = ((choice / 100) / 100.f) * t.tex.w / t.tile_w;
         int py = ((choice % 100) / 100.f) * t.tex.h / t.tile_h;
         t.selected = px + py * t.cols;
@@ -2188,7 +2207,7 @@ bool spine_(spine_t *t, const char *file_json, const char *file_atlas, unsigned 
                 array_push(t->skins[i].rects, t->skins[0].rects[j]);
             }
         }
-        // @leak @fixme: free(t->skins[0])
+        // @leak @fixme: FREE(t->skins[0])
         for( int i = 0; i < array_count(t->skins)-1; ++i ) {
             t->skins[i] = t->skins[i+1];
         }
@@ -2664,7 +2683,7 @@ skybox_t skybox(const char *asset, int flags) {
     // sky cubemap & SH
     if( asset ) {
         int is_panorama = vfs_size( asset );
-        if( is_panorama ) {
+        if( is_panorama ) { // is file
             stbi_hdr_to_ldr_gamma(1.2f);
             image_t panorama = image( asset, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
@@ -2681,7 +2700,7 @@ skybox_t skybox(const char *asset, int flags) {
             for( int i = 0; i < countof(images); ++i ) image_destroy(&images[i]);
         }
     } else {
-        // set up mie defaults
+        // set up mie defaults // @fixme: use shader params instead
         shader_bind(sky.program);
         shader_vec3("uSunPos", vec3( 0, 0.1, -1 ));
         shader_vec3("uRayOrigin", vec3(0.0, 6372000.0, 0.0));
@@ -2717,7 +2736,7 @@ void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
         for(int i = 0; i < 6; ++i) {
             glGenFramebuffers(1, &sky->framebuffers[i]);
             glBindFramebuffer(GL_FRAMEBUFFER, sky->framebuffers[i]);
-            
+
             glGenTextures(1, &sky->textures[i]);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sky->textures[i]);
@@ -2788,7 +2807,7 @@ void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
 void skybox_sh_reset(skybox_t *sky) {
     for (int s = 0; s < 9; s++) {
         sky->cubemap.sh[s] = vec3(0,0,0);
-    }    
+    }
 }
 
 void skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength) {
@@ -3227,21 +3246,21 @@ int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
     passfx *p = &fx->pass[ slot & 63 ];
     p->name = STRDUP(name);
 
-    const char *vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
-
-    // patch fragment
-    char *fs2 = (char*)CALLOC(1, 128*1024);
-    strcat(fs2, vfs_read("shaders/fs_2_4_preamble.glsl"));
-
-    if( strstr(fs, "mainImage") ) {
-        strcat(fs2, vfs_read("shaders/fs_main_shadertoy.glsl") );
+    // preload stuff
+    static const char *vs = 0;
+    static const char *preamble = 0;
+    static const char *shadertoy = 0;
+    static char *fs2 = 0;
+    do_once {
+        vs = STRDUP(vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl"));
+        preamble = STRDUP(vfs_read("shaders/fs_2_4_preamble.glsl"));
+        shadertoy = STRDUP(vfs_read("shaders/fs_main_shadertoy.glsl"));
+        fs2 = (char*)CALLOC(1, 128*1024);
     }
-
-    strcat(fs2, fs);
+    // patch fragment
+    snprintf(fs2, 128*1024, "%s%s%s", preamble, strstr(fs, "mainImage") ? shadertoy : "", fs );
 
     p->program = shader(vs, fs2, "vtexcoord", "fragColor" , NULL);
-
-    FREE(fs2);
 
     glUseProgram(p->program); // needed?
 
@@ -3445,9 +3464,9 @@ int fx_load_from_mem(const char *nameid, const char *content) {
 }
 int fx_load(const char *filemask) {
     static set(char*) added = 0; do_once set_init_str(added);
-    for(const char **list = vfs_list(filemask); *list; list++) {
-        if( set_find(added, (char*)*list) ) continue;
-        char *name = STRDUP(*list); // @leak
+    for each_array( vfs_list(filemask), char*, list ) {
+        if( set_find(added, list) ) continue;
+        char *name = STRDUP(list); // @leak
         set_insert(added, name);
         (void)postfx_load_from_mem(&fx, file_name(name), vfs_read(name));
     }
@@ -3507,7 +3526,8 @@ static void brdf_load() {
     brdf = texture_compressed( filename,
         TEXTURE_CLAMP | TEXTURE_NEAREST | TEXTURE_RG | TEXTURE_FLOAT | TEXTURE_SRGB
     );
-    ASSERT(brdf.id != texture_checker().id, "!Couldn't load BRDF lookup table '%s'!", filename );
+    unsigned texchecker = texture_checker().id;
+    ASSERT(brdf.id != texchecker, "!Couldn't load BRDF lookup table '%s'!", filename );
 }
 
 texture_t brdf_lut() {
@@ -3675,8 +3695,9 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
             return s;
         }
 
-        float mx = input(MOUSE_X), my = input(MOUSE_Y);
-        if(input(MOUSE_L)) s->clickx = mx, s->clicky = my;
+        if(input_down(MOUSE_L) || input_down(MOUSE_R) ) s->mouse.z = input(MOUSE_X), s->mouse.w = -(window_height() - input(MOUSE_Y));
+        if(input(MOUSE_L) || input(MOUSE_R)) s->mouse.x = input(MOUSE_X), s->mouse.y = (window_height() - input(MOUSE_Y));
+        vec4 m = mul4(s->mouse, vec4(1,1,1-2*(!input(MOUSE_L) && !input(MOUSE_R)),1-2*(input_down(MOUSE_L) || input_down(MOUSE_R))));
 
         time_t tmsec = time(0);
         struct tm *tm = localtime(&tmsec);
@@ -3687,7 +3708,7 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
         glUniform1f(s->uniforms[iGlobalFrame], s->frame++);
         glUniform1f(s->uniforms[iGlobalDelta], delta / 1000.f );
         glUniform2f(s->uniforms[iResolution], s->dims.x ? s->dims.x : window_width(), s->dims.y ? s->dims.y : window_height());
-        if (!(s->flags&SHADERTOY_IGNORE_MOUSE)) glUniform4f(s->uniforms[iMouse], mx, my, s->clickx, s->clicky );
+        if (!(s->flags&SHADERTOY_IGNORE_MOUSE)) glUniform4f(s->uniforms[iMouse], m.x,m.y,m.z,m.w );
 
         glUniform1i(s->uniforms[iFrame], (int)window_frame());
         glUniform1f(s->uniforms[iTime], time_ss());
@@ -3828,7 +3849,6 @@ typedef struct iqm_vertex {
 
 typedef struct iqm_t {
     int nummeshes, numtris, numverts, numjoints, numframes, numanims;
-    GLuint program;
     GLuint vao, ibo, vbo;
     GLuint *textures;
     uint8_t *buf, *meshdata, *animdata;
@@ -3842,7 +3862,6 @@ typedef struct iqm_t {
     vec4 *colormaps;
 } iqm_t;
 
-#define program (q->program)
 #define meshdata (q->meshdata)
 #define animdata (q->animdata)
 #define nummeshes (q->nummeshes)
@@ -4374,7 +4393,7 @@ model_t model_from_mem(const void *mem, int len, int flags) {
     // }
 
     iqm_t *q = CALLOC(1, sizeof(iqm_t));
-    program = shaderprog;
+    m.program = shaderprog;
 
     int error = 1;
     if( ptr && len ) {
@@ -4417,9 +4436,6 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         m.num_frames = numframes;
         m.iqm = q;
         m.curframe = model_animate(m, 0);
-        #undef program
-        m.program = (q->program);
-        #define program (q->program)
 
         //m.num_textures = nummeshes; // assume 1 texture only per mesh
         #undef textures
@@ -4625,13 +4641,13 @@ void model_draw_call(model_t m) {
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(program, "fsDiffTex"), 0 /*<-- unit!*/ );
+        glUniform1i(glGetUniformLocation(m.program, "fsDiffTex"), 0 /*<-- unit!*/ );
 
         int loc;
-        if ((loc = glGetUniformLocation(program, "u_textured")) >= 0) {
+        if ((loc = glGetUniformLocation(m.program, "u_textured")) >= 0) {
             bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
             glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(program, "u_diffuse")) >= 0) {
+            if ((loc = glGetUniformLocation(m.program, "u_diffuse")) >= 0) {
                 glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
             }
         }
@@ -4663,7 +4679,7 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
         model_set_state(m);
     }
 
-    model_set_uniforms(m, shader > 0 ? shader : program, mv, proj, view, models[0]);
+    model_set_uniforms(m, shader > 0 ? shader : m.program, mv, proj, view, models[0]);
     model_draw_call(m);
 }
 

@@ -1541,9 +1541,9 @@ uniform float num_colors;\n\
 out vec4 outColor;\n\
 \n\
 void main() {\
-    vec3 col = texture(sampler_colors, (color_index+0.5)/num_colors).rgb;\n\
+    vec4 col = texture(sampler_colors, (color_index+0.5)/num_colors);\n\
     float s = texture(sampler_font, uv).r;\n\
-    outColor = vec4(col, s);\n\
+    outColor = vec4(col.rgb, s*col.a);\n\
 }\n";
 
 enum { FONT_MAX_COLORS = 256};
@@ -1634,7 +1634,7 @@ void font_color(const char *tag, uint32_t color) {
             if( f->initialized ) {
                 glActiveTexture(GL_TEXTURE2);
                 glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_BGRA, GL_UNSIGNED_BYTE, font_palette);
+                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
             }
         }
     }
@@ -1831,7 +1831,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     // last chance to inspect the font atlases
-    if( flag("--debug-font-atlas") )
+    if( flag("--font-debug") )
     stbi_write_png(va("debug_font_atlas%d.png", index), f->width, f->height, 1, bitmap, 0);
 
     FREE(bitmap);
@@ -1879,7 +1879,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     glGenTextures(1, &f->texture_colors);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_BGRA, GL_UNSIGNED_BYTE, font_palette);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -1902,7 +1902,7 @@ void font_face(const char *tag, const char *filename_ttf, float font_size, unsig
     do_once font_init();
 
     const char *buffer = //file_read(filename_ttf);
-    //if(!buffer) buffer = 
+    //if(!buffer) buffer =
         vfs_read(filename_ttf);
     font_face_from_mem(tag, buffer,0, font_size, flags);
 }

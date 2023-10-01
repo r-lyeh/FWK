@@ -34,26 +34,3 @@ API array(char)         xml_blob(char *key);
 API void            xml_pop();
 
 API bool data_tests();
-
-// compression api
-
-enum COMPRESS_FLAGS {
-    COMPRESS_RAW     = 0,
-    COMPRESS_PPP     = (1<<4),
-    COMPRESS_ULZ     = (2<<4),
-    COMPRESS_LZ4     = (3<<4),
-    COMPRESS_CRUSH   = (4<<4),
-    COMPRESS_DEFLATE = (5<<4),
-    COMPRESS_LZP1    = (6<<4),
-    COMPRESS_LZMA    = (7<<4),
-    COMPRESS_BALZ    = (8<<4),
-    COMPRESS_LZW3    = (9<<4),
-    COMPRESS_LZSS    = (10<<4),
-    COMPRESS_BCM     = (11<<4),
-    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
-};
-
-API unsigned zbounds(unsigned inlen, unsigned flags);
-API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
-API unsigned zexcess(unsigned flags);
-API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);

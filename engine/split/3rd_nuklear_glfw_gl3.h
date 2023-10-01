@@ -319,6 +319,7 @@ nk_glfw3_render(struct nk_glfw* glfw, enum nk_anti_aliasing AA, int max_vertex_b
 
         /* iterate over and execute each draw command */
         nk_draw_foreach(cmd, &glfw->ctx, &dev->cmds)
+        if(glfw->height > 0) //< @r-lyeh: fix opengl/scissor error when win is minimized (h==0)
         {
             if (!cmd->elem_count) continue;
             glBindTexture(GL_TEXTURE_2D, (GLuint)cmd->texture.id);

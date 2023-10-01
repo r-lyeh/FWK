@@ -109,7 +109,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         // queue
         for(int i = 0; i < array_count(dd_text2d); ++i) {
             ddraw_color(dd_text2d[i].col);
-            ddraw_text(dd_text2d[i].pos, dd_text2d[i].sca, dd_text2d[i].str); 
+            ddraw_text(dd_text2d[i].pos, dd_text2d[i].sca, dd_text2d[i].str);
         }
 
         // flush
@@ -140,7 +140,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         // clear
         array_resize(dd_text2d, 0);
     }
-    
+
     glDisable(GL_LINE_SMOOTH);
     glDisable(GL_PROGRAM_POINT_SIZE);
 
@@ -357,7 +357,7 @@ void ddraw_cube(vec3 center, float radius) { // draw_prism(center, 1, -1, vec3(0
 
 #if 0 // @fixme: broken
 void ddraw_cube44(vec3 radius, mat44 M) {
-    float m33[9]; extract33(m33, M); // = { M[0,1,2], M[4,5,6], M[8,9,10] }    
+    float m33[9]; extract33(m33, M); // = { M[0,1,2], M[4,5,6], M[8,9,10] }
     ddraw_cube33( vec3(M[12], M[13], M[14]), radius, m33 );
 }
 #endif
@@ -514,7 +514,7 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, height, vec3(0,1,0), segments);
 }
 void ddraw_cylinder(vec3 center, float height, int segments) {
-    ddraw_prism(center, 1, -height, vec3(0,1,0), segments);    
+    ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
 }
 void ddraw_diamond(vec3 from, vec3 to, float size) {
     poly p = diamond(from, to, size);

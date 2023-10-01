@@ -5,9 +5,9 @@
 // Credits: @ands+@krig+@vurtun (PD), @datenwolf (WTFPL2), @evanw+@barerose (CC0), @sgorsten (Unlicense).
 
 #define C_EPSILON  (1e-6)
-#define C_PI       (3.141592654f) // (3.14159265358979323846f)
-#define TO_RAD     (C_PI/180.f)
-#define TO_DEG     (180.f/C_PI)
+#define C_PI       (3.14159265358979323846f) // (3.141592654f)
+#define TO_RAD     (C_PI/180)
+#define TO_DEG     (180/C_PI)
 
 // ----------------------------------------------------------------------------
 
@@ -39,7 +39,6 @@ API void     randset(uint64_t state);
 API uint64_t rand64(void);
 API double   randf(void); // [0, 1) interval
 API int      randi(int mini, int maxi); // [mini, maxi) interval
-//API double rng(void); // [0..1) Lehmer RNG "minimal standard"
 
 // ----------------------------------------------------------------------------
 
@@ -47,68 +46,6 @@ API float simplex1( float x );
 API float simplex2( vec2 xy );
 API float simplex3( vec3 xyz );
 API float simplex4( vec4 xyzw );
-
-// ----------------------------------------------------------------------------
-
-API float ease_linear(float t);
-
-API float ease_out_sine(float t);
-API float ease_out_quad(float t);
-API float ease_out_cubic(float t);
-API float ease_out_quart(float t);
-API float ease_out_quint(float t);
-API float ease_out_expo(float t);
-API float ease_out_circ(float t);
-API float ease_out_back(float t);
-API float ease_out_elastic(float t);
-API float ease_out_bounce(float t);
-
-API float ease_in_sine(float t);
-API float ease_in_quad(float t);
-API float ease_in_cubic(float t);
-API float ease_in_quart(float t);
-API float ease_in_quint(float t);
-API float ease_in_expo(float t);
-API float ease_in_circ(float t);
-API float ease_in_back(float t);
-API float ease_in_elastic(float t);
-API float ease_in_bounce(float t);
-
-API float ease_inout_sine(float t);
-API float ease_inout_quad(float t);
-API float ease_inout_cubic(float t);
-API float ease_inout_quart(float t);
-API float ease_inout_quint(float t);
-API float ease_inout_expo(float t);
-API float ease_inout_circ(float t);
-API float ease_inout_back(float t);
-API float ease_inout_elastic(float t);
-API float ease_inout_bounce(float t);
-
-API float ease_inout_perlin(float t);
-
-enum EASE_FLAGS {
-    EASE_LINEAR,
-    EASE_SINE,
-    EASE_QUAD,
-    EASE_CUBIC,
-    EASE_QUART,
-    EASE_QUINT,
-    EASE_EXPO,
-    EASE_CIRC,
-    EASE_BACK,
-    EASE_ELASTIC,
-    EASE_BOUNCE,
-
-    EASE_IN,
-    EASE_INOUT = EASE_IN * 2,
-    EASE_OUT = 0,
-};
-
-API float ease(float t01, unsigned mode); // 0=linear,1=out_sine...31=inout_perlin
-
-API float ease_ping_pong(float t, float(*fn1)(float), float(*fn2)(float));
-API float ease_pong_ping(float t, float(*fn1)(float), float(*fn2)(float));
 
 // ----------------------------------------------------------------------------
 
@@ -330,6 +267,8 @@ API bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp);
 // ----------------------------------------------------------------------------
 // debugging and utils
 
+API void print2i( vec2i v );
+API void print3i( vec3i v );
 API void print2( vec2 v );
 API void print3( vec3 v );
 API void print4( vec4 v );
@@ -337,18 +276,3 @@ API void printq( quat q );
 API void print33( float *m );
 API void print34( float *m );
 API void print44( float *m );
-
-API vec2 atof2(const char *s);
-API vec3 atof3(const char *s);
-API vec4 atof4(const char *s);
-
-API char* ftoa(float f);
-API char* ftoa2(vec2 v);
-API char* ftoa3(vec3 v);
-API char* ftoa4(vec4 v);
-
-API void swapf(float *a, float *b);
-API void swapf2(vec2 *a, vec2 *b);
-API void swapf3(vec3 *a, vec3 *b);
-API void swapf4(vec4 *a, vec4 *b);
-

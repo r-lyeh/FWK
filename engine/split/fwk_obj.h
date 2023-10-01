@@ -1,131 +1,311 @@
-// -----------------------------------------------------------------------------
-// C object framework (constructors/destructors, methods, rtti, refcounting)
+// C objects framework
 // - rlyeh, public domain.
 //
-// ## object api (low level)
-//
-// - [ ] make object from reflected type (factory)
-// - [x] make object (if debug, include callstack as well)
-// - [x] ctor method (optional, ref to constructor)
-// - [x] dtor method (optional, ref to deleter)
-// - [x] zero mem object
-// - [x] object logger
-// - [ ] iterate members in a struct
-//
-// - [x] clone/copy/mutate classes
-// - [x] load/save objects from/to memory/disk
-// - [ ] diff/patch objects
-// - [ ] experimental: support for AoSoA layout (using objcnt, 3bits)
-//
-// ## object decomposition
-//
-//                             <---------|--------->
-//            OBJ-SHADOW (64-bits)       |   OBJ CONTENT (N bytes)
-// +-----+-----+-------------+-----------+-----+-----+-----+-----+--
-// |TYPE |REFS.|   OBJ NAME  |  obj cnt  | ... | ... | ... | ... | .
-// +-----+-----+-------------+-----------+-----+-----+-----+-----+--
-// \-16-bits--/\---45-bits--/\--3-bits--/\-------N-bytes-----------
-//
-// OBJ TYPE+NAME format:
-// - [type] custom tags at 0x0
-// - [1..N] name
-// - [\n]   blank separator
-// - [comments, logger, infos, etc] << obj_printf();
-//
 // ## object limitations
-// - 256 classes max
-// - 256 references max
 // - 8-byte overhead per object
-// - 2 total allocs per object (could be flattened into 1 with some more work)
-//
-// @todo: obj_extend( "class_src", "class_dst" ); call[super(obj)]()
-// @todo: preferred load/save format: [ver:1,user:2,type:1] ([eof|size:7/15/23/31][blob:N])+ [crc:1/2/3/4]
-// @todo: more serious loading/saving spec
+// - XX-byte overhead per object-entity
+// - 32 components max per object-entity
+// - 256 classes max per game
+// - 256 references max per object
+// - 1024K bytes max per object
+// - 8 generations + 64K IDs per running instance (19-bit IDs)
+// - support for pragma pack(1) structs not enabled by default.
 
-// object api (heap+rtti)
+/* /!\ if you plan to use pragma pack(1) on any struct, you need #define OBJ_MIN_PRAGMAPACK_BITS 0 at the expense of max class size /!\ */
+#ifndef   OBJ_MIN_PRAGMAPACK_BITS
+//#define OBJ_MIN_PRAGMAPACK_BITS 3 // allows pragma packs >= 8. objsizew becomes 8<<3, so 2048 bytes max per class (default)
+#define   OBJ_MIN_PRAGMAPACK_BITS 2 // allows pragma packs >= 4. objsizew becomes 8<<2, so 1024 bytes max per class
+//#define OBJ_MIN_PRAGMAPACK_BITS 1 // allows pragma packs >= 2. objsizew becomes 8<<1, so  512 bytes max per class
+//#define OBJ_MIN_PRAGMAPACK_BITS 0 // allows pragma packs >= 1. objsizew becomes 8<<0, so  256 bytes max per class
+#endif
 
-API void*       obj_malloc( int sz, ... );
-API void*       obj_calloc( int sz, ... );
-API void        obj_free( void *obj );
+#define OBJHEADER \
+    struct { \
+        ifdef(debug, const char *objname;) \
+        union { \
+            uintptr_t objheader; \
+            struct {  \
+            uintptr_t objtype:8; \
+            uintptr_t objsizew:8; \
+            uintptr_t objrefs:8; \
+            uintptr_t objheap:1; \
+            uintptr_t objcomps:1; /* << can be removed? check payload ptr instead? */ \
+            uintptr_t objunused:64-8-8-8-1-1-ID_INDEX_BITS-ID_COUNT_BITS; /*19*/ \
+            uintptr_t objid:ID_INDEX_BITS+ID_COUNT_BITS; /*16+3*/ \
+            }; \
+        }; \
+        array(struct obj*) objchildren; \
+    };
 
-API bool        obj_typeeq( const void *obj1, const void *obj2 );
-API const char* obj_typeof( const void *obj );
-API unsigned    obj_typeid( const void *obj );
-API unsigned    obj_typeid_from_name( const char *name );
+#define OBJ \
+    OBJHEADER
 
-// object api (ctor/dtor, refcounting, oop)
+// ----------------------------------------------------------------------------
+// syntax sugars
 
-API void        obj_new( const char *type, ... );
-API void        obj_del( void *obj );
+#ifdef OBJTYPE
+#undef OBJTYPE
+#endif
 
-API void*       obj_ref( void *obj );
-API void*       obj_unref( void *obj );
+#define OBJTYPE(T) \
+    OBJTYPE_##T
 
-API void        obj_extend( const char *dstclass, const char *srcclass );
-API void        obj_override( const char *objclass, void (**vtable)(), void(*fn)() );
+#define OBJTYPEDEF(NAME,N) \
+     enum { OBJTYPE(NAME) = N }; \
+     STATIC_ASSERT( N <= 255 ); \
+     STATIC_ASSERT( sizeof(NAME) == ((sizeof(NAME)>>OBJ_MIN_PRAGMAPACK_BITS)<<OBJ_MIN_PRAGMAPACK_BITS) ); // (sizeof(NAME) & ((1<<OBJ_MIN_PRAGMAPACK_BITS)-1)) == 0 );
 
-// object: serialize
+// ----------------------------------------------------------------------------
+// objects
 
-API unsigned    obj_load(void *obj, const array(char) buffer);
-API unsigned    obj_load_file(void *obj, FILE *fp);
-API unsigned    obj_load_inplace(void *obj, const void *src, unsigned srclen);
+#define TYPEDEF_STRUCT(NAME,N,...) \
+    typedef struct NAME { OBJ \
+        __VA_ARGS__ \
+        char payload[0]; \
+    } NAME; OBJTYPEDEF(NAME,N);
 
-API array(char) obj_save(const void *obj); // empty if error. must array_free() after use
-API unsigned    obj_save_file(FILE *fp, const void *obj);
-API unsigned    obj_save_inplace(void *dst, unsigned cap, const void *obj);
+// TYPEDEF_STRUCT(obj,0);
+    typedef struct obj { OBJ } obj;
 
-// object: utils
+// ----------------------------------------------------------------------------
+// entities
 
-API unsigned    obj_instances( const void *obj );
+#define OBJCOMPONENTS_MAX 32
+#define OBJCOMPONENTS_ALL_ENABLED 0xAAAAAAAAAAAAAAAAULL
+#define OBJCOMPONENTS_ALL_FLAGGED 0x5555555555555555ULL
+#define COMPONENTS_ONLY(x) ((x) & ~OBJCOMPONENTS_ALL_FLAGGED)
 
-API void        obj_zero( void *obj );
-API unsigned    obj_sizeof( const void *obj );
+#define ENTITY \
+    struct { OBJHEADER union { struct { uintptr_t objenabled:OBJCOMPONENTS_MAX, objflagged:OBJCOMPONENTS_MAX; }; uintptr_t cflags; }; void *c[OBJCOMPONENTS_MAX]; };
 
-API void        obj_hexdump( const void *obj );
-API void        obj_hexdumpf( FILE *out, const void *obj );
+#define TYPEDEF_ENTITY(NAME,N,...) \
+    typedef struct NAME { ENTITY \
+        __VA_ARGS__ \
+        char payload[0]; \
+    } NAME; OBJTYPEDEF(NAME,N);
 
-API void        obj_printf( void *obj, const char *text );
-API const char* obj_output( const void *obj );
+// OBJTYPEDEF(entity,1)
+    typedef struct entity { ENTITY } entity;
 
-API void *      obj_clone(const void *obj);
-API void *      obj_copy(void **dst, const void *src);
-API void *      obj_mutate(void **dst, const void *src);
+#define entity_new(TYPE, ...)             OBJ_CTOR(TYPE, #TYPE, 1, 0, __VA_ARGS__)
+#define entity_new_ext(TYPE, NAME, ...)   OBJ_CTOR(TYPE,  NAME, 1, 0, __VA_ARGS__)
 
-// object: method dispatch tables
+// ----------------------------------------------------------------------------
+// heap/stack ctor/dtor
 
-#define ctor(obj) obj_method0(obj, ctor) // ctor[obj_typeid(obj)](obj)
-#define dtor(obj) obj_method0(obj, dtor) // dtor[obj_typeid(obj)](obj)
+static __thread obj *objtmp;
+#define OBJ_CTOR_HDR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE) ( \
+        (PTR)->objheader = HEAP ? id_make(PTR) : 0, /*should assign to .objid instead. however, id_make() returns shifted bits already*/ \
+        (PTR)->objtype = (OBJ_TYPE), \
+        (PTR)->objheap = (HEAP), \
+        (PTR)->objsizew = (SIZEOF_OBJ>>OBJ_MIN_PRAGMAPACK_BITS))
+#define OBJ_CTOR_PTR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE) ( \
+        OBJ_CTOR_HDR(PTR,HEAP,SIZEOF_OBJ,OBJ_TYPE), \
+        obj_ctor(PTR))
+#define OBJ_CTOR(TYPE, NAME, HEAP, PAYLOAD_SIZE, ...) (TYPE*)( \
+        objtmp = (HEAP ? MALLOC(sizeof(TYPE)+(PAYLOAD_SIZE)) : ALLOCA(sizeof(TYPE)+(PAYLOAD_SIZE))), \
+        *(TYPE*)objtmp = ((TYPE){ {0,}, __VA_ARGS__}), \
+        ((PAYLOAD_SIZE) ? memset((char*)objtmp + sizeof(TYPE), 0, (PAYLOAD_SIZE)) : objtmp), \
+        ( OBJTYPES[ OBJTYPE(TYPE) ] = #TYPE ), \
+        OBJ_CTOR_PTR(objtmp, HEAP,sizeof(TYPE),OBJTYPE(TYPE)), \
+        ifdef(debug, (obj_printf)(objtmp, va("%s", callstack(+16))), 0), \
+        obj_setname(objtmp, NAME))
 
-API extern void (*ctor[256])(); ///-
-API extern void (*dtor[256])(); ///-
+#define obj(TYPE, ...)                *OBJ_CTOR(TYPE, #TYPE, 0, 0, __VA_ARGS__)
+#define obj_new(TYPE, ...)             OBJ_CTOR(TYPE, #TYPE, 1, 0, __VA_ARGS__)
+#define obj_new_ext(TYPE, NAME, ...)   OBJ_CTOR(TYPE,  NAME, 1, 0, __VA_ARGS__)
 
-// object: syntax sugars
+void*   obj_malloc(unsigned sz);
+void*   obj_free(void *o);
 
-#define     obj_malloc(sz, ...) obj_initialize((void**)MALLOC(  sizeof(void*)+sz), stringf("\1untyped\n%s\n", "" #__VA_ARGS__))
-#define     obj_calloc(sz, ...) obj_initialize((void**)CALLOC(1,sizeof(void*)+sz), stringf("\1untyped\n%s\n", "" #__VA_ARGS__))
+// ----------------------------------------------------------------------------
+// obj generics. can be extended.
 
-#define     obj_new0(type) obj_new(type, 0)
-#define     obj_new(type, ...) ( \
-                obj_tmpalloc = obj_initialize((void**)CALLOC(1, sizeof(void*)+sizeof(type)), stringf("%c" #type "\n", (char)obj_typeid_from_name(#type))), \
-                (*(type*)obj_tmpalloc = (type){ __VA_ARGS__ }), \
-                ctor(obj_tmpalloc), \
-                (type*)obj_tmpalloc )
+#define obj_ctor(o,...) obj_method(ctor, o, ##__VA_ARGS__)
+#define obj_dtor(o,...) obj_method(dtor, o, ##__VA_ARGS__)
 
-#define     obj_override(class, method)    obj_override(#class, (void(**)())method, (void(*)())class##_##method)
-#define     obj_method0(obj, method)       method[obj_typeid(obj)]((obj))
-#define     obj_method(obj, method, ...)   method[obj_typeid(obj)]((obj), __VA_ARGS__)
+#define obj_save(o,...) obj_method(save, o, ##__VA_ARGS__)
+#define obj_load(o,...) obj_method(load, o, ##__VA_ARGS__)
 
-#define     obj_printf(obj, ...)           obj_printf(obj, va(__VA_ARGS__))
+#define obj_test(o,...) obj_method(test, o, ##__VA_ARGS__)
 
-#define     obj_extend(dstclass, srcclass) obj_extend(#dstclass, #srcclass)
+#define obj_init(o,...) obj_method(init, o, ##__VA_ARGS__)
+#define obj_quit(o,...) obj_method(quit, o, ##__VA_ARGS__)
+#define obj_tick(o,...) obj_method(tick, o, ##__VA_ARGS__)
+#define obj_draw(o,...) obj_method(draw, o, ##__VA_ARGS__)
 
-// object: implementation details
+#define obj_lerp(o,...) obj_method(lerp, o, ##__VA_ARGS__)
+#define obj_edit(o,...) obj_method(edit, o, ##__VA_ARGS__)
 
-// https://stackoverflow.com/questions/16198700/using-the-extra-16-bits-in-64-bit-pointers (note: using 19-bits here)
-#define OBJBOX(ptr, payload16) (void*)(((long long unsigned)(payload16) << 48) | (long long unsigned)(ptr))
-#define OBJUNBOX(ptr)          (void*)((long long unsigned)(ptr) & 0x0000FFFFFFFFFFFFull)
-#define OBJPAYLOAD16(ptr)      (((long long unsigned)(ptr)) >> 48)
-#define OBJPAYLOAD3(ptr)       (((long long unsigned)(ptr)) & 7)
+// --- syntax sugars
 
-API void* obj_initialize( void **ptr, char *type_and_info );
-static __thread void *obj_tmpalloc;
+#define EXTEND obj_extend
+#define obj_extend(T,func)               (obj_##func[OBJTYPE(T)] = (void*)T##_##func)
+#define obj_method(method,o,...)         (obj_##method[((obj*)(o))->objtype](o,##__VA_ARGS__)) // (obj_##method[((obj*)(o))->objtype]((o), ##__VA_ARGS__))
+
+#define obj_vtable(func,RC,...)          RC macro(obj_##func)(){ __VA_ARGS__ }; RC (*obj_##func[256])() = { REPEAT256(macro(obj_##func)) };
+#define obj_vtable_null(func,RC)         RC (*obj_##func[256])() = { 0 }; // null virtual table. will crash unless obj_extend'ed
+
+#define REPEAT16(f)  f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f
+#define REPEAT64(f)  REPEAT16(f),REPEAT16(f),REPEAT16(f),REPEAT16(f)
+#define REPEAT256(f) REPEAT64(f),REPEAT64(f),REPEAT64(f),REPEAT64(f)
+
+// --- declare vtables
+
+API extern void  (*obj_ctor[256])(); ///-
+API extern void  (*obj_dtor[256])(); ///-
+
+API extern char* (*obj_save[256])(); ///-
+API extern bool  (*obj_load[256])(); ///-
+API extern int   (*obj_test[256])(); ///-
+
+API extern int   (*obj_init[256])(); ///-
+API extern int   (*obj_quit[256])(); ///-
+API extern int   (*obj_tick[256])(); ///-
+API extern int   (*obj_draw[256])(); ///-
+
+API extern int   (*obj_lerp[256])(); ///-
+API extern int   (*obj_edit[256])(); ///-
+
+// ----------------------------------------------------------------------------
+// core
+
+API uintptr_t   obj_header(const void *o);
+API uintptr_t   obj_id(const void *o);
+
+API const char* obj_type(const void *o);
+API unsigned    obj_typeid(const void *o);
+
+API int         obj_sizeof(const void *o);
+API int         obj_size(const void *o); // size of all members together in struct. may include padding bytes.
+
+API char*       obj_data(void *o); // pointer to the first member in struct
+API const char* obj_datac(const void *o); // const pointer to the first struct member
+
+API void*       obj_payload(const void *o); // pointer right after last member in struct
+API void*       obj_zero(void *o); // reset all object members
+
+// ----------------------------------------------------------------------------
+// refcounting
+
+API void*       obj_ref(void *oo);
+API void*       obj_unref(void *oo);
+
+// ----------------------------------------------------------------------------
+// scene tree
+
+#define each_objchild(p,T,o) /*non-recursive*/ \
+    (array(obj*)* children = obj_children(p); children; children = 0) \
+        for(int _i = 1, _end = array_count(*children); _i < _end; ++_i) \
+            for(T o = (T)((*children)[_i]); o && (obj_parent(o) == p); o = 0)
+
+API obj*        obj_detach(void *c);
+API obj*        obj_attach(void *o, void *c);
+
+API obj*        obj_root(const void *o);
+API obj*        obj_parent(const void *o);
+API array(obj*)*obj_children(const void *o); // child[0]: parent, child[1]: 1st child, child[2]: 2nd child...
+API array(obj*)*obj_siblings(const void *o); // child[0]: grandpa, child[1]: sibling1, child[2]: sibling2...
+
+API int         obj_dumptree(const void *o);
+
+// ----------------------------------------------------------------------------
+// metadata
+
+API void*       obj_setmeta(void *o, const char *key, const char *value);
+API const char* obj_meta(const void *o, const char *key);
+
+API void*       obj_setname(void *o, const char *name);
+API const char* obj_name(const void *o);
+
+// ----------------------------------------------------------------------------
+// stl
+
+API void*       obj_swap(void *dst, void *src);
+API void*       obj_copy_fast(void *dst, const void *src);
+API void*       obj_copy(void *dst, const void *src);
+
+API int         obj_comp_fast(const void *a, const void *b);
+API int         obj_comp(const void *a, const void *b);
+API int         obj_lesser(const void *a, const void *b);
+API int         obj_greater(const void *a, const void *b);
+API int         obj_equal(const void *a, const void *b);
+
+API uint64_t    obj_hash(const void *o);
+
+// ----------------------------------------------------------------------------
+// debug
+
+API bool        obj_hexdump(const void *oo);
+API int         obj_print(const void *o);
+
+API int         obj_printf(const void *o, const char *text);
+API int         obj_console(const void *o); // obj_output() ?
+
+#define         obj_printf(o, ...) obj_printf(o, va(__VA_ARGS__))
+
+// ----------------------------------------------------------------------------
+// serialization
+
+API char*       obj_saveini(const void *o);
+API obj*        obj_mergeini(void *o, const char *ini);
+API obj*        obj_loadini(void *o, const char *ini);
+
+API char*       obj_savejson(const void *o);
+API obj*        obj_mergejson(void *o, const char *json);
+API obj*        obj_loadjson(void *o, const char *json);
+
+API char*       obj_savebin(const void *o);
+API obj*        obj_mergebin(void *o, const char *sav);
+API obj*        obj_loadbin(void *o, const char *sav);
+
+API char*       obj_savempack(const void *o); // @todo
+API obj*        obj_mergempack(void *o, const char *sav); // @todo
+API obj*        obj_loadmpack(void *o, const char *sav); // @todo
+
+API int         obj_push(const void *o);
+API int         obj_pop(void *o);
+
+// ----------------------------------------------------------------------------
+// components
+
+API bool        obj_addcomponent(entity *e, unsigned c, void *ptr);
+API bool        obj_hascomponent(entity *e, unsigned c);
+API void*       obj_getcomponent(entity *e, unsigned c);
+API bool        obj_delcomponent(entity *e, unsigned c);
+API bool        obj_usecomponent(entity *e, unsigned c);
+API bool        obj_offcomponent(entity *e, unsigned c);
+
+API char*       entity_save(entity *self);
+
+// ----------------------------------------------------------------------------
+// reflection
+
+#define each_objmember(oo,TYPE,NAME,PTR) \
+    (array(reflect_t) *found_ = members_find(obj_type(oo)); found_; found_ = 0) \
+        for(int it_ = 0, end_ = array_count(*found_); it_ != end_; ++it_ ) \
+            for(reflect_t *R = &(*found_)[it_]; R; R = 0 ) \
+                for(const char *NAME = R->name, *TYPE = R->type; NAME || TYPE; ) \
+                    for(void *PTR = ((char*)oo) + R->sz ; NAME || TYPE ; NAME = TYPE = 0 )
+
+API void*       obj_clone(const void *src);
+API void*       obj_merge(void *dst, const void *src); // @testme
+API void*       obj_mutate(void *dst, const void *src);
+API void*       obj_make(const char *str);
+
+// built-ins
+
+typedef enum OBJTYPE_BUILTINS {
+    OBJTYPE_obj    =  0,
+    OBJTYPE_entity =  1,
+    OBJTYPE_vec2   =  2,
+    OBJTYPE_vec3   =  3,
+    OBJTYPE_vec4   =  4,
+    OBJTYPE_quat   =  5,
+    OBJTYPE_mat33  =  6,
+    OBJTYPE_mat34  =  7,
+    OBJTYPE_mat44  =  8,
+    OBJTYPE_vec2i  =  9,
+    OBJTYPE_vec3i  = 10,
+} OBJTYPE_BUILTINS;
+

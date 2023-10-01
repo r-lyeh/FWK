@@ -31,6 +31,7 @@
 typedef struct zip zip;
 
 zip* zip_open(const char *file, const char *mode /*r,w,a*/);
+zip* zip_open_handle(FILE*fp, const char *mode /*r,w,a*/);
 
     // only for (w)rite or (a)ppend mode
     bool zip_append_file(zip*, const char *entryname, const char *comment, FILE *in, unsigned compress_level);
@@ -246,7 +247,7 @@ int jzReadEndRecord(FILE *fp, JZEndRecord *endRecord) {
 
 // Read ZIP file global directory. Will move within file. Returns Z_OK, or error code
 // Callback is called for each record, until callback returns zero
-int jzReadCentralDirectory(FILE *fp, JZEndRecord *endRecord, JZRecordCallback callback, void *user_data) {
+int jzReadCentralDirectory(FILE *fp, JZEndRecord *endRecord, JZRecordCallback callback, void *user_data, void *user_data2) {
     JZGlobalFileHeader fileHeader;
 
     if(fseek(fp, endRecord->centralDirectoryOffset, SEEK_SET)) {
@@ -260,6 +261,8 @@ int jzReadCentralDirectory(FILE *fp, JZEndRecord *endRecord, JZRecordCallback ca
         if(fread(&fileHeader, 1, sizeof(JZGlobalFileHeader), fp) < sizeof(JZGlobalFileHeader)) {
             return ERR(JZ_ERRNO, "Couldn't read file header #%d!", i);
         }
+
+        fileHeader.relativeOffsetOflocalHeader += (uintptr_t)user_data2;
 
         JZGlobalFileHeader *g = &fileHeader, copy = *g;
         FPRINTF(stdout, "\tsignature: %u %#x\n", g->signature, g->signature); // 0x02014B50
@@ -591,10 +594,10 @@ bool zip_append_file_timeinfo(zip *z, const char *entryname, const char *comment
     // Read whole file and and use compress(). Simple but won't handle GB files well.
     unsigned dataSize = e->header.uncompressedSize, compSize = BOUNDS(e->header.uncompressedSize, compress_level);
 
-    comp = REALLOC(0, compSize);
+    comp = REALLOC(comp, compSize);
     if(comp == NULL) goto cant_compress;
 
-    data = REALLOC(0, dataSize + 8); // small excess as some compressors are really wild when reading from buffers (lz4x)
+    data = REALLOC(data, dataSize + 8); // small excess as some compressors are really wild when reading from buffers (lz4x)
     if(data == NULL) goto cant_compress; else memset((char*)data + dataSize, 0, 8);
 
     fseek(in, 0, SEEK_SET); // rewind
@@ -702,10 +705,10 @@ bool zip_append_mem_timeinfo(zip *z, const char *entryname, const char *comment,
     // Read whole file and and use compress(). Simple but won't handle GB files well.
     unsigned dataSize = e->header.uncompressedSize, compSize = BOUNDS(e->header.uncompressedSize, compress_level);
 
-    comp = REALLOC(0, compSize);
+    comp = REALLOC(comp, compSize);
     if(comp == NULL) goto cant_compress;
 
-    data = REALLOC(0, dataSize + 8); // small excess as some compressors are really wild when reading from buffers (lz4x)
+    data = REALLOC(data, dataSize + 8); // small excess as some compressors are really wild when reading from buffers (lz4x)
     if(data == NULL) goto cant_compress; else memset((char*)data + dataSize, 0, 8);
 
     size_t bytes = inlen;
@@ -753,29 +756,46 @@ common:;
 
 // zip common
 
-zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
-    struct stat buffer;
-    int exists = (stat(file, &buffer) == 0);
-    if( mode[0] == 'a' && !exists ) mode = "wb";
-    FILE *fp = fopen(file, mode[0] == 'w' ? "wb" : mode[0] == 'a' ? "a+b" : "rb");
+#if 1
+#       define zip_lockfile(f)   (void)(f)
+#       define zip_unlockfile(f) (void)(f)
+#else
+#   if (defined(__TINYC__) && defined(_WIN32))
+#       define zip_lockfile(f)   (void)(f)
+#       define zip_unlockfile(f) (void)(f)
+#   elif defined _MSC_VER
+#       define zip_lockfile(f)   _lock_file(f)
+#       define zip_unlockfile(f) _unlock_file(f)
+#   else
+#       define zip_lockfile(f)   flockfile(f)
+#       define zip_unlockfile(f) funlockfile(f)
+#   endif
+#endif
+
+zip* zip_open_handle(FILE *fp, const char *mode) {
     if( !fp ) return ERR(NULL, "cannot open file for %s mode", mode);
     zip zero = {0}, *z = (zip*)REALLOC(0, sizeof(zip));
-    if( !z ) return fclose(fp), ERR(NULL, "out of mem"); else *z = zero;
+    if( !z ) return ERR(NULL, "out of mem"); else *z = zero;
     if( mode[0] == 'w' ) {
-        z->out = fp;
+        zip_lockfile(z->out = fp);
         return z;
     }
     if( mode[0] == 'r' || mode[0] == 'a' ) {
-        z->in = fp;
+        zip_lockfile(z->in = fp);
+
+        unsigned long long seekcur = ftell(z->in);
 
         JZEndRecord jzEndRecord = {0};
         if(jzReadEndRecord(fp, &jzEndRecord) != JZ_OK) {
             REALLOC(z, 0);
-            return fclose(fp), ERR(NULL, "Couldn't read ZIP file end record.");
+            return ERR(NULL, "Couldn't read ZIP file end record.");
         }
-        if(jzReadCentralDirectory(fp, &jzEndRecord, zip__callback, z) != JZ_OK) {
+
+        jzEndRecord.centralDirectoryOffset += seekcur;
+
+        if(jzReadCentralDirectory(fp, &jzEndRecord, zip__callback, z, (void*)(uintptr_t)seekcur ) != JZ_OK) {
             REALLOC(z, 0);
-            return fclose(fp), ERR(NULL, "Couldn't read ZIP file central directory.");
+            return ERR(NULL, "Couldn't read ZIP file central directory.");
         }
         if( mode[0] == 'a' ) {
 
@@ -792,13 +812,25 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
                 fseek( fp, 0L, SEEK_END );
             }
 
+            z->out = z->in;
             z->in = NULL;
-            z->out = fp;
         }
         return z;
     }
     REALLOC(z, 0);
-    return fclose(fp), ERR(NULL, "Unknown open mode %s", mode);
+    return ERR(NULL, "Unknown open mode %s", mode);
+}
+
+zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
+    struct stat buffer;
+    int exists = (stat(file, &buffer) == 0);
+    if( mode[0] == 'a' && !exists ) mode = "wb";
+    FILE *fp = fopen(file, mode[0] == 'w' ? "wb" : mode[0] == 'a' ? "a+b" : "rb");
+    if (!fp) return NULL;
+    if (mode[0] == 'a') fseek(fp, 0L, SEEK_SET);
+    zip *z = zip_open_handle(fp, mode);
+    if (!z) return fclose(fp), NULL;
+    return z;
 }
 
 void zip_close(zip* z) {
@@ -826,8 +858,8 @@ void zip_close(zip* z) {
         // flush end record
         fwrite(&end, 1, sizeof(end), z->out);
     }
-    if( z->out ) fclose(z->out);
-    if( z->in ) fclose(z->in);
+    if( z->out ) zip_unlockfile(z->out), fclose(z->out);
+    if( z->in ) zip_unlockfile(z->in), fclose(z->in);
     // clean up
     for(unsigned i = 0; i < z->count; ++i ) {
         REALLOC(z->entries[i].filename, 0);
@@ -980,8 +1012,7 @@ tar *tar_open(const char *filename, const char *mode) {
 
     *t = zero;
     t->in = in;
-    tar__parse(in, tar__push_entry, t);
-    return t;
+    return tar__parse(in, tar__push_entry, t) ? t : NULL;
 }
 
 int tar_find(tar *t, const char *entryname) {
@@ -1471,8 +1502,9 @@ int dir_yield(dir *d, const char *pathfile, char *name, int namelen) {
     snprintf(name, namelen, "%s/*", pathfile);
     for( HANDLE h = FindFirstFileA(name, &fdata ); h != INVALID_HANDLE_VALUE; ok = (FindClose( h ), h = INVALID_HANDLE_VALUE, 1)) {
         for( int next = 1; next; next = FindNextFileA(h, &fdata) != 0 ) {
-            if( fdata.cFileName[0] == '.' ) continue;
             int is_dir = (fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) > 0;
+            if( is_dir && fdata.cFileName[0] == '.' ) continue;
+
             snprintf(name, namelen, "%s/%s%s", pathfile, fdata.cFileName, is_dir ? "/" : "");
             struct stat st; if( !is_dir ) if(stat(name, &st) < 0) continue;
             // add
@@ -1487,10 +1519,11 @@ int dir_yield(dir *d, const char *pathfile, char *name, int namelen) {
     snprintf(name, namelen, "%s/", pathfile);
     for( DIR *dir = opendir(name); dir; ok = (closedir(dir), dir = 0, 1)) {
         for( struct dirent *ep; (ep = readdir(dir)) != NULL; ) {
-            if( ep->d_name[0] == '.' ) continue;
             snprintf(name, namelen, "%s/%s", pathfile, ep->d_name);
             struct stat st; if( stat(name, &st) < 0 ) continue;
-            DIR *tmp = opendir(/*ep->d_*/name); int is_dir = !!tmp; if(tmp) closedir(tmp);
+            DIR *tmp = opendir(/*ep->d_*/name); int is_dir = !!tmp; if(tmp) closedir(tmp); // @todo:optimizeme (maybe use stat instead)
+            if( is_dir && ep->d_name[0] == '.' ) continue;
+
             // add
             dir_entry de = { STRDUP(name), is_dir ? 0 : st.st_size, is_dir };
             d->entry = (dir_entry*)REALLOC(d->entry, ++d->count * sizeof(dir_entry));

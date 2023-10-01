@@ -7,7 +7,7 @@ out vec4 v_position;
 
 void main() {
     gl_Position = cameraToShadowProjector * model * vec4(position, 1.0);
-    #if VSMCUBE
+    #ifdef VSMCUBE
     v_position  = cameraToShadowView * model * vec4(position, 1.0);
     #else
     v_position  = gl_Position;

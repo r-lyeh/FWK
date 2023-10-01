@@ -47,6 +47,10 @@ int main() {
         "}\n";
     const void *colors = font_colorize(source, "void,int,char", "if,else,for,do,while,return,switch,case,break,default,");
 
+    // read input file with strings to display
+    array(char*) lines = 0;
+    for each_substring( vfs_read("pangrams.txt"), "\r\n", it ) array_push(lines, STRDUP(it));
+
     // demo loop
     while( window_swap() && !input(KEY_ESC) ) {
         ddraw_grid(0);
@@ -89,7 +93,6 @@ int main() {
 
         // i18n: pangrams.txt file, line browser
         static int counter = 0;
-        static array(char*) lines; do_once lines = strsplit( vfs_read("pangrams.txt"), "\r\n" );
         counter += input_down(KEY_RIGHT)-input_down(KEY_LEFT);
         counter += counter < 0 ? array_count(lines) : 0;
         font_print( va("<< %s >>\n", lines[counter % array_count(lines)]) );

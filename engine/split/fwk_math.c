@@ -9,54 +9,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-vec2 atof2(const char *s) {
-    vec2 v = {0};
-    sscanf(s, "%f,%f", &v.x, &v.y);
-    return v;
-}
-vec3 atof3(const char *s) {
-    vec3 v = {0};
-    sscanf(s, "%f,%f,%f", &v.x, &v.y, &v.z);
-    return v;
-}
-vec4 atof4(const char *s) {
-    vec4 v = {0};
-    sscanf(s, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w);
-    return v;
-}
-
-char* ftoa(float f) {
-    return va("%f", f);
-}
-char* ftoa2(vec2 v) {
-    return va("%f,%f", v.x, v.y);
-}
-char* ftoa3(vec3 v) {
-    return va("%f,%f,%f", v.x, v.y, v.z);
-}
-char* ftoa4(vec4 v) {
-    return va("%f,%f,%f,%f", v.x, v.y, v.z, v.w);
-}
-
-void swapf(float *a, float *b) {
-    float t = *a; *a = *b; *b = *a;
-}
-void swapf2(vec2 *a, vec2 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-}
-void swapf3(vec3 *a, vec3 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-    float z = a->z; a->z = b->z; b->z = a->z;
-}
-void swapf4(vec4 *a, vec4 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-    float z = a->z; a->z = b->z; b->z = a->z;
-    float w = a->w; a->w = b->w; b->w = a->w;
-}
-
 static uint64_t rand_xoro256(uint64_t x256_s[4]) { // xoshiro256+ 1.0 by David Blackman and Sebastiano Vigna (PD)
     const uint64_t result = x256_s[0] + x256_s[3];
     const uint64_t t = x256_s[1] << 17;
@@ -120,92 +72,6 @@ float simplex1( float v ){ return snoise1(v); }
 float simplex2( vec2 v ) { return snoise2(v.x,v.y); }
 float simplex3( vec3 v ) { return snoise3(v.x,v.y,v.z); }
 float simplex4( vec4 v ) { return snoise4(v.x,v.y,v.z,v.w); }
-
-// ----------------------------------------------------------------------------
-
-float ease_linear(float t) { return t; }
-
-float ease_out_sine(float t) { return sinf(t*(C_PI*0.5f)); }
-float ease_out_quad(float t) { return -(t*(t-2)); }
-float ease_out_cubic(float t) { float f=t-1; return f*f*f+1; }
-float ease_out_quart(float t) { float f=t-1; return f*f*f*(1-t)+1; }
-float ease_out_quint(float t) { float f=(t-1); return f*f*f*f*f+1; }
-float ease_out_expo(float t) { return (t >= 1) ? t : 1-powf(2,-10*t); }
-float ease_out_circ(float t) { return sqrtf((2-t)*t); }
-float ease_out_back(float t) { float f=1-t; return 1-(f*f*f-f*sinf(f*C_PI)); }
-float ease_out_elastic(float t) { return sinf(-13*(C_PI*0.5f)*(t+1))*powf(2,-10*t)+1; }
-float ease_out_bounce(float t) { return (t < 4.f/11) ? (121.f*t*t)/16 : (t < 8.f/11) ? (363.f/40*t*t)-(99.f/10*t)+17.f/5 : (t < 9.f/10) ? (4356.f/361*t*t)-(35442.f/1805*t)+16061.f/1805 : (54.f/5*t*t)-(513.f/25*t)+268.f/25; }
-
-float ease_in_sine(float t) { return 1+sinf((t-1)*(C_PI*0.5f)); }
-float ease_in_quad(float t) { return t*t; }
-float ease_in_cubic(float t) { return t*t*t; }
-float ease_in_quart(float t) { return t*t*t*t; }
-float ease_in_quint(float t) { return t*t*t*t*t; }
-float ease_in_expo(float t) { return (t <= 0) ? t : powf(2,10*(t-1)); }
-float ease_in_circ(float t) { return 1-sqrtf(1-(t*t)); }
-float ease_in_back(float t) { return t*t*t-t*sinf(t*C_PI); }
-float ease_in_elastic(float t) { return sinf(13*(C_PI*0.5f)*t)*powf(2,10*(t-1)); }
-float ease_in_bounce(float t) { return 1-ease_out_bounce(1-t); }
-
-float ease_inout_sine(float t) { return 0.5f*(1-cosf(t*C_PI)); }
-float ease_inout_quad(float t) { return (t < 0.5f) ? 2*t*t : (-2*t*t)+(4*t)-1; }
-float ease_inout_cubic(float t) { float f; return (t < 0.5f) ? 4*t*t*t : (f=(2*t)-2,0.5f*f*f*f+1); }
-float ease_inout_quart(float t) { float f; return (t < 0.5f) ? 8*t*t*t*t : (f=(t-1),-8*f*f*f*f+1); }
-float ease_inout_quint(float t) { float f; return (t < 0.5f) ? 16*t*t*t*t*t : (f=((2*t)-2),0.5f*f*f*f*f*f+1); }
-float ease_inout_expo(float t) { return (t <= 0 || t >= 1) ? t : t < 0.5f ? 0.5f*powf(2,(20*t)-10) : -0.5f*powf(2,(-20*t)+10)+1; }
-float ease_inout_circ(float t) { return t < 0.5f ? 0.5f*(1-sqrtf(1-4*(t*t))) : 0.5f*(sqrtf(-((2*t)-3)*((2*t)-1))+1); }
-float ease_inout_back(float t) { float f; return t < 0.5f ? (f=2*t,0.5f*(f*f*f-f*sinf(f*C_PI))) : (f=(1-(2*t-1)),0.5f*(1-(f*f*f-f*sinf(f*C_PI)))+0.5f); }
-float ease_inout_elastic(float t) { return t < 0.5f ? 0.5f*sinf(13*(C_PI*0.5f)*(2*t))*powf(2,10*((2*t)-1)) : 0.5f*(sinf(-13*(C_PI*0.5f)*((2*t-1)+1))*powf(2,-10*(2*t-1))+2); }
-float ease_inout_bounce(float t) { return t < 0.5f ? 0.5f*ease_in_bounce(t*2) : 0.5f*ease_out_bounce(t*2-1)+0.5f; }
-
-float ease_inout_perlin(float t) { float t3=t*t*t,t4=t3*t,t5=t4*t; return 6*t5-15*t4+10*t3; }
-
-float ease_ping_pong(float t, float(*fn1)(float), float(*fn2)(float)) { return t < 0.5 ? fn1(t*2) : fn2(1-(t-0.5)*2); }
-float ease_pong_ping(float t, float(*fn1)(float), float(*fn2)(float)) { return 1 - ease_ping_pong(t,fn1,fn2); }
-
-float ease(float t01, unsigned mode) {
-    typedef float (*easing)(float);
-    easing modes[] = {
-        ease_linear,
-        ease_out_sine,
-        ease_out_quad,
-        ease_out_cubic,
-        ease_out_quart,
-        ease_out_quint,
-        ease_out_expo,
-        ease_out_circ,
-        ease_out_back,
-        ease_out_elastic,
-        ease_out_bounce,
-
-        ease_linear,
-        ease_in_sine,
-        ease_in_quad,
-        ease_in_cubic,
-        ease_in_quart,
-        ease_in_quint,
-        ease_in_expo,
-        ease_in_circ,
-        ease_in_back,
-        ease_in_elastic,
-        ease_in_bounce,
-
-        ease_linear,
-        ease_inout_sine,
-        ease_inout_quad,
-        ease_inout_cubic,
-        ease_inout_quart,
-        ease_inout_quint,
-        ease_inout_expo,
-        ease_inout_circ,
-        ease_inout_back,
-        ease_inout_elastic,
-        ease_inout_bounce,
-
-        ease_inout_perlin,
-    };
-    return modes[clampi(mode, 0, countof(modes))](clampf(t01,0,1));
-}
 
 // ----------------------------------------------------------------------------
 
@@ -749,9 +615,9 @@ void transpose44(mat44 m, const mat44 a) { // M[i][j] = A[j][i];
 // @todo: test me
 // float det33 = M[0,0]*((M[1,1]*M[2,2])-(M[2,1]*M[1,2]))-M[0,1]*(M[1,0]*M[2,2]-M[2,0]*M[1,2])+M[0,2]*(M[1,0]*M[2,1]-M[2,0]*M[1,1]);
 //
-// float det33 = 
+// float det33 =
 //   rgt.x * fwd.y * upv.z - rgt.z * fwd.y * upv.x +
-//   rgt.y * fwd.z * upv.x - rgt.y * fwd.x * upv.z + 
+//   rgt.y * fwd.z * upv.x - rgt.y * fwd.x * upv.z +
 //   rgt.z * fwd.x * upv.y - rgt.x * fwd.z * upv.y;
 //
 // void transpose33(mat33 m, const mat33 a) { // M[i][j] = A[j][i];
@@ -821,7 +687,7 @@ bool invert44(mat44 T, const mat44 M) { // !!! ok, i guess
 }
 
 vec4 transform444(const mat44, const vec4);
-bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp) {
+bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp) { // @fixme: this function is broken (verified by @zpl-zak)
     // xyd: usually x:mouse_x,y:window_height()-mouse_y,d:0=znear/1=zfar
     // src: https://www.khronos.org/opengl/wiki/GluProject_and_gluUnProject_code
     mat44 inv_mvp;
@@ -978,7 +844,13 @@ vec3 transform_scaling (const mat44 m, const vec3 scaling) {
 // ----------------------------------------------------------------------------
 // !!! for debugging
 
-#include <stdio.h>
+void printi_( int *m, int ii, int jj ) {
+    for( int j = 0; j < jj; ++j ) {
+        for( int i = 0; i < ii; ++i ) printf("%10d ", *m++);
+        puts("");
+    }
+//    puts("---");
+}
 void print_( float *m, int ii, int jj ) {
     for( int j = 0; j < jj; ++j ) {
         for( int i = 0; i < ii; ++i ) printf("%8.3f", *m++);
@@ -986,6 +858,8 @@ void print_( float *m, int ii, int jj ) {
     }
 //    puts("---");
 }
+void print2i( vec2i v ) { printi_(&v.x,2,1); }
+void print3i( vec3i v ) { printi_(&v.x,3,1); }
 void print2( vec2 v ) { print_(&v.x,2,1); }
 void print3( vec3 v ) { print_(&v.x,3,1); }
 void print4( vec4 v ) { print_(&v.x,4,1); }
@@ -993,3 +867,11 @@ void printq( quat q ) { print_(&q.x,4,1); }
 void print33( float *m ) { print_(m,3,3); }
 void print34( float *m ) { print_(m,3,4); }
 void print44( float *m ) { print_(m,4,4); }
+
+// -----------
+
+AUTORUN {
+    STRUCT( vec3, float, x );
+    STRUCT( vec3, float, y );
+    STRUCT( vec3, float, z, "Up" );
+}

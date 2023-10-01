@@ -15,7 +15,7 @@ API unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
 API unsigned bgra( uint8_t b, uint8_t g, uint8_t r, uint8_t a );
 API unsigned rgbaf( float r, float g, float b, float a );
 API unsigned bgraf( float b, float g, float r, float a );
-API float    alpha( unsigned rgba );
+API unsigned alpha( unsigned rgba );
 
 #define RGBX(rgb,x)   ( ((rgb)&0xFFFFFF) | (((unsigned)(x))<<24) )
 #define RGB3(r,g,b)   ( (255<<24) | ((r)<<16) | ((g)<<8) | (b) )
@@ -535,11 +535,11 @@ typedef struct shadertoy_t {
     int uniforms[32];
     int texture_channels[4];
     int frame;
-    float clickx, clicky;
     uint64_t t;
     texture_t tx;
     vec2i dims;
     int flags;
+    vec4 mouse;
 } shadertoy_t;
 
 API shadertoy_t  shadertoy( const char *shaderfile, unsigned flags );

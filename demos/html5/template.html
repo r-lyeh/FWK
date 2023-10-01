@@ -100,13 +100,15 @@
             },
             canvas: (function() {
                 var canvas = document.getElementById('canvas');
-                canvas.width  = window.innerWidth;
-                canvas.height = window.innerHeight;
+                var dpi = window.devicePixelRatio;
+                canvas.width  = window.innerWidth*dpi;
+                canvas.height = window.innerHeight*dpi;
 
                 window.addEventListener('resize', () => {
                     if (canvas.canResize) {
-                        canvas.width = window.innerWidth;
-                        canvas.height = window.innerHeight;
+                        dpi = window.devicePixelRatio;
+                        canvas.width = window.innerWidth*dpi;
+                        canvas.height = window.innerHeight*dpi;
                     }
                 })
                 return canvas;
@@ -135,17 +137,15 @@
     <button onclick="openFullscreen();" style="position:relative; z-index: 1000; float: right;">&#x26F6;</button>
     <script>
     function openFullscreen() {
-      var elem = document.getElementById("canvas");
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen();
-      } else if (elem.webkitRequestFullscreen) { /* Safari */
-        elem.webkitRequestFullscreen();
-      } else if (elem.msRequestFullscreen) { /* IE11 */
-        elem.msRequestFullscreen();
+      var canvas = document.getElementById("canvas");
+      if (canvas.requestFullscreen) {
+        canvas.requestFullscreen();
+      } else if (canvas.webkitRequestFullscreen) { /* Safari */
+        canvas.webkitRequestFullscreen();
+      } else if (canvas.msRequestFullscreen) { /* IE11 */
+        canvas.msRequestFullscreen();
       }
     }
     </script>
-
-    <script src="index.coi.js"></script>
   </body>
 </html>

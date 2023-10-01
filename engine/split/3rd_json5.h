@@ -251,9 +251,11 @@ char *json5__parse_value(json5 *obj, char *p, char **err_code) {
             *buf++ = *p++;
         }
         obj->type = is_dbl ? JSON5_REAL : JSON5_INTEGER;
+        long long unsigned int llu;
+        long long int lli;
         /**/ if( is_dbl ) sscanf( buffer, "%lf", &obj->real );
-        else if( is_hex ) sscanf( buffer, "%llx", &obj->integer ); // SCNx64 -> inttypes.h
-        else              sscanf( buffer, "%lld", &obj->integer ); // SCNd64 -> inttypes.h
+        else if( is_hex ) sscanf( buffer, "%llx", &llu ), obj->integer = llu; // SCNx64 -> inttypes.h
+        else              sscanf( buffer, "%lld", &lli ), obj->integer = lli; // SCNd64 -> inttypes.h
     }
     else {
         return NULL;
@@ -305,7 +307,7 @@ void json5_write(FILE *fp, const json5 *o) {
     }
     /**/ if( o->type == JSON5_NULL ) fprintf(fp, "%s", "null");
     else if( o->type == JSON5_BOOL ) fprintf(fp, "%s", o->boolean ? "true" : "false");
-    else if( o->type == JSON5_INTEGER ) fprintf(fp, "%lld", o->integer);
+    else if( o->type == JSON5_INTEGER ) fprintf(fp, "%lld", (long long int)o->integer);
     else if( o->type == JSON5_REAL ) {
         /**/ if( isnan(o->real) ) fprintf(fp, "%s", signbit(o->real) ? "-nan" : "nan" );
         else if( isinf(o->real) ) fprintf(fp, "%s", signbit(o->real) ? "-inf" : "inf" );

@@ -25,6 +25,14 @@
 #define ENABLE_LINUX_CALLSTACKS 0 ///+
 #endif
 
+#ifndef ENABLE_AUTOTESTS
+#define ENABLE_AUTOTESTS        ifdef(debug, ifndef(ems, 1, 0), 0) ///+
+#endif
+
+#ifndef ENABLE_RETAIL
+#define ENABLE_RETAIL           0 // ifdef(retail, 1, 0) ///+
+#endif
+
 // -----------------------------------------------------------------------------
 // if/n/def hell
 
@@ -105,6 +113,34 @@
 #define ifdef_release                  ifdef_false
 #endif
 
+#if ENABLE_RETAIL // NDEBUG>=2 ?
+#define ifdef_retail                   ifdef_true
+#else
+#define ifdef_retail                   ifdef_false
+#endif
+
+#if   defined NDEBUG && NDEBUG >= 3 // we use NDEBUG=[0,1,2,3] to signal the compiler optimization flags O0,O1,O2,O3
+#define ifdef_O3                       ifdef_true
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_false
+#elif defined NDEBUG && NDEBUG >= 2
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_true
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_false
+#elif defined NDEBUG && NDEBUG >= 1
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_true
+#define ifdef_O0                       ifdef_false
+#else
+#define ifdef_O3                       ifdef_false
+#define ifdef_O2                       ifdef_false
+#define ifdef_O1                       ifdef_false
+#define ifdef_O0                       ifdef_true
+#endif
+
 #include <stdint.h>
 #if (defined INTPTR_MAX && INTPTR_MAX == INT64_MAX) || defined(_M_X64) || defined(__amd64__) || defined(__x86_64__) || defined(__ppc64__) || __WORDSIZE == 64
 #define ifdef_64                       ifdef_true
@@ -116,23 +152,24 @@
 
 // -----------------------------------------------------------------------------
 // new C keywords
-// @todo: autorun (needed?)
 
 #define countof(x)       (int)(sizeof (x) / sizeof 0[x])
 
 #define concat(a,b)      conc4t(a,b)
-#define conc4t(a,b)      a##b
+#define conc4t(a,b)      a##b ///-
 
 #define macro(name)      concat(name, __LINE__)
+#define unique(name)     concat(concat(concat(name,concat(_L,__LINE__)),_),__COUNTER__)
 #define defer(begin,end) for(int macro(i) = ((begin), 0); !macro(i); macro(i) = ((end), 1))
 #define scope(end)       defer((void)0, end)
-#define benchmark        for(double macro(t) = -time_ss(); macro(t) < 0; printf("%.2fs (" FILELINE ")\n", macro(t)+=time_ss()))
+#define benchmark        for(double macro(i) = 1, macro(t) = (time_ss(),-time_ss()); macro(i); macro(t)+=time_ss(), macro(i)=0, printf("%.4fs %2.f%% (" FILELINE ")\n", macro(t), macro(t)*100/0.0166667 ))
+#define benchmark_ms     for(double macro(i) = 1, macro(t) = (time_ss(),-time_ss()); macro(i); macro(t)+=time_ss(), macro(i)=0, printf("%.2fms %2.f%% (" FILELINE ")\n", macro(t)*1000, macro(t)*100/0.016666667 ))
 #define do_once          static int macro(once) = 0; for(;!macro(once);macro(once)=1)
 
 #if is(cl)
 #define __thread         __declspec(thread)
 #elif is(tcc) && is(win32)
-#define __thread         __declspec(thread) // compiles fine, but does not work apparently
+#define __thread         __declspec(thread) // compiles fine apparently, but does not work
 #elif is(tcc)
 #define __thread
 #endif
@@ -143,22 +180,45 @@
 //-----------------------------------------------------------------------------
 // new C macros
 
-#define ASSERT(expr, ...)          do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; breakpoint(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)); } } while(0)
-#define ASSERT_ONCE(expr, ...)     do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; static int seen = 0; if(!seen) seen = 1, breakpoint(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)); } } while(0)
-#define STATIC_ASSERT(EXPR)        typedef struct { unsigned macro(static_assert_on_line_) : !!(EXPR); } macro(static_assert_on_line_)
+#if ENABLE_RETAIL
+#define ASSERT(expr, ...)          (void)0
+#define ASSERT_ONCE(expr, ...)     (void)0
+#else
+#define ASSERT(expr, ...)          do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
+#define ASSERT_ONCE(expr, ...)     do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; static int seen = 0; if(!seen) seen = 1, alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
+#endif
+#define STATIC_ASSERT(EXPR)        typedef struct { unsigned macro(static_assert_on_L) : !!(EXPR); } unique(static_assert_on_L)
 
 #define FILELINE                   __FILE__ ":" STRINGIZE(__LINE__)
 #define STRINGIZE(x)               STRINGIZ3(x)
-#define STRINGIZ3(x)               #x
+#define STRINGIZ3(x)               #x ///-
 
 #define EXPAND(name, ...)          EXPAND_QUOTE(EXPAND_JOIN(name, EXPAND_COUNT_ARGS(__VA_ARGS__)), (__VA_ARGS__))
-#define EXPAND_QUOTE(x, y)         x y
-#define EXPAND_JOIN(name, count)   EXPAND_J0IN(name, count)
-#define EXPAND_J0IN(name, count)   EXPAND_J01N(name, count)
-#define EXPAND_J01N(name, count)   name##count
-#define EXPAND_COUNT_ARGS(...)     EXPAND_ARGS((__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0))
-#define EXPAND_ARGS(args)          EXPAND_RETURN_COUNT args
-#define EXPAND_RETURN_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, count, ...) count
+#define EXPAND_QUOTE(x, y)         x y ///-
+#define EXPAND_JOIN(name, count)   EXPAND_J0IN(name, count) ///-
+#define EXPAND_J0IN(name, count)   EXPAND_J01N(name, count) ///-
+#define EXPAND_J01N(name, count)   name##count ///-
+#define EXPAND_COUNT_ARGS(...)     EXPAND_ARGS((__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)) ///-
+#define EXPAND_ARGS(args)          EXPAND_RETURN_COUNT args ///-
+#define EXPAND_RETURN_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, _9_, count, ...) count ///-
+
+// expands to the first argument
+#define VA_FIRST(...) VA_F1RST(__VA_ARGS__, throwaway)
+#define VA_F1RST(first, ...) first ///-
+// if there's only one argument, expands to nothing.  if there is more
+// than one argument, expands to a comma followed by everything but
+// the first argument.  only supports up to 9 arguments but can be expanded.
+#define VA_REST(...) VA_R3ST(VA_NUM(__VA_ARGS__), __VA_ARGS__)
+#define VA_R3ST(qty, ...) VA_R3S7(qty, __VA_ARGS__) ///-
+#define VA_R3S7(qty, ...) VA_R3S7_##qty(__VA_ARGS__) ///-
+#define VA_R3S7_ONE(first) ///-
+#define VA_R3S7_TWOORMORE(first, ...) , __VA_ARGS__ ///-
+#define VA_NUM(...) VA_SELECT_10TH(__VA_ARGS__, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, ONE, throwaway) ///-
+#define VA_SELECT_10TH(A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, ...) A10
+// VA_SPLIT() expands to A) 1 item OR B) 1 item + ',' + va_args[1..N]
+#define VA_SPLIT(...) VA_FIRST(__VA_ARGS__) VA_REST(__VA_ARGS__)
+// VA_COUNT() counts number of va args
+#define VA_COUNT(...)  (int)(sizeof((int[]){0, ##__VA_ARGS__})/sizeof(int)-1)
 
 #if is(cl) && !is(cpp)
 #define INLINE __inline
@@ -182,26 +242,75 @@
 
 // usage: #define vec2(...) C_CAST(vec2, __VA_ARGS__)
 // typedef union vec2 { float X,Y; }; vec2 a = {0,1}, b = vec2(0,1);
-#if is(cpp)
-#define C_CAST(type, ...)  ( type { __VA_ARGS__ } )
+#define C_CAST(type, ...)  ( ifdef(c,(type),type) { __VA_ARGS__ } )
+
+// create a WARNING(...) macro
+// usage: WARNING("this is displayed at compile time")
+#if is(gcc)
+#   define WARNING(msg) WARN1NG( message( msg ) )
+#   define WARN1NG(msg) _Pragma(#msg)
+#elif is(cl)
+#   define WARNING(msg) __pragma( message( msg ) )
 #else
-#define C_CAST(type, ...)  ((type){ __VA_ARGS__ } )
+#   define WARNING(msg)
+#endif
+
+// document todos and fixmes via compiler warnings
+#define TODO(str)  ifdef(debug,WARNING("TO DO: " str " (" FILELINE ")"))
+#define FIXME(str) ifdef(debug,WARNING("FIXME: " str " (" FILELINE ")"))
+
+// -----------------------------------------------------------------------------
+// autorun initializers for C
+// - rlyeh, public domain
+//
+// note: based on code by Joe Lowe (public domain).
+// note: XIU for C initializers, XCU for C++ initializers, XTU for C deinitializers
+
+#define AUTORUN AUTORUN_( unique(fn) )
+#ifdef __cplusplus
+#define AUTORUN_(fn) \
+    static void fn(void); \
+    static const int concat(fn,__1) = (fn(), 1); \
+    static void fn(void)
+#elif defined _MSC_VER && !defined(__clang__) // cl, but not clang-cl
+#define AUTORUN_(fn) \
+    static void fn(void); \
+    static int concat(fn,__1) (){ fn(); return 0; } \
+    __pragma(section(".CRT$XIU", long, read)) \
+    __declspec(allocate(".CRT$XIU")) \
+    static int(* concat(fn,__2) )() = concat(fn,__1); \
+    static void fn(void)
+#elif defined __TINYC__ // tcc...
+#define AUTORUN_(fn) \
+    __attribute__((constructor)) \
+    static void fn(void)
+#else // gcc,clang,clang-cl...
+#define AUTORUN_(fn) \
+    __attribute__((constructor(__COUNTER__+101))) \
+    static void fn(void)
+#endif
+
+#if 0 // autorun demo
+void byebye(void) { puts("seen after main()"); }
+AUTORUN { puts("seen before main()"); }
+AUTORUN { puts("seen before main() too"); atexit( byebye ); }
+#endif
+
+// -----------------------------------------------------------------------------
+// build info
+
+#ifndef BUILD_VERSION
+#define BUILD_VERSION ""
 #endif
 
 // -----------------------------------------------------------------------------
 // visibility
 
-// win32 users would need to -DAPI=IMPORT/EXPORT as needed when using/building FWK as DLL.
+// win32 users would need to -DAPI=EXPORT/IMPORT as needed when building/using FWK as DLL.
 
-#if is(win32)
-#define IMPORT ifdef(gcc, __attribute__ ((dllimport)), __declspec(dllimport))
-#define EXPORT ifdef(gcc, __attribute__ ((dllexport)), __declspec(dllexport))
+#define IMPORT ifdef(win32, ifdef(gcc, __attribute__ ((dllimport)), __declspec(dllimport)))
+#define EXPORT ifdef(win32, ifdef(gcc, __attribute__ ((dllexport)), __declspec(dllexport)))
 #define STATIC
-#else
-#define IMPORT    
-#define EXPORT    
-#define STATIC
-#endif
 
 #ifndef API
 #define API STATIC

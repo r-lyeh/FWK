@@ -3,7 +3,7 @@ require "ninja"
 -- workspace
 
 workspace "project"
-    configurations { "devel", "debug", "release" }
+    configurations { "devel", "debug", "release", "retail" }
     location "../_project"
     targetdir "../_%{cfg.buildcfg}"
     configuration "windows"
@@ -16,22 +16,38 @@ workspace "project"
     configuration "linux"
         links { "pthread", "X11", "m", "dl" }
     filter "configurations:debug"
+        debugdir "../"
         symbols "On"
         optimize "Off"
+        kind "consoleApp" -- "WindowedApp"
     filter "configurations:devel"
+        debugdir "../"
         symbols "On"
         optimize "On"
+        kind "consoleApp" -- "WindowedApp"
     filter "configurations:release"
+        debugdir "../"
         defines {"NDEBUG"}
         symbols "Off"
         optimize "On"
+        staticruntime "on"
+        runtime "Release"
+        kind "consoleApp" -- "WindowedApp"
+    filter "configurations:retail"
+        debugdir "../"
+        defines {"NDEBUG","ENABLE_RETAIL","main=WinMain"}
+        symbols "Off"
+        optimize "On"
+        staticruntime "on"
+        runtime "Release"
+        kind "WindowedApp"
 
 -- dlls
 
 project "engine"
     language "C"
     kind "SharedLib"
-    files {"../engine/fwk.c"}
+    files {"../engine/fwk.c","../engine/fwk.h"}
     includedirs {"../engine/"}
     defines {"API=EXPORT"}
 
@@ -39,7 +55,6 @@ project "engine"
 
 project "editor"
     language "C"
-    kind "ConsoleApp" -- "WindowedApp"
     links {"engine"} defines {"API=IMPORT"}
     files {
     "../tools/editor/**.",
@@ -53,7 +68,6 @@ project "editor"
 
 project "editor2"
     language "C"
-    kind "ConsoleApp"
     files {
     "../tools/editor/**.",
     "../tools/editor/**.h*",
@@ -66,16 +80,14 @@ project "editor2"
 
 -- demos
 
-function demos(...)
+function demos(static,...)
     for _, name in ipairs({...}) do
         project (name)
             -- defaults()
             uuid (os.uuid(name))
             language "C"
-            kind "consoleApp" -- "WindowedApp"
-            includedirs {"../engine/"}
-            links {"engine"} defines {"API=IMPORT"} -- kind "SharedLib" links {"engine"}
             includedirs {"../engine/", "../tools/editor/"}
+            links {"engine"} defines {"API="..static} -- kind "SharedLib" links {"engine"}
             files {
                 "../demos/*"..name.."*.h*",
                 "../demos/*"..name.."*.c*",
@@ -84,9 +96,16 @@ function demos(...)
     end
 end
 
-demos(
-    "00-hello","01-sprite","02-ddraw","03-character","04-control",
-    "04-scene","05-network","06-pbr"
+demos("IMPORT",
+  "00-loop",    "00-script",   "01-demo2d",     "01-easing",  "01-font",      "01-ui",
+  "02-ddraw",   "02-frustum",  "03-anims",      "04-actor",   "06-material",  "06-scene",
+  "07-netsync", "07-network",  "08-audio",      "08-video",   "09-cubemap",   "09-shadertoy",
+  "99-bt",      "99-compute",  "99-controller", "99-demo",    "99-geom",      "99-lod",
+  "99-pathfind","99-pbr",      "99-spine",      "99-sponza",  "99-sprite"
+)
+
+demos("STATIC",
+  "99-nodes"
 )
 
 -- games
@@ -96,10 +115,8 @@ function games(...)
         project ("game-" .. name)
             uuid (os.uuid("game-" .. name))
             language "C++"
-            kind "consoleApp"
-            includedirs {"../engine/"}
-            links {"engine"} defines {"API=IMPORT"} -- kind "SharedLib" links {"engine"}
             includedirs {"../engine/", "../tools/editor/"}
+            links {"engine"} defines {"API=IMPORT"} -- kind "SharedLib" links {"engine"}
             files {
                 "../games/"..name.."/**.h*",
                 "../games/"..name.."/**.c*",

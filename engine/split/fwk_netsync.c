@@ -27,7 +27,7 @@ rpc_call rpc_new_call(const char *signature, rpc_function function) {
 #if RPC_DEBUG
             printf("%p %p %s `%s` %s(", function, (void*)hash, rettype, hash_sig, method); for(int i = 0, end = array_count(tokens); i < end; ++i) printf("%s%s", tokens[i], i == (end-1)? "":", "); puts(");");
 #endif
-            return (rpc_call) { strdup(method), function, hash }; // LEAK
+            return (rpc_call) { STRDUP(method), function, hash }; // LEAK
         }
     }
     return (rpc_call) {0};
@@ -305,7 +305,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
             network_put(NETWORK_RANK, -1); /* unassigned until we connect successfully */
             int64_t socket = client_join(ip, port);
             if( socket >= 0 ) {
-                PRINTF("Client connected, id %lld\n", socket);
+                PRINTF("Client connected, id %d\n", (int)socket);
                 network_put(NETWORK_LIVE, 1);
                 network_put(NETWORK_RANK, socket);
             } else {
@@ -322,7 +322,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
         network_put(NETWORK_RANK, -1); /* unassigned until we connect successfully */
         int64_t socket = client_join(ip, port);
         if( socket > 0 ) {
-            PRINTF("Client connected, id %lld\n", socket);
+            PRINTF("Client connected, id %d\n", (int)socket);
             network_put(NETWORK_LIVE, 1);
             network_put(NETWORK_RANK, socket);
         } else {
@@ -333,7 +333,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
         }
     }
 
-    PRINTF("Network rank:%lld ip:%s port:%lld\n", network_get(NETWORK_RANK), ip, network_get(NETWORK_PORT));
+    PRINTF("Network rank:%u ip:%s port:%d\n", (unsigned)network_get(NETWORK_RANK), ip, (int)network_get(NETWORK_PORT));
 }
 
 int64_t network_put(uint64_t key, int64_t value) {
@@ -466,8 +466,8 @@ char** server_poll(unsigned timeout_ms) {
                 *(uint32_t*)&init_msg[0] = MSG_INIT;
                 *(int64_t*)&init_msg[4] = client_id;
                 server_send_bin(client_id, init_msg, 12);
-                PRINTF("Client rank %lld for peer ::%s:%u\n", client_id, ip, event.peer->address.port);
-                msg = va( "%d new client rank:%lld from ::%s:%u", 0, client_id, ip, event.peer->address.port );
+                PRINTF("Client rank %u for peer ::%s:%u\n", (unsigned)client_id, ip, event.peer->address.port);
+                msg = va( "%d new client rank:%u from ::%s:%u", 0, (unsigned)client_id, ip, event.peer->address.port );
                 event.peer->data = (void*)client_id;
                 break;
 
@@ -508,7 +508,7 @@ char** server_poll(unsigned timeout_ms) {
                     }
                 } break;
                 case MSG_RPC: {
-                    event.type = NETWORK_EVENT_RPC; 
+                    event.type = NETWORK_EVENT_RPC;
                     unsigned id = *(uint32_t*)ptr; ptr += 4;
                     char *cmdline = ptr;
                     char *resp = rpc(id, cmdline);
@@ -519,11 +519,11 @@ char** server_poll(unsigned timeout_ms) {
                     msg = va("%d req:%s res:%s", 0, cmdline, resp);
                 } break;
                 case MSG_RPC_RESP: {
-                    event.type = NETWORK_EVENT_RPC_RESP; 
+                    event.type = NETWORK_EVENT_RPC_RESP;
                     msg = va("%d %s", 0, va("%s", ptr));
                 } break;
                 default:
-                    msg = va("%d unk msg len:%u from rank:%lld ::%s:%u", -1, sz, (uint64_t)event.peer->data, ip, event.peer->address.port); /* @TODO: hexdump? */
+                    msg = va("%d unk msg len:%u from rank:%u ::%s:%u", -1, sz, (unsigned)(uintptr_t)event.peer->data, ip, event.peer->address.port); /* @TODO: hexdump? */
                     break;
                 }
                 /* Clean up the packet now that we're done using it. */
@@ -531,7 +531,7 @@ char** server_poll(unsigned timeout_ms) {
             } break;
 
             case ENET_EVENT_TYPE_DISCONNECT:
-                msg = va( "%d disconnect rank:%lld", 0, (uint64_t)event.peer->data);
+                msg = va( "%d disconnect rank:%u", 0, (unsigned)(uintptr_t)event.peer->data);
                 /* Reset the peer's client information. */
                 FREE(event.peer->data);
                 event.peer->data = NULL;
@@ -540,7 +540,7 @@ char** server_poll(unsigned timeout_ms) {
                 break;
 
             case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
-                msg = va( "%d timeout rank:%lld", 0, (uint64_t)event.peer->data);
+                msg = va( "%d timeout rank:%u", 0, (unsigned)(uintptr_t)event.peer->data);
                 FREE(event.peer->data);
                 event.peer->data = NULL;
                 server_drop_client_peer(event.peer);
@@ -604,7 +604,7 @@ char** client_poll(unsigned timeout_ms) {
                     }
                 } break;
                 case MSG_RPC: {
-                    event.type = NETWORK_EVENT_RPC; 
+                    event.type = NETWORK_EVENT_RPC;
                     unsigned id = *(uint32_t*)ptr; ptr += 4;
                     char *cmdline = ptr;
                     char *resp = rpc(id, cmdline);
@@ -615,7 +615,7 @@ char** client_poll(unsigned timeout_ms) {
                     msg = va("%d req:%s res:%s", 0, cmdline, resp);
                 } break;
                 case MSG_RPC_RESP: {
-                    event.type = NETWORK_EVENT_RPC_RESP; 
+                    event.type = NETWORK_EVENT_RPC_RESP;
                     msg = va("%d %s", 0, ptr);
                 } break;
                 default:
@@ -639,7 +639,7 @@ char** client_poll(unsigned timeout_ms) {
                 msg = va( "%d timeout", 0);
                 FREE(event.peer->data);
                 event.peer->data = NULL;
-                network_put(NETWORK_RANK, -1); 
+                network_put(NETWORK_RANK, -1);
                 network_put(NETWORK_LIVE, 0);
                 break;
         }

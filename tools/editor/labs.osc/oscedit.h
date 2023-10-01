@@ -215,7 +215,7 @@ void osc_edit_sync(int server_fd, int client_fd, unsigned timeout_ms) {
             ui_window_end();
         }
 
-        ui_demo();
+        ui_demo(0);
     }
 }
 

@@ -24,8 +24,7 @@ if [ "$1" = "tidy" ]; then
     rm -rf *.dSYM 2> /dev/null
     rm *.png 2> /dev/null
     rm *.mp4 2> /dev/null
-    rm editor.linux 2> /dev/null
-    rm editor.osx 2> /dev/null
+    rm editor 2> /dev/null
     rm temp_* 2> /dev/null
     rm hello 2> /dev/null
     exit
@@ -79,11 +78,15 @@ while [ $# -ge 1 ]; do
     fi
     if [ "$1" = "dev" ]; then 
         export build=dev
-        export flags="-O1 -g"
+        export flags="-O1 -g -DNDEBUG=1"
     fi
     if [ "$1" = "rel" ]; then 
         export build=rel
-        export flags="-O3 -DNDEBUG"
+        export flags="-O2    -DNDEBUG=2"
+    fi
+    if [ "$1" = "ret" ]; then
+        export build=ret
+        export flags="-O3    -DNDEBUG=3 -DENABLE_RETAIL"
     fi
     if [ "$1" = "gcc" ]; then 
         export cc=gcc
@@ -165,7 +168,7 @@ if [ "$(uname)" != "Darwin" ]; then
     fi
 
     # editor
-    echo editor        && $cc -o editor.linux  tools/editor/editor.c $flags $import $args &
+    echo editor        && $cc -o editor        tools/editor/editor.c $flags $import $args &
 
     # demos
     echo hello         && $cc -o hello         hello.c               $flags         $args &
@@ -215,7 +218,7 @@ if [ "$(uname)" = "Darwin" ]; then
     chmod +x tools/ninja.osx
     chmod +x demos/lua/luajit.osx
 
-    export args="-w -Iengine/ -framework cocoa -framework iokit -framework audiotoolbox $args"
+    export args="-w -Iengine/ -framework cocoa -framework iokit -framework CoreFoundation -framework CoreAudio -framework AudioToolbox $args"
     echo build=$build, type=$dll, cc=$cc, args=$args
 
     # framework (as dynamic library)
@@ -230,7 +233,7 @@ if [ "$(uname)" = "Darwin" ]; then
     fi
 
     # editor
-    echo editor        && cc -o editor.osx -ObjC tools/editor/editor.c -I.  $flags $args &
+    echo editor        && cc -o editor        tools/editor/editor.c $import $flags $args &
 
     # demos
     echo hello         && cc -o hello -ObjC   hello.c                       $flags $args &
@@ -264,8 +267,10 @@ exit
 cd /d "%~dp0"
 
 rem show help
-if "%1"=="-?" goto showhelp
-if "%1"=="-h" goto showhelp
+if "%1"=="-?"     goto showhelp
+if "%1"=="-h"     goto showhelp
+if "%1"=="--help" goto showhelp
+if "%1"=="-help"  goto showhelp
 if "%1"=="help" (
     :showhelp
     echo %0                   ; compile hello. uses `dll dev` settings
@@ -273,29 +278,35 @@ if "%1"=="help" (
     echo %0 [bind]            ; generate lua bindings
     echo %0 [cook]            ; generate cooked zip files. uses tools/cook.ini cookbook
     echo %0 [docs]            ; generate engine/fwk.html file
+    echo %0 [fuse]            ; fuse all binaries and cooked zipfiles found together
     echo %0 [help]            ; show this screen
     echo %0 [proj]            ; generate a xcode/gmake/ninja/visual studio solution
     echo %0 [sync]            ; sync repo to latest
     echo %0 [tidy]            ; clean up temp files
     echo %0 [test]            ; perform different checks
-    echo %0 [split]           ; generate engine/split/* files from engine/fwk.c
-    echo %0 [joint]           ; generate engine/joint/* files from engine/fwk.c
-    echo %0 [join]            ; merge engine/split/* files into engine/fwk.*
-    echo %0 [cl^|tcc^|cc^|gcc^|clang^|clang-cl] [dbg^|dev^|rel] [static^|dll] [nofwk^|nodemos^|editor] [-- args]
+    echo %0 [join]            ; merge engine/* ^<- engine/joint/* ^<- engine/split/*
+    echo %0 [split]           ; merge engine/* -^> engine/joint/* -^> engine/split/*
+    echo %0 [joint]           ; merge engine/* -^> engine/joint/*
+    echo %0 [cl^|tcc^|cc^|gcc^|clang^|clang-cl] [dbg^|dev^|rel^|ret] [static^|dll] [nofwk^|nodemos^|editor] [-- args]
     echo    cl       \
     echo    tcc      ^|
     echo    cc       ^| select compiler. must be accessible in PATH
     echo    gcc      ^| (autodetected if no option is provided^)
     echo    clang    ^|
     echo    clang-cl /
-    echo    dbg      \   debug build: [x] ASAN [x] poison [x] asserts [x] profiler [x] symbols                    [ ] zero optimizations
-    echo    dev      ^| develop build: [ ] ASAN [x] poison [x] asserts [x] profiler [x] symbols                    [*] some optimizations (default^)
-    echo    rel      / release build: [ ] ASAN [ ] poison [ ] asserts [ ] profiler [x] symbols (cl,clang-cl only^) [x] many optimizations
+    echo    dbg      \   debug build: [x] ASAN [x] poison [x] asserts [x] profiler [x] suite [x] symbols                    [ ] zero optimizations
+    echo    dev      ^| develop build: [ ] ASAN [x] poison [x] asserts [x] profiler [ ] suite [x] symbols                    [*] some optimizations (default^)
+    echo    rel      ^| release build: [ ] ASAN [ ] poison [ ] asserts [ ] profiler [ ] suite [x] symbols (cl,clang-cl only^) [x] many optimizations
+    echo    ret      /  retail build: same than release build above plus no-console, no-printf, no-profiler, no-debug-panel, no-cook, no-editor, no-title-stats...
     echo    static   \ link fwk as static library
     echo    dll      / link fwk as dynamic library (dll^) (default^)
-    echo    nofwk    \ do not compile framework
-    echo    demos    ^| do compile demos
-    echo    editor   / do compile editor
+    echo    fwk      \ compile framework
+    echo    nofwk    / do not compile framework
+    echo    demos    \ compile demos
+    echo    nodemos  / do not compile demos
+    echo    editor   \ compile editor
+    echo    noeditor / do not compile editor
+    echo    all      ^> compile everything: same than `fwk demos editor` setting
     echo    args     ^> after `--` separator is found, pass all remaining arguments to compiler as-is
     echo.
     exit /b
@@ -357,7 +368,7 @@ if "%1"=="joint" (
     echo // implementation. The symbol must be defined in a C (not C++^) file>> fwk.h
     echo // ---------------------------------------------------------------- >> fwk.h
     echo #pragma once                                                        >> fwk.h
-    type engine\split\3rd_font_md.h                                          >> fwk.h
+    type engine\split\3rd_icon_md.h                                          >> fwk.h
     type engine\split\3rd_glad.h                                             >> fwk.h
     type engine\fwk.h                                                        >> fwk.h
     echo #ifdef FWK_IMPLEMENTATION                                           >> fwk.h
@@ -400,10 +411,20 @@ rem popd
 rem shortcuts for split & join scripts
 if "%1"=="split" (
     call tools\split
+    call make joint
     exit /b
 )
 if "%1"=="join" (
     call tools\join
+    call make joint
+    exit /b
+)
+
+rem fuse binaries and zipfiles
+if "%1"=="fuse" (
+    setlocal enableDelayedExpansion
+    del *.zip 2> nul 1> nul & tools\cook --cook-jobs=1
+    for %%i in (*.exe) do set "var=%%i" && if not "!var:~0,6!"=="fused_" ( copy /y !var! fused_!var! 2>nul 1>nul & tools\ark fused_!var! *.zip )
     exit /b
 )
 
@@ -425,6 +446,8 @@ if "%1"=="tidy" (
     move /y ??-*.png demos          > nul 2> nul
     move /y ??-*.c demos            > nul 2> nul
     del demos\lua\fwk.dll           > nul 2> nul
+    del demos\lua\*.zip             > nul 2> nul
+    rd /q /s demos\lua\__pycache__  > nul 2> nul
     del .temp*.*                    > nul 2> nul
     del *.zip                       > nul 2> nul
     del *.mem                       > nul 2> nul
@@ -456,28 +479,36 @@ rem rd /q /s _project               > nul 2> nul
     exit /b
 )
 
-set vs=00
-set cc=%cc%
+rem Compiler detection
+rem set vs=00
+rem set cc=%cc%
+rem check args
+rem if "%cc%"=="" (
+rem     SET "_FullString=%*"
+rem     SET "_Search=tcc"
+rem     CALL SET "_result=%%_FullString:%_Search%=%%"
+rem     If /i "%_result%"=="%_FullString%" (Echo String not found) ELSE (set cc=tcc)
+rem )
 rem detect setup
 if "%cc%"=="" (
     echo Detecting VS 2022/2019/2017/2015/2013 x64 ...
     set "cc=cl" && where /q cl.exe || (
                if exist "%VS170COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%VS170COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=22"
+                  @call "%VS170COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=22"
         ) else if exist "%VS160COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%VS160COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=19"
+                  @call "%VS160COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=19"
         ) else if exist "%VS150COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%VS150COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=17"
+                  @call "%VS150COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=17"
         ) else if exist "%VS140COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" (
-                  @call "%VS140COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" > nul && set "vs=15"
+                  @call "%VS140COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" >nul && set "vs=15"
         ) else if exist "%VS120COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" (
-                  @call "%VS120COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" > nul && set "vs=13"
+                  @call "%VS120COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" >nul && set "vs=13"
         ) else if exist "%ProgramFiles%/microsoft visual studio/2022/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%ProgramFiles%/microsoft visual studio/2022/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=22"
+                  @call "%ProgramFiles%/microsoft visual studio/2022/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=22"
         ) else if exist "%ProgramFiles(x86)%/microsoft visual studio/2019/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%ProgramFiles(x86)%/microsoft visual studio/2019/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=19"
+                  @call "%ProgramFiles(x86)%/microsoft visual studio/2019/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=19"
         ) else if exist "%ProgramFiles(x86)%/microsoft visual studio/2017/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (
-                  @call "%ProgramFiles(x86)%/microsoft visual studio/2017/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" > nul && set "vs=17"
+                  @call "%ProgramFiles(x86)%/microsoft visual studio/2017/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul && set "vs=17"
         ) else (
             echo Detecting Mingw64 ...
             set "cc=gcc" && where /q gcc.exe || (
@@ -486,8 +517,55 @@ if "%cc%"=="" (
         )
     )
 )
+if "%cc%"=="cl" (
+           if exist "%VS170COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=22"
+    ) else if exist "%VS160COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=19"
+    ) else if exist "%VS150COMNTOOLS%/../../VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=17"
+    ) else if exist "%VS140COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" (set "vs=15"
+    ) else if exist "%VS120COMNTOOLS%/../../VC/bin/x86_amd64/vcvarsx86_amd64.bat" (set "vs=13"
+    ) else if exist "%ProgramFiles%/microsoft visual studio/2022/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=22"
+    ) else if exist "%ProgramFiles(x86)%/microsoft visual studio/2019/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=19"
+    ) else if exist "%ProgramFiles(x86)%/microsoft visual studio/2017/community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" (set "vs=17"
+    ) else set "vs=00"
+)
 
 setlocal enableDelayedExpansion
+
+rem ASK what to build if double-clicked from Windows explorer
+if "%1"=="" (((echo.%cmdcmdline%)|%WINDIR%\system32\find.exe /I "%~0")>nul) && (
+    for /L %%i in (0,0,1) do (
+        echo Menu:
+        echo  H^)ello ^(!cc!^)
+        echo  E^)ditor ^(!cc!^)
+        echo  B^)uild everything ^(!cc!^)
+        echo  C^)ook everything
+        echo  R^)un everything
+        echo  D^)ocumentation
+        echo  F^)use binaries ^(!cc!^)
+        echo  T^)idy subfolders
+        echo  S^)ync to latest
+        echo  1^)Open Visual Studio ^(!vs!^)
+        echo  2^)Open Visual Studio Code
+        echo  3^)Open Explorer
+        echo  Q^)uit
+        choice /C HEBCRDFTS123Q /M "Select"
+        set choice=!errorlevel!
+        if "!choice!"== "1" call make && start hello
+        if "!choice!"== "2" ( if exist editor.exe ( start editor ) else ( call make editor && start editor ) )
+        if "!choice!"== "3" call make all
+        if "!choice!"== "4" call make cook
+        if "!choice!"== "5" for %%i in (*.exe) do start /wait %%i
+        if "!choice!"== "6" start engine/fwk.html && rem start "" "https://bit.ly/fwk2023"
+        if "!choice!"== "7" call make all retail && make fuse
+        if "!choice!"== "8" call make tidy
+        if "!choice!"== "9" call make sync && start make && exit
+        if "!choice!"=="10" call make proj && (tasklist | find /i "devenv.exe") >nul 2>nul && (echo.) || (start _project\project.sln)
+        if "!choice!"=="11" start /min cmd /C "code ."
+        if "!choice!"=="12" start .
+        if "!choice!"=="13" exit
+        cls
+    )
+)
 
 set dll=dll
 set build=dev
@@ -509,6 +587,7 @@ set rc=0
     if "%1"=="dbg"      set "build=%1" && goto loop
     if "%1"=="dev"      set "build=%1" && goto loop
     if "%1"=="rel"      set "build=%1" && goto loop
+    if "%1"=="ret"      set "build=%1" && goto loop
 
     if "%1"=="debug"       set "build=dbg" && goto loop
     if "%1"=="devel"       set "build=dev" && goto loop
@@ -516,12 +595,14 @@ set rc=0
     if "%1"=="developer"   set "build=dev" && goto loop
     if "%1"=="development" set "build=dev" && goto loop
     if "%1"=="release"     set "build=rel" && goto loop
+    if "%1"=="retail"      set "build=ret" && goto loop
 
     if "%1"=="all"      set "fwk=yes" && set "demos=yes" && set "editor=yes" && set "hello=yes" && goto loop
     if "%1"=="demos"    set "demos=yes" && set "hello=no" && goto loop
     if "%1"=="nodemos"  set "demos=no" && goto loop
-    if "%1"=="editor"   set "editor=yes" && set "hello=no"&& goto loop
+    if "%1"=="editor"   set "editor=yes" && set "hello=no" && goto loop
     if "%1"=="noeditor" set "editor=no" && goto loop
+    if "%1"=="fwk"      set "fwk=yes" && set "hello=no" && goto loop
     if "%1"=="nofwk"    set "fwk=no" && goto loop
 
     if "%1"=="tcc"      set "cc=%1" && goto loop
@@ -543,10 +624,9 @@ set rc=0
     if not "%1"==""     set "args=!args! %1" && shift && goto parse_compiler_args
 
 rem solution. @todo: lin/osx
-if "!proj!"=="yes" if not "%vs%"=="00" pushd tools && premake5 vs20%vs% & popd
-if "!proj!"=="yes" if     "%vs%"=="00" pushd tools && premake5 vs2013   & popd
-if "!proj!"=="yes"                     pushd tools && premake5 ninja    & popd
-if "!proj!"=="yes"                     pushd tools && premake5 gmake    & popd & exit /b
+if "!proj!"=="yes" pushd tools && premake5 vs20!vs! & popd
+if "!proj!"=="yes" pushd tools && premake5 ninja    & popd
+if "!proj!"=="yes" pushd tools && premake5 gmake    & popd & exit /b
 
 rem --- pipeline
 rem cl tools/ass2iqe.c   /Fetools/ass2iqe.exe  /nologo /openmp /O2 /Oy /MT /DNDEBUG assimp.lib
@@ -577,14 +657,18 @@ if "!cc!"=="cl" (
         set import=/DAPI=IMPORT fwk.lib
     )
 
+    if "!build!"=="ret" (
+        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=/nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
+    )
     if "!build!"=="rel" (
-        set args=/nologo /Zi /MT /openmp /DNDEBUG !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
+        set args=/nologo /Zi /MT /openmp /DNDEBUG=2 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
     )
     if "!build!"=="dev" (
-        set args=/nologo /Zi /MT /openmp /DEBUG   !args! && REM /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2
+        set args=/nologo /Zi /MT /openmp /DNDEBUG=1 !args!        && REM /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2
     )
     if "!build!"=="dbg" (
-        set args=/nologo /Zi /MT         /DEBUG   !args!        /Od  /fsanitize=address               
+        set args=/nologo /Zi /MT         /DEBUG   !args!          /Od  /fsanitize=address
         rem make -- /RTC1, or make -- /Zi /fsanitize=address /DEBUG
     )
 
@@ -605,14 +689,18 @@ if "!cc!"=="cl" (
     set warnings_demos=-Wno-empty-body -Wno-format-security -Wno-pointer-sign
     set warnings=!warnings_fwkc! !warnings_demos!
 
+    if "!build!"=="ret" (
+        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
+    )
     if "!build!"=="rel" (
-        set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
+        set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=2 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
     )
     if "!build!"=="dev" (
-        set args=!warnings! /nologo /Zi /MT /openmp /DEBUG   !args! && REM /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
+        set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=1 !args!        && REM /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
     )
     if "!build!"=="dbg" (
-        set args=!warnings! /nologo /Zi /MT         /DEBUG   !args!        /Od  /fsanitize=address
+        set args=!warnings! /nologo /Zi /MT         /DEBUG     !args!        /Od  /fsanitize=address
     )
 
     set o=-o
@@ -628,14 +716,18 @@ if "!cc!"=="cl" (
         set import=-DAPI=IMPORT fwk.def
     )
 
+    if "!build!"=="ret" (
+        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=-O3 -DNDEBUG=3    !args!
+    )
     if "!build!"=="rel" (
-        set args=-O3 -DNDEBUG !args!
+        set args=-O2 -DNDEBUG=2    !args!
     )
     if "!build!"=="dev" (
-        set args=-O2 -g !args!
+        set args=-O1 -DNDEBUG=1 -g !args!
     )
     if "!build!"=="dbg" (
-        set args=-O0 -g !args!
+        set args=-O0            -g !args!
     )
 
     set o=-o
@@ -655,15 +747,19 @@ if "!cc!"=="cl" (
 
     set args=-Wno-implicit-function-declaration !libs! !args!
 
+    if "!build!"=="ret" (
+        set args=-DENABLE_RETAIL   !args!
+        set args=-O3 -DNDEBUG=3    !args!
+    )
     if "!build!"=="rel" (
         rem @todo see: https://stackoverflow.com/questions/866721/how-to-generate-gcc-debug-symbol-outside-the-build-target
-        set args=-O3 -DNDEBUG !args!
+        set args=-O2 -DNDEBUG=2    !args!
     )
     if "!build!"=="dev" (
-        set args=-g -O1 !args!
+        set args=-O1 -DNDEBUG=1 -g !args!
     )
     if "!build!"=="dbg" (
-        set args=-g -O0 !args!
+        set args=-O0            -g !args!
     )
 
     set o=-o
@@ -683,9 +779,21 @@ if not "!other!"=="" (
     )
 )
 
+rem visualize vars
 echo cc=!cc!, build=!build!, type=!dll!, other=!other!, args=!args!
 echo export=!export!
 echo import=!import!
+
+rem set BUILD_VERSION symbol
+git describe --tags --abbrev=0 > info.obj
+set /p VERSION=<info.obj
+git rev-list --count --first-parent HEAD > info.obj
+set /p GIT_REVISION=<info.obj
+git rev-parse --abbrev-ref HEAD > info.obj
+set /p GIT_BRANCH=<info.obj
+date /t > info.obj
+set /p LAST_MODIFIED=<info.obj
+set args=-DBUILD_VERSION="\"!GIT_BRANCH!-!GIT_REVISION!-!build!-!dll!-!USERNAME!\"" !args!
 
 if "!cc!"=="tcc" set "cc=call tools\tcc"
 
@@ -722,9 +830,10 @@ if "!fwk!"=="yes" (
 
 rem editor
 if "!editor!"=="yes" (
-set edit=-DCOOK_ON_DEMAND -DUI_LESSER_SPACING -DUI_ICONS_SMALL
+set edit=-DCOOK_ON_DEMAND
+!echo! editor3      && !cc! !o! editor3.exe tools\editor\editor3.c !edit! -Iengine/joint !args! || set rc=1
+set edit=-DUI_LESSER_SPACING -DUI_ICONS_SMALL !edit!
 !echo! editor       && !cc! !o! editor.exe  tools\editor\editor.c  !edit! !import! !args! || set rc=1
-!echo! editor2      && !cc! !o! editor2.exe tools\editor\editor2.c !edit!          !args! || set rc=1
 )
 
 rem demos
@@ -759,6 +868,7 @@ if "!demos!"=="yes" (
 !echo! 99-compute    && !cc! !o! 99-compute.exe     demos\99-compute.c      !import! !args! || set rc=1
 !echo! 99-pathfind   && !cc! !o! 99-pathfind.exe    demos\99-pathfind.c     !import! !args! || set rc=1
 !echo! 99-sponza     && !cc! !o! 99-sponza.exe      demos\99-sponza.c       !import! !args! || set rc=1
+!echo! 99-nodes      && !cc! !o! 99-nodes.exe       demos\99-nodes.c                 !args! || set rc=1
 )
 
 rem hello

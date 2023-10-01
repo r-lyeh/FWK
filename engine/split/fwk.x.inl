@@ -7,7 +7,7 @@
 #endif
 
 {{FILE:3rd_glad.h}}
-{{FILE:3rd_font_md.h}}
+{{FILE:3rd_icon_md.h}}
 
 #ifdef FWK_3RD
 
@@ -52,6 +52,7 @@
 #define BQ_WEBSOCKET_IMPLEMENTATION           // websocket
 #define XML_C                                 // xml
 #ifdef __APPLE__
+#define MA_NO_RUNTIME_LINKING                 // miniaudio osx
 #define _GLFW_COCOA                           // glfw osx
 #elif defined _WIN32
 #define _GLFW_WIN32                           // glfw win32
@@ -134,6 +135,7 @@ errno_t fopen_s(
 #define NK_DTOA(s,n) strcpy(s, va("%f", n)) // override cos built-in nk_dtoa() will freeze while parsing UINT_MAX otherwise
 {{FILE:3rd_nuklear.h}}
 {{FILE:3rd_nuklear_glfw_gl3.h}}
+static char *ui_filter = 0;
 {{FILE:3rd_nuklear_filebrowser.h}}
 //---
 #ifdef ENABLE_ASSIMP
@@ -147,6 +149,9 @@ errno_t fopen_s(
 {{FILE:3rd_gjk.h}}
 {{FILE:3rd_compress.h}}
 {{FILE:3rd_archive.h}}
+#if is(win32)
+#include <mmsystem.h> // timeapi.h
+#endif
 {{FILE:3rd_thread.h}}
 {{FILE:3rd_plmpeg.h}}
 {{FILE:3rd_jo_mpeg.h}}
@@ -164,4 +169,28 @@ errno_t fopen_s(
 {{FILE:3rd_xml.h}}
 #undef g
 {{FILE:3rd_polychop.h}}
+#define expr expr2 // 3rd_lua.h
+#define EVAL_EXTEND_CONSTANTS \
+   for( int vk = input_enum(id), *once = &vk; once; once = 0) \
+      if( vk >= 0 ) push(ev, vk);
+#define EVAL_EXTEND_FUNCTIONS \
+   /**/ if(!strcmp(id, "input") && nargs ==1) push(ev, input(pop(ev))); \
+   else if(!strcmp(id, "down")  && nargs ==1) push(ev, input_down(pop(ev))); \
+   else if(!strcmp(id, "held")  && nargs ==1) push(ev, input_held(pop(ev))); \
+   else if(!strcmp(id, "up")    && nargs ==1) push(ev, input_up(pop(ev))); \
+   else if(!strcmp(id, "idle")  && nargs ==1) push(ev, input_idle(pop(ev)));
+{{FILE:3rd_eval.h}}
+//#define SQLITE_OMIT_LOAD_EXTENSION
+//#define SQLITE_CORE 1
+//#define SQLITE_DEBUG 1
+//#define Token SQToken
+//#define Table SQTable
+//#define rehash sqlite3__rehash
+//#undef NB
+//{ {FILE:3rd_sqlite3.c}}
+//#undef Token
+//#undef Table
+//#undef rehash
+//#undef NB
+//#undef threadid
 #endif // FWK_3RD

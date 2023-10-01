@@ -110,7 +110,7 @@ int main() {
             if( GAME_JUMP_DOWN ) if( jump_timer == 0 ) jump_timer = time_ss();
             jump_delta = clampf(time_ss() - jump_timer, 0, jump_ss) * (1.0/jump_ss);
             if( jump_delta >= 1 ) { jump_timer = 0; }
-            float y = ease_ping_pong( jump_delta, ease_out_expo, ease_out_circ);
+            float y = ease_ping_pong( jump_delta, EASE_OUT|EASE_EXPO, EASE_OUT|EASE_CIRC);
             girl_p.y = y * jump_h;
 
             // punch controller

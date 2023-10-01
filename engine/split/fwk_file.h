@@ -10,7 +10,7 @@
 
 // physical filesystem. files
 
-API const char** file_list(const char *path, const char *masks); // **.png;*.c
+API array(char*) file_list( const char *pathmasks ); // folder/*.ico;**.png;*.c
 API bool         file_write( const char *file, const void *ptr, int len );
 API bool         file_append( const char *file, const void *ptr, int len );
 API char *       file_read(const char *filename);
@@ -62,7 +62,7 @@ API void         storage_flush();
 // virtual filesystem
 
 API bool         vfs_mount(const char *mount_point);
-API const char** vfs_list(const char *masks); // **.png;*.c
+API array(char*) vfs_list(const char *masks); // **.png;*.c
 
 API char *       vfs_read(const char *pathfile);
 API char *       vfs_load(const char *pathfile, int *size);

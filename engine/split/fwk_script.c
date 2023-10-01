@@ -171,7 +171,7 @@ void script_init() {
 
 bool script_tests() {
     // script test (lua)
-    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );    
+    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );
     return true;
 }
 

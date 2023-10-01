@@ -27,7 +27,20 @@
 * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 * ------------------------------------------------------------------------------
-* ALTERNATIVE B - MIT-0 (No Attribution clause)
+* ALTERNATIVE B - 0-BSD License (https://opensource.org/licenses/FPL-1.0.0)
+* ------------------------------------------------------------------------------
+* Permission to use, copy, modify, and/or distribute this software for any
+* purpose with or without fee is hereby granted.
+*
+* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+* PERFORMANCE OF THIS SOFTWARE.
+* ------------------------------------------------------------------------------
+* ALTERNATIVE C - MIT-0 (No Attribution clause)
 * ------------------------------------------------------------------------------
 * Permission is hereby granted, free of charge, to any person obtaining a copy of this
 * software and associated documentation files (the "Software"), to deal in the Software
@@ -41,19 +54,6 @@
 * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-* ------------------------------------------------------------------------------
-* ALTERNATIVE C - Zero BSD License (https://opensource.org/licenses/FPL-1.0.0)
-* ------------------------------------------------------------------------------
-* Permission to use, copy, modify, and/or distribute this software for any
-* purpose with or without fee is hereby granted.
-*
-* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-* REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-* FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-* INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-* LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-* PERFORMANCE OF THIS SOFTWARE.
 *
 * ## License: Contributed Code ------------------------------------------------
 *
@@ -73,7 +73,7 @@
 * --
 *
 * "I dedicate any and all copyright interest in this software to the three
-* license terms listed above. I make this dedication for the benefit of the
+* licensing terms listed above. I make this dedication for the benefit of the
 * public at large and to the detriment of my heirs and successors. I intend
 * this dedication to be an overt act of relinquishment in perpetuity of all
 * present and future rights to this software under copyright law."
@@ -89,6 +89,10 @@
 #include "fwk.h"
 #endif
 
+#if is(win32) // hack to boost exit time. there are no critical systems that need to shutdown properly on Windows,
+#define atexit(...) // however Linux needs proper atexit() to deinitialize 3rd_miniaudio.h; likely OSX as well.
+#endif
+
 #ifndef FWK_3RD
 #define FWK_3RD
 #include "fwk"
@@ -97,9 +101,14 @@
 //-----------------------------------------------------------------------------
 // C files
 
-#if is(win32) // hack to boost exit time. there are no critical systems that need to shutdown properly on Windows,
-#define atexit(...) // however Linux needs proper atexit() to deinitialize 3rd_miniaudio.h; likely OSX as well.
-#endif
+#line 1 "fwk_begin.c"
+#define do_threadlock(mutexptr) \
+    for( int init_ = !!(mutexptr) || (thread_mutex_init( (mutexptr) = CALLOC(1, sizeof(thread_mutex_t)) ), 1); init_; init_ = 0) \
+    for( int lock_ = (thread_mutex_lock( mutexptr ), 1); lock_; lock_ = (thread_mutex_unlock( mutexptr ), 0) )
+
+#define AS_NKCOLOR(color) \
+    ((struct nk_color){ ((color>>16))&255,((color>>8))&255,((color>>0))&255,((color>>24))&255 })
+#line 0
 
 #line 1 "fwk_ds.c"
 
@@ -486,28 +495,6 @@ void (set_free)(set* m) {
     set zero = {0};
     *m = zero;
 }
-
-char *cc4str(unsigned x) {
-    static __thread char type[4+1] = {0};
-    type[3] = (x >> 24ULL) & 255;
-    type[2] = (x >> 16ULL) & 255;
-    type[1] = (x >>  8ULL) & 255;
-    type[0] = (x >>  0ULL) & 255;
-    return type;
-}
-char *cc8str(uint64_t x) {
-    static __thread char type[8+1] = {0};
-    type[7] = (x >> 56ULL) & 255;
-    type[6] = (x >> 48ULL) & 255;
-    type[5] = (x >> 40ULL) & 255;
-    type[4] = (x >> 32ULL) & 255;
-    type[3] = (x >> 24ULL) & 255;
-    type[2] = (x >> 16ULL) & 255;
-    type[1] = (x >>  8ULL) & 255;
-    type[0] = (x >>  0ULL) & 255;
-    return type;
-}
-
 #line 0
 
 #line 1 "fwk_string.c"
@@ -521,16 +508,26 @@ char* tempvl(const char *fmt, va_list vl) {
 
     int reqlen = sz;
 #if 0
+    int heap = 0;
     enum { STACK_ALLOC = 16384 };
     static __thread char buf[STACK_ALLOC];
 #else
-    enum { STACK_ALLOC = 128*1024 };
+    int heap = 1;
+    static __thread int STACK_ALLOC = 128*1024;
     static __thread char *buf = 0; if(!buf) buf = REALLOC(0, STACK_ALLOC); // @leak
 #endif
-    static __thread int cur = 0, len = STACK_ALLOC - 1; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
+    static __thread int cur = 0; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
 
-    assert(reqlen < STACK_ALLOC && "no stack enough, increase STACK_ALLOC variable above");
-    char* ptr = buf + (cur *= (cur+reqlen) < len, (cur += reqlen) - reqlen);
+    if( reqlen >= STACK_ALLOC ) {
+        tty_color(RED);
+        printf("no stack enough, increase STACK_ALLOC variable above (reqlen:%d) (fmt: %s)\n", reqlen, fmt);
+        tty_color(0);
+        //assert(reqlen < STACK_ALLOC);
+        STACK_ALLOC = reqlen * 2;
+        buf = REALLOC(0, STACK_ALLOC);
+    }
+
+    char* ptr = buf + (cur *= (cur+reqlen) < (STACK_ALLOC - 1), (cur += reqlen) - reqlen);
 
     /*stbsp_*/vsnprintf( ptr, sz, fmt, vl );
     return (char *)ptr;
@@ -844,6 +841,81 @@ array(uint32_t) string32( const char *utf8 ) {
     return out[slot];
 }
 
+// -----------------------------------------------------------------------------
+// quarks
+
+unsigned quark_intern( quarks_db *q, const char *string ) {
+    if( string && string[0] ) {
+        int slen = strlen(string);
+        int qlen = array_count(q->blob);
+        char *found;
+        if( !qlen ) {
+            array_resize(q->blob, slen + 1 );
+            memcpy(found = q->blob, string, slen + 1);
+        } else {
+            found = strstr(q->blob, string);
+            if( !found ) {
+                array_resize(q->blob, qlen - 1 + slen + 1);
+                memcpy(found = q->blob + qlen - 1, string, slen + 1 );
+            }
+        }
+        // already interned? return that instead
+        vec2i offset_len = vec2i(found - q->blob, slen);
+        for( int i = 0; i < array_count(q->entries); ++i ) {
+            if( offset_len.x == q->entries[i].x )
+                if( offset_len.y == q->entries[i].y )
+                    return i+1;
+        }
+        // else cache and return it
+        array_push(q->entries, offset_len);
+        return array_count(q->entries);
+    }
+    return 0;
+}
+const char *quark_string( quarks_db *q, unsigned key ) {
+    if( key && key <= array_count(q->entries) ) {
+        vec2i offset_len = q->entries[key-1];
+        return va("%.*s", offset_len.y, q->blob + offset_len.x);
+    }
+    return "";
+}
+
+static __thread quarks_db qdb;
+unsigned intern( const char *string ) {
+    return quark_intern( &qdb, string );
+}
+const char *quark( unsigned key ) {
+    return quark_string( &qdb, key );
+}
+
+#if 0
+AUTORUN {
+    test( !intern(NULL) ); // quark #0, cannot intern null string
+    test( !intern("") );   // quark #0, ok to intern empty string
+    test( !quark(0)[0] );  // empty string for quark #0
+
+    unsigned q1 = intern("Hello");  // -> quark #1
+    unsigned q2 = intern("happy");  // -> quark #2
+    unsigned q3 = intern("world."); // -> quark #3
+    printf("%u %u %u\n", q1, q2, q3);
+
+    test( q1 );
+    test( q2 );
+    test( q3 );
+    test( q1 != q2 );
+    test( q1 != q3 );
+    test( q2 != q3 );
+
+    unsigned q4 = intern("happy");
+    printf("%x vs %x\n", q2, q4);
+    test( q4 );
+    test( q4 == q2 );
+
+    char buf[256];
+    sprintf(buf, "%s %s %s", quark(q1), quark(q2), quark(q3));
+    test( !strcmp("Hello happy world.", buf) );
+}
+#endif
 #line 0
 
 #line 1 "fwk_compat.c"
@@ -881,6 +953,8 @@ const struct in6_addr in6addr_loopback;   /* ::1 */
 #if is(cl) || is(tcc)
 #define ftruncate     _chsize_s
 #endif
+#define flockfile     ifdef(cl,_lock_file,ifdef(mingw,_lock_file,(void)))
+#define funlockfile   ifdef(cl,_unlock_file,ifdef(mingw,_unlock_file,(void)))
 #else // gcc
 //#include <alloca.h> // mingw64 does not have it
 #include <strings.h> // strncasecmp
@@ -963,8 +1037,2744 @@ static void fwk_pre_init();
 static void fwk_post_init(float);
 #line 0
 
+#line 1 "fwk_ui.c"
+// ----------------------------------------------------------------------------------------
+// ui extensions first
+
+static float
+nk_text_width(struct nk_context *ctx, const char *str, unsigned len) {
+    const struct nk_style *style = &ctx->style;
+    const struct nk_user_font *f = style->font;
+    float pixels_width = f->width(f->userdata, f->height, str, len ? (int)len : (int)strlen(str));
+    return pixels_width + 10; // 10 -> internal widget padding
+}
+
+static nk_bool
+nk_hovered_text(struct nk_context *ctx, const char *str, int len,
+    nk_flags align, nk_bool value)
+{
+    struct nk_window *win;
+    struct nk_panel *layout;
+    const struct nk_input *in;
+    const struct nk_style *style;
+
+    enum nk_widget_layout_states state;
+    struct nk_rect bounds;
+
+    NK_ASSERT(ctx);
+    NK_ASSERT(ctx->current);
+    NK_ASSERT(ctx->current->layout);
+    if (!ctx || !ctx->current || !ctx->current->layout)
+        return 0;
+
+    win = ctx->current;
+    layout = win->layout;
+    style = &ctx->style;
+
+    state = nk_widget(&bounds, ctx);
+    if (!state) return 0;
+    in = (state == NK_WIDGET_ROM || layout->flags & NK_WINDOW_ROM) ? 0 : &ctx->input;
+
+    #if 1 //< @r-lyeh: sim button logic
+    struct nk_rect touch;
+    touch.x = bounds.x - style->selectable.touch_padding.x;
+    touch.y = bounds.y - style->selectable.touch_padding.y;
+    touch.w = bounds.w + style->selectable.touch_padding.x * 2;
+    touch.h = bounds.h + style->selectable.touch_padding.y * 2;
+    int clicked = !!nk_button_behavior(&ctx->last_widget_state, touch, in, NK_BUTTON_DEFAULT);
+    in = 0; //< @r-lyeh: do not pass any input
+    #endif
+
+    nk_do_selectable(&ctx->last_widget_state, &win->buffer, bounds,
+                str, len, align, &value, &style->selectable, in, style->font);
+
+    return clicked; //< @r-lyeh: return sim button logic instead of prev function call
+}
+
+#define ui_push_hspace(px) \
+    (int xx = px; xx; xx = 0) \
+    for(struct nk_context *ctx = (struct nk_context*)ui_handle(); ctx; ctx = 0 ) \
+        for(struct nk_panel *layout = ui_ctx->current->layout; layout; ) \
+            for( xx = (layout->at_x += px, layout->bounds.w -= px, 0); layout; layout->at_x -= px, layout->bounds.w += px, layout = 0 )
+
+// helper macros to instance an overlayed toolbar within the regions of an existing widget
+#define UI_TOOLBAR_OVERLAY_DECLARE(...) \
+            __VA_ARGS__; \
+            struct nk_rect toolbar_bounds; nk_layout_peek(&toolbar_bounds, ui_ctx); \
+            struct nk_vec2 item_padding = ui_ctx->style.text.padding; \
+            struct nk_text text; \
+            text.padding.x = item_padding.x; \
+            text.padding.y = item_padding.y; \
+            text.background = ui_ctx->style.window.background;
+#define UI_TOOLBAR_OVERLAY(CHOICE,TEXT,COLOR,ALIGNMENT) \
+            do { \
+            text.text = COLOR; \
+            nk_widget_text(&ui_ctx->current->buffer, toolbar_bounds, TEXT, strlen(TEXT), &text, ALIGNMENT, ui_ctx->style.font); \
+            int clicked_x = input_down(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, toolbar_bounds); \
+            if( clicked_x ) clicked_x = (int)((ui_ctx->input.mouse.pos.x - toolbar_bounds.x) - (ALIGNMENT == NK_TEXT_RIGHT ? bounds.w : 0) ); \
+            CHOICE = 1 + (ALIGNMENT == NK_TEXT_RIGHT ? -1 : +1) * clicked_x / (UI_ICON_FONTSIZE + UI_ICON_SPACING_X); /* divided by px per ICON_MD_ glyph approximately */ \
+            int glyphs = strlen(TEXT) / 4 /*3:MD,4:MDI*/; CHOICE *= !!clicked_x * (CHOICE <= glyphs); } while(0)
+
+// menu macros that work not only standalone but also contained within a panel or window
+#define UI_MENU(N, ...) do { \
+    enum { MENUROW_HEIGHT = 25 }; \
+    int embedded = !!ui_ctx->current; \
+    struct nk_rect total_space = {0,0,window_width(),window_height()}; \
+    if( embedded ) total_space = nk_window_get_bounds(ui_ctx), total_space.w -= 10; \
+    int created = !embedded && nk_begin(ui_ctx, "MENU_" STRINGIZE(__COUNTER__), nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR); \
+    if ( embedded || created ) { \
+        int align = NK_TEXT_LEFT, Nth = (N), ITEM_WIDTH = 30, span = 0; \
+        nk_menubar_begin(ui_ctx); \
+        nk_layout_row_begin(ui_ctx, NK_STATIC, MENUROW_HEIGHT, Nth); \
+            __VA_ARGS__; \
+        nk_menubar_end(ui_ctx); \
+        if( created ) nk_end(ui_ctx); \
+    } } while(0)
+#define UI_MENU_POPUP(title, px, ...) { \
+    int hspace = maxi(ITEM_WIDTH, nk_text_width(ui_ctx,(title),0)); \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align, nk_vec2(px.x>1?px.x:px.x*total_space.w,px.y>1?px.y:px.y*total_space.h))) { \
+        __VA_ARGS__; \
+        nk_menu_end(ui_ctx); \
+    }}
+#define UI_MENU_ITEM(title, ...) { \
+    int hspace = maxi(ITEM_WIDTH, nk_text_width(ui_ctx,(title),0)); \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align, nk_vec2(1,1))) { \
+        __VA_ARGS__; \
+        nk_menu_close(ui_ctx); \
+        nk_menu_end(ui_ctx); \
+    }}
+#define UI_MENU_ALIGN_RIGHT(px) { \
+    int hspace = total_space.w - span - (px) - 1.5 * ITEM_WIDTH; \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align = NK_TEXT_RIGHT, nk_vec2(1,1))) { \
+        nk_menu_close(ui_ctx); \
+        nk_menu_end(ui_ctx); \
+    }}
+
+// ----------------------------------------------------------------------------------------
+// ui
+
+#ifndef UI_ICONS_SMALL
+//#define UI_ICONS_SMALL 1
+#endif
+
+#define UI_FONT_ENUM(carlito,b612) b612 // carlito
+
+#define UI_FONT_REGULAR    UI_FONT_ENUM("Carlito",     "B612")     "-Regular.ttf"
+#define UI_FONT_HEADING    UI_FONT_ENUM("Carlito",     "B612")     "-BoldItalic.ttf"
+#define UI_FONT_TERMINAL   UI_FONT_ENUM("Inconsolata", "B612Mono") "-Regular.ttf"
+
+#if UI_LESSER_SPACING
+    enum { UI_SEPARATOR_HEIGHT = 5, UI_MENUBAR_ICON_HEIGHT = 20, UI_ROW_HEIGHT = 22, UI_MENUROW_HEIGHT = 32 };
+#else
+    enum { UI_SEPARATOR_HEIGHT = 10, UI_MENUBAR_ICON_HEIGHT = 25, UI_ROW_HEIGHT = 32, UI_MENUROW_HEIGHT = 32 };
+#endif
+
+#if UI_FONT_LARGE
+    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(18,17)
+    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(20,19)
+    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
+#elif UI_FONT_SMALL
+    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(13,14)
+    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(14.5,15)
+    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
+#else
+    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(14.5,16)
+    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(16,17.5)
+    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
+#endif
+
+#if UI_ICONS_SMALL
+    #define UI_ICON_FONTSIZE        UI_FONT_ENUM(16.5f,16.5f)
+    #define UI_ICON_SPACING_X       UI_FONT_ENUM(-2,-2)
+    #define UI_ICON_SPACING_Y       UI_FONT_ENUM(4.5f,3.5f)
+#else
+    #define UI_ICON_FONTSIZE        UI_FONT_ENUM(20,20)
+    #define UI_ICON_SPACING_X       UI_FONT_ENUM(0,0)
+    #define UI_ICON_SPACING_Y       UI_FONT_ENUM(6.5f,5.0f)
+#endif
+
+#define MAX_VERTEX_MEMORY 512 * 1024
+#define MAX_ELEMENT_MEMORY 128 * 1024
+
+static struct nk_context *ui_ctx;
+static struct nk_glfw nk_glfw = {0};
+
+void* ui_handle() {
+    return ui_ctx;
+}
+
+static void nk_config_custom_fonts() {
+    #define UI_ICON_MIN ICON_MIN_MD
+    #define UI_ICON_MED ICON_MAX_16_MD
+    #define UI_ICON_MAX ICON_MAX_MD
+
+    #define ICON_BARS        ICON_MD_MENU
+    #define ICON_FILE        ICON_MD_INSERT_DRIVE_FILE
+    #define ICON_TRASH       ICON_MD_DELETE
+
+    struct nk_font *font = NULL;
+    struct nk_font_atlas *atlas = NULL;
+    nk_glfw3_font_stash_begin(&nk_glfw, &atlas); // nk_sdl_font_stash_begin(&atlas);
+
+        // Default font(#1)...
+        int datalen = 0;
+        for( char *data = vfs_load(UI_FONT_REGULAR, &datalen); data; data = 0 ) {
+            float font_size = UI_FONT_REGULAR_SIZE;
+                struct nk_font_config cfg = nk_font_config(font_size);
+                cfg.oversample_v = 2;
+                cfg.pixel_snap = 0;
+            // win32: struct nk_font *arial = nk_font_atlas_add_from_file(atlas, va("%s/fonts/arial.ttf",getenv("windir")), font_size, &cfg); font = arial ? arial : font;
+            // struct nk_font *droid = nk_font_atlas_add_from_file(atlas, "nuklear/extra_font/DroidSans.ttf", font_size, &cfg); font = droid ? droid : font;
+            struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg); font = regular ? regular : font;
+        }
+
+        // ...with icons embedded on it.
+        static struct icon_font {
+            const char *file; int yspacing; nk_rune range[3];
+        } icons[] = {
+            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
+            {"materialdesignicons-webfont.ttf", 2, {0xF68C /*ICON_MIN_MDI*/, 0xF1CC7/*ICON_MAX_MDI*/, 0}},
+        };
+        for( int f = 0; f < countof(icons); ++f )
+        for( char *data = vfs_load(icons[f].file, &datalen); data; data = 0 ) {
+            struct nk_font_config cfg = nk_font_config(UI_ICON_FONTSIZE);
+            cfg.range = icons[f].range; // nk_font_default_glyph_ranges();
+            cfg.merge_mode = 1;
+
+            cfg.spacing.x += UI_ICON_SPACING_X;
+            cfg.spacing.y += icons[f].yspacing;
+         // cfg.font->ascent += ICON_ASCENT;
+         // cfg.font->height += ICON_HEIGHT;
+
+            cfg.oversample_h = 1;
+            cfg.oversample_v = 1;
+            cfg.pixel_snap = 1;
+
+            struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_ICON_FONTSIZE, &cfg);
+        }
+
+        // Monospaced font. Used in terminals or consoles.
+
+        for( char *data = vfs_load(UI_FONT_TERMINAL, &datalen); data; data = 0 ) {
+            const float font_size = UI_FONT_REGULAR_SIZE;
+            static const nk_rune icon_range[] = {32, 127, 0};
+
+            struct nk_font_config cfg = nk_font_config(font_size);
+            cfg.range = icon_range;
+
+            cfg.oversample_h = 1;
+            cfg.oversample_v = 1;
+            cfg.pixel_snap = 1;
+
+            // struct nk_font *proggy = nk_font_atlas_add_default(atlas, font_size, &cfg);
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg);
+        }
+
+        // Extra optional fonts from here...
+
+        for( char *data = vfs_load(UI_FONT_HEADING, &datalen); data; data = 0 ) {
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
+        }
+
+    nk_glfw3_font_stash_end(&nk_glfw); // nk_sdl_font_stash_end();
+//  ASSERT(font);
+    if(font) nk_style_set_font(ui_ctx, &font->handle);
+
+    // Load Cursor: if you uncomment cursor loading please hide the cursor
+    // nk_style_load_all_cursors(ctx, atlas->cursors); glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+}
+
+static void nk_config_custom_theme() {
+    #ifdef UI_HUE
+    float default_hue = UI_HUE;
+    #else
+    // 0.09 orange, 0.14 yellow, 0.40 green, 0.45 turquoise, 0.50 cyan, 0.52 default, 0.55 blue, 0.80 purple, 0.92 cherry, 0.96 red
+    float hues[] = { 0.40,0.45,0.50,0.52,0.55,0.80,0.92 };
+    float default_hue = hues[ (int)((((date() / 10000) % 100) / 24.f) * countof(hues)) ]; // YYYYMMDDhhmmss -> hh as 0..1
+default_hue = 0.52;
+    #endif
+    float hue = clampf( optionf("--ui-hue", default_hue /*= 0.52*/), 0, 1 );
+    struct nk_color main_hue   = nk_hsv_f(hue+0.025, 0.80, 0.400); // washed
+    struct nk_color hover_hue  = nk_hsv_f(hue+0.025, 1.00, 0.600); // vivid
+    struct nk_color active_hue = nk_hsv_f(hue-0.010, 1.00, 0.600); // bright; same /S/V than vivid, but H/ slighty biased towards a different luma on spectrum
+    struct nk_color main       = nk_hsv_f(    0.600, 0.00, 0.125); // washed b/w
+    struct nk_color hover      = nk_hsv_f(    0.900, 0.00, 0.000); // vivid  b/w
+    struct nk_color active     = nk_hsv_f(    0.600, 0.00, 0.150); // bright b/w
+    struct nk_color table[NK_COLOR_COUNT] = {0};
+    table[NK_COLOR_TEXT] = nk_rgba(210, 210, 210, 255);
+    table[NK_COLOR_WINDOW] = nk_rgba(42, 42, 42, 245);
+    table[NK_COLOR_HEADER] = nk_rgba(51, 51, 56, 245);
+    table[NK_COLOR_BORDER] = nk_rgba(46, 46, 46, 255);
+    table[NK_COLOR_BUTTON] = main;
+    table[NK_COLOR_BUTTON_HOVER] = hover;
+    table[NK_COLOR_BUTTON_ACTIVE] = active;
+    // ok
+    table[NK_COLOR_TOGGLE] = nk_rgba(45*1.2, 53*1.2, 56*1.2, 255); // table[NK_COLOR_WINDOW]; // nk_rgba(45/1.2, 53/1.2, 56/1.2, 255);
+    table[NK_COLOR_TOGGLE_HOVER] = active;
+    table[NK_COLOR_TOGGLE_CURSOR] = main; // vivid_blue;
+    table[NK_COLOR_SCROLLBAR] = nk_rgba(50, 58, 61, 255);
+    table[NK_COLOR_SCROLLBAR_CURSOR] = main_hue;
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = hover_hue;
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = active_hue;
+    table[NK_COLOR_SLIDER] = nk_rgba(50, 58, 61, 255);
+    table[NK_COLOR_SLIDER_CURSOR] = main_hue;
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = hover_hue;
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = active_hue;
+    table[NK_COLOR_EDIT] = nk_rgba(50, 58, 61, 225);
+    table[NK_COLOR_EDIT_CURSOR] = nk_rgba(210, 210, 210, 255);
+
+    // table[NK_COLOR_COMBO] = nk_rgba(50, 58, 61, 255);
+
+    // table[NK_COLOR_PROPERTY] = nk_rgba(50, 58, 61, 255);
+table[NK_COLOR_CHART] = nk_rgba(50, 58, 61, 255);
+table[NK_COLOR_CHART_COLOR] = main_hue;
+table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = hover_hue; // nk_rgba(255, 0, 0, 255);
+    // table[NK_COLOR_TAB_HEADER] = main;
+    // table[NK_COLOR_SELECT] = nk_rgba(57, 67, 61, 255);
+    // table[NK_COLOR_SELECT_ACTIVE] = main;
+
+// table[NK_COLOR_SELECT] = nk_rgba(255,255,255,255);
+table[NK_COLOR_SELECT_ACTIVE] = main_hue;
+
+    // @transparent
+    #if !is(ems)
+    if( glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE ) {
+        table[NK_COLOR_WINDOW].a =
+        table[NK_COLOR_HEADER].a = 255;
+    }
+    #endif
+    // @transparent
+
+    nk_style_default(ui_ctx);
+    nk_style_from_table(ui_ctx, table);
+
+
+    if(1)
+    {
+    struct nk_style_selectable *select;
+    select = &ui_ctx->style.selectable;
+//    nk_zero_struct(*select);
+//    select->hover.data.color     = hover_hue;
+//    select->normal_active   = nk_style_item_color(table[NK_COLOR_SELECT_ACTIVE]);
+    select->text_hover      = nk_rgba(0,192,255,255);
+    select->text_hover_active = select->text_hover;
+    select->text_normal_active = select->text_hover; // nk_style_item_color(table[NK_COLOR_SELECT_ACTIVE]).data.color;
+    select->rounding        = 2.0f;
+    }
+
+
+    struct nk_style *s = &ui_ctx->style;
+    s->window.spacing = nk_vec2(4,0);
+    s->window.combo_border = 0.f;
+    s->window.scrollbar_size = nk_vec2(5,5);
+    s->property.rounding = 0;
+    s->combo.border = 0;
+    s->combo.button_padding.x = -18;
+    s->button.border = 1;
+    s->edit.border = 0;
+
+    if( UI_ROW_HEIGHT < 32 ) { // UI_LESSER_SPACING
+    s->window.header.label_padding.y /= 2; // 2
+    s->window.header.padding.y /= 2; // /= 4 -> 1
+    }
+}
+
+static float ui_alpha = 1;
+static array(float) ui_alphas;
+static void ui_alpha_push(float alpha) {
+    array_push(ui_alphas, ui_alpha);
+    ui_alpha = alpha;
+
+    struct nk_color c;
+    struct nk_style *s = &ui_ctx->style;
+    c = s->window.background;                  c.a = alpha * 255; nk_style_push_color(ui_ctx, &s->window.background, c);
+    c = s->text.color;                         c.a = alpha * 255; nk_style_push_color(ui_ctx, &s->text.color, c);
+    c = s->window.fixed_background.data.color; c.a = alpha * 255; nk_style_push_style_item(ui_ctx, &s->window.fixed_background, nk_style_item_color(c));
+}
+static void ui_alpha_pop() {
+    if( array_count(ui_alphas) ) {
+        nk_style_pop_style_item(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+
+        ui_alpha = *array_back(ui_alphas);
+        array_pop(ui_alphas);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ui menu
+
+typedef struct ui_item_t {
+    char *buf;
+    int bufcap;
+    int type; // 0xED17 'edit' for a writeable inputbox buffer, else read-only label
+} ui_item_t;
+
+static array(ui_item_t) ui_items; // queued menu names. to be evaluated during next frame
+static vec2 ui_results = {0}; // clicked menu items from last frame
+
+int ui_item() {
+    return ui_items ? (ui_results.x == array_count(ui_items) ? ui_results.y : 0) : 0;
+}
+
+int ui_menu(const char *items) { // semicolon- or comma-separated items
+    array_push(ui_items, ((ui_item_t){STRDUP(items),0,0}));
+    return ui_item();
+}
+int ui_menu_editbox(char *buf, int bufcap) {
+    array_push(ui_items, ((ui_item_t){buf,bufcap,0xED17}));
+    return ui_item();
+}
+
+int ui_has_menubar() {
+    return !!ui_items; // array_count(ui_items) > 0;
+}
+
+static
+void ui_separator_line() {
+    struct nk_rect space; nk_layout_peek(&space, ui_ctx); // bounds.w *= 0.95f;
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+    nk_stroke_line(canvas, space.x+0,space.y+0,space.x+space.w,space.y+0, 3.0, nk_rgb(128,128,128));
+}
+
+NK_API nk_bool
+nk_menu_begin_text_styled(struct nk_context *ctx, const char *title, int len,
+    nk_flags align, struct nk_vec2 size, struct nk_style_button *style_button) //< @r-lyeh: added style_button param
+{
+    struct nk_window *win;
+    const struct nk_input *in;
+    struct nk_rect header;
+    int is_clicked = nk_false;
+    nk_flags state;
+
+    NK_ASSERT(ctx);
+    NK_ASSERT(ctx->current);
+    NK_ASSERT(ctx->current->layout);
+    if (!ctx || !ctx->current || !ctx->current->layout)
+        return 0;
+
+    win = ctx->current;
+    state = nk_widget(&header, ctx);
+    if (!state) return 0;
+    in = (state == NK_WIDGET_ROM || win->flags & NK_WINDOW_ROM) ? 0 : &ctx->input;
+    if (nk_do_button_text(&ctx->last_widget_state, &win->buffer, header,
+        title, len, align, NK_BUTTON_DEFAULT, style_button, in, ctx->style.font))
+        is_clicked = nk_true;
+    return nk_menu_begin(ctx, win, title, is_clicked, header, size);
+}
+
+static
+vec2 ui_toolbar_(array(ui_item_t) ui_items, vec2 ui_results) {
+    // adjust size for all the upcoming UI elements
+    // old method: nk_layout_row_dynamic(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/, array_count(ui_items));
+    {
+        const struct nk_style *style = &ui_ctx->style;
+
+        nk_layout_row_template_begin(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/);
+        for(int i = 0; i < array_count(ui_items); ++i) {
+            char first_token[512];
+            sscanf(ui_items[i].buf, "%[^,;|]", first_token); // @fixme: vsnscanf
+
+            char *tooltip = strchr(first_token, '@');
+            int len = tooltip ? (int)(tooltip - first_token /*- 1*/) : strlen(first_token);
+
+            float pixels_width = nk_text_width(ui_ctx, first_token, len);
+            pixels_width += style->window.header.label_padding.x * 2 + style->window.header.padding.x * 2;
+            if( pixels_width < 5 ) pixels_width = 5;
+            nk_layout_row_template_push_static(ui_ctx, pixels_width);
+        }
+        nk_layout_row_template_end(ui_ctx);
+    }
+
+    // display the UI elements
+    bool has_popups = ui_popups();
+    for( int i = 0, end = array_count(ui_items); i < end; ++i ) {
+        array(char*) ids = strsplit(ui_items[i].buf, ",;|");
+
+        // transparent style
+        static struct nk_style_button transparent_style;
+        do_once transparent_style = ui_ctx->style.button;
+        do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
+        do_once transparent_style.border_color = nk_rgba(0,0,0,0);
+        do_once transparent_style.active = transparent_style.normal;
+        do_once transparent_style.hover = transparent_style.normal;
+        do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
+        transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE; // array_count(ids) > 1 ? NK_TEXT_ALIGN_LEFT : NK_TEXT_ALIGN_CENTERED;
+
+        char *tooltip = strchr(ids[0], '@');
+        int len = tooltip ? (int)(tooltip -  ids[0]) : strlen(ids[0]);
+
+        // single button
+        if( array_count(ids) == 1 ) {
+            // tooltip
+            if( tooltip && !has_popups ) {
+                struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+                if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds) && nk_window_has_focus(ui_ctx)) {
+                    nk_tooltip(ui_ctx, tooltip+1);
+                }
+            }
+            // input...
+            if( ui_items[i].type == 0xED17 ) {
+                int active = nk_edit_string_zero_terminated(ui_ctx, NK_EDIT_AUTO_SELECT|NK_EDIT_CLIPBOARD|NK_EDIT_FIELD/*NK_EDIT_BOX*/|NK_EDIT_SIG_ENTER, ui_items[i].buf, ui_items[i].bufcap, nk_filter_default);
+                if( !!(active & NK_EDIT_COMMITED) ) ui_results = vec2(i+1, 0+1), nk_edit_unfocus(ui_ctx);
+            }
+            else
+            // ... else text
+            if( nk_button_text_styled(ui_ctx, &transparent_style, ids[0], len) ) {
+                ui_results = vec2(i+1, 0+1);
+            }
+        }
+        else {
+            struct nk_vec2 dims = {120, array_count(ids) * UI_MENUROW_HEIGHT};
+            const struct nk_style *style = &ui_ctx->style;
+            const struct nk_user_font *f = style->font;
+            static array(float) lens = 0; array_resize(lens, array_count(ids));
+            lens[0] = len;
+            for( int j = 1; j < array_count(ids); ++j ) {
+                lens[j] = strlen(ids[j]);
+                float width_px = f->width(f->userdata, f->height, ids[j], lens[j]);
+                dims.x = maxf(dims.x, width_px);
+            }
+            dims.x += 2 * style->window.header.label_padding.x;
+
+            // dropdown menu
+            if( nk_menu_begin_text_styled(ui_ctx, ids[0], lens[0], NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, dims, &transparent_style) ) {
+                nk_layout_row_dynamic(ui_ctx, 0, 1);
+
+                for( int j = 1; j < array_count(ids); ++j ) {
+                    char *item = ids[j];
+                    if( *item == '-' ) {
+                        while(*item == '-') ++item, --lens[j];
+                        //nk_menu_item_label(ui_ctx, "---", NK_TEXT_LEFT);
+                        ui_separator_line();
+                    }
+
+                    if( nk_menu_item_text(ui_ctx, item, lens[j], NK_TEXT_LEFT) ) {
+                        ui_results = vec2(i+1, j+1-1);
+                    }
+                }
+
+                nk_menu_end(ui_ctx);
+            }
+        }
+    }
+
+    return ui_results;
+}
+
+int ui_toolbar(const char *icons) { // usage: int clicked_icon = ui_toolbar( ICON_1 ";" ICON_2 ";" ICON_3 ";" ICON_4 );
+    vec2 results = {0};
+    array(char*) items = strsplit(icons, ",;|");
+        static array(ui_item_t) temp = 0;
+        array_resize(temp, array_count(items));
+        for( int i = 0; i < array_count(items); ++i ) temp[i].buf = items[i], temp[i].bufcap = 0, temp[i].type = 0;
+    return ui_toolbar_(temp, results).x;
+}
+
+
+// UI Windows handlers. These are not OS Windows but UI Windows instead. For OS Windows check window_*() API.
+
+#ifndef WINDOWS_INI
+#define WINDOWS_INI editor_path("windows.ini")
+#endif
+
+static map(char*,unsigned) ui_windows = 0;
+
+static void ui_init() {
+    do_once {
+        nk_config_custom_fonts();
+        nk_config_custom_theme();
+
+        map_init(ui_windows, less_str, hash_str);
+    }
+}
+
+static int ui_window_register(const char *panel_or_window_title) {
+    unsigned *state = map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0);
+
+    // check for visibility flag on first call
+    int visible = 0;
+    if( *state == 0 ) {
+        static ini_t i = 0;
+        do_once i = ini(WINDOWS_INI); // @leak
+        char **found = i ? map_find(i, va("%s.visible", panel_or_window_title)) : NULL;
+        if( found ) visible = (*found)[0] == '1';
+    }
+
+    *state |= 2;
+    return visible;
+}
+int ui_visible(const char *panel_or_window_title) {
+    return *map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0) & 1;
+}
+int ui_show(const char *panel_or_window_title, int enabled) {
+    unsigned *found = map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0);
+    if( enabled ) {
+        *found |= 1;
+        nk_window_collapse(ui_ctx, panel_or_window_title, NK_MAXIMIZED); // in case windows was previously collapsed
+    } else {
+        *found &= ~1;
+    }
+    return !!enabled;
+}
+int ui_dims(const char *panel_or_window_title, float width, float height) {
+    nk_window_set_size(ui_ctx, panel_or_window_title, (struct nk_vec2){width, height});
+    return 0;
+}
+vec2 ui_get_dims() {
+    return (vec2){nk_window_get_width(ui_ctx), nk_window_get_height(ui_ctx)};
+}
+static char *ui_build_window_list() {
+    char *build_windows_menu = 0;
+    strcatf(&build_windows_menu, "%s;", ICON_MD_VIEW_QUILT); // "Windows");
+    for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
+        strcatf(&build_windows_menu, "%s %s;", ui_visible(*k) ? ICON_MD_CHECK_BOX : ICON_MD_CHECK_BOX_OUTLINE_BLANK, *k); // ICON_MD_VISIBILITY : ICON_MD_VISIBILITY_OFF, *k); // ICON_MD_TOGGLE_ON : ICON_MD_TOGGLE_OFF, *k);
+    }
+    strcatf(&build_windows_menu, "-%s;%s", ICON_MD_RECYCLING " Reset layout", ICON_MD_SAVE_AS " Save layout");
+    return build_windows_menu; // @leak if discarded
+}
+static int ui_layout_all_reset(const char *mask);
+static int ui_layout_all_save_disk(const char *mask);
+static int ui_layout_all_load_disk(const char *mask);
+
+
+static
+void ui_menu_render() {
+    // clean up from past frame
+    ui_results = vec2(0,0);
+    if( !ui_items ) return;
+    if( !array_count(ui_items) ) return;
+
+// artificially inject Windows menu on the first icon
+bool show_window_menu = !!array_count(ui_items);
+if( show_window_menu ) {
+    array_push_front(ui_items, ((ui_item_t){ui_build_window_list(), 0, 0}));
+}
+
+    // process menus
+    if( nk_begin(ui_ctx, "Menu", nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR/*|NK_WINDOW_BACKGROUND*/)) {
+        if( ui_ctx->current ) {
+            nk_menubar_begin(ui_ctx);
+
+            ui_results = ui_toolbar_(ui_items, ui_results);
+
+            //nk_layout_row_end(ui_ctx);
+            nk_menubar_end(ui_ctx);
+        }
+    }
+    nk_end(ui_ctx);
+
+if( show_window_menu ) {
+    // if clicked on first menu (Windows)
+    if( ui_results.x == 1 ) {
+        array(char*) split = strsplit(ui_items[0].buf,";"); // *array_back(ui_items), ";");
+        const char *title = split[(int)ui_results.y]; title += title[0] == '-'; title += 3 * (title[0] == '\xee'); title += title[0] == ' '; /*skip separator+emoji+space*/
+        // toggle window unless clicked on lasts items {"reset layout", "save layout"}
+        bool clicked_reset_layout = ui_results.y == array_count(split) - 2;
+        bool clicked_save_layout = ui_results.y == array_count(split) - 1;
+        /**/ if( clicked_reset_layout ) ui_layout_all_reset("*");
+        else if( clicked_save_layout ) file_delete(WINDOWS_INI), ui_layout_all_save_disk("*");
+        else ui_show(title, ui_visible(title) ^ true);
+        // reset value so developers don't catch this click
+        ui_results = vec2(0,0);
+    }
+    // restore state prior to previously injected Windows menu
+    else
+    ui_results.x = ui_results.x > 0 ? ui_results.x - 1 : 0;
+}
+
+    // clean up for next frame
+    for( int i = 0; i < array_count(ui_items); ++i ) {
+        if(ui_items[i].type != 0xED17)
+            FREE(ui_items[i].buf);
+    }
+    array_resize(ui_items, 0);
+}
+
+// -----------------------------------------------------------------------------
+
+static int ui_dirty = 1;
+static int ui_has_active_popups = 0;
+static float ui_hue = 0; // hue
+static int ui_is_hover = 0;
+static int ui_is_active = 0;
+static uint64_t ui_active_mask = 0;
+
+int ui_popups() {
+    return ui_has_active_popups;
+}
+int ui_hover() {
+    return ui_is_hover;
+}
+int ui_active() {
+    return ui_is_active; //window_has_cursor() && nk_window_is_any_hovered(ui_ctx) && nk_item_is_any_active(ui_ctx);
+}
+
+static
+int ui_set_enable_(int enabled) {
+    static struct nk_style off, on;
+    do_once {
+        off = on = ui_ctx->style;
+        float alpha = 0.5f;
+
+        off.text.color.a *= alpha;
+
+        off.button.normal.data.color.a *= alpha;
+        off.button.hover.data.color.a *= alpha;
+        off.button.active.data.color.a *= alpha;
+        off.button.border_color.a *= alpha;
+        off.button.text_background.a *= alpha;
+        off.button.text_normal.a *= alpha;
+        off.button.text_hover.a *= alpha;
+        off.button.text_active.a *= alpha;
+
+        off.contextual_button.normal.data.color.a *= alpha;
+        off.contextual_button.hover.data.color.a *= alpha;
+        off.contextual_button.active.data.color.a *= alpha;
+        off.contextual_button.border_color.a *= alpha;
+        off.contextual_button.text_background.a *= alpha;
+        off.contextual_button.text_normal.a *= alpha;
+        off.contextual_button.text_hover.a *= alpha;
+        off.contextual_button.text_active.a *= alpha;
+
+        off.menu_button.normal.data.color.a *= alpha;
+        off.menu_button.hover.data.color.a *= alpha;
+        off.menu_button.active.data.color.a *= alpha;
+        off.menu_button.border_color.a *= alpha;
+        off.menu_button.text_background.a *= alpha;
+        off.menu_button.text_normal.a *= alpha;
+        off.menu_button.text_hover.a *= alpha;
+        off.menu_button.text_active.a *= alpha;
+
+        off.option.normal.data.color.a *= alpha;
+        off.option.hover.data.color.a *= alpha;
+        off.option.active.data.color.a *= alpha;
+        off.option.border_color.a *= alpha;
+        off.option.cursor_normal.data.color.a *= alpha;
+        off.option.cursor_hover.data.color.a *= alpha;
+        off.option.text_normal.a *= alpha;
+        off.option.text_hover.a *= alpha;
+        off.option.text_active.a *= alpha;
+        off.option.text_background.a *= alpha;
+
+        off.checkbox.normal.data.color.a *= alpha;
+        off.checkbox.hover.data.color.a *= alpha;
+        off.checkbox.active.data.color.a *= alpha;
+        off.checkbox.border_color.a *= alpha;
+        off.checkbox.cursor_normal.data.color.a *= alpha;
+        off.checkbox.cursor_hover.data.color.a *= alpha;
+        off.checkbox.text_normal.a *= alpha;
+        off.checkbox.text_hover.a *= alpha;
+        off.checkbox.text_active.a *= alpha;
+        off.checkbox.text_background.a *= alpha;
+
+        off.selectable.normal.data.color.a *= alpha;
+        off.selectable.hover.data.color.a *= alpha;
+        off.selectable.pressed.data.color.a *= alpha;
+        off.selectable.normal_active.data.color.a *= alpha;
+        off.selectable.hover_active.data.color.a *= alpha;
+        off.selectable.pressed_active.data.color.a *= alpha;
+        off.selectable.text_normal.a *= alpha;
+        off.selectable.text_hover.a *= alpha;
+        off.selectable.text_pressed.a *= alpha;
+        off.selectable.text_normal_active.a *= alpha;
+        off.selectable.text_hover_active.a *= alpha;
+        off.selectable.text_pressed_active.a *= alpha;
+        off.selectable.text_background.a *= alpha;
+
+        off.slider.normal.data.color.a *= alpha;
+        off.slider.hover.data.color.a *= alpha;
+        off.slider.active.data.color.a *= alpha;
+        off.slider.border_color.a *= alpha;
+        off.slider.bar_normal.a *= alpha;
+        off.slider.bar_hover.a *= alpha;
+        off.slider.bar_active.a *= alpha;
+        off.slider.bar_filled.a *= alpha;
+        off.slider.cursor_normal.data.color.a *= alpha;
+        off.slider.cursor_hover.data.color.a *= alpha;
+        off.slider.cursor_active.data.color.a *= alpha;
+        off.slider.dec_button.normal.data.color.a *= alpha;
+        off.slider.dec_button.hover.data.color.a *= alpha;
+        off.slider.dec_button.active.data.color.a *= alpha;
+        off.slider.dec_button.border_color.a *= alpha;
+        off.slider.dec_button.text_background.a *= alpha;
+        off.slider.dec_button.text_normal.a *= alpha;
+        off.slider.dec_button.text_hover.a *= alpha;
+        off.slider.dec_button.text_active.a *= alpha;
+        off.slider.inc_button.normal.data.color.a *= alpha;
+        off.slider.inc_button.hover.data.color.a *= alpha;
+        off.slider.inc_button.active.data.color.a *= alpha;
+        off.slider.inc_button.border_color.a *= alpha;
+        off.slider.inc_button.text_background.a *= alpha;
+        off.slider.inc_button.text_normal.a *= alpha;
+        off.slider.inc_button.text_hover.a *= alpha;
+        off.slider.inc_button.text_active.a *= alpha;
+
+        off.progress.normal.data.color.a *= alpha;
+        off.progress.hover.data.color.a *= alpha;
+        off.progress.active.data.color.a *= alpha;
+        off.progress.border_color.a *= alpha;
+        off.progress.cursor_normal.data.color.a *= alpha;
+        off.progress.cursor_hover.data.color.a *= alpha;
+        off.progress.cursor_active.data.color.a *= alpha;
+        off.progress.cursor_border_color.a *= alpha;
+
+        off.property.normal.data.color.a *= alpha;
+        off.property.hover.data.color.a *= alpha;
+        off.property.active.data.color.a *= alpha;
+        off.property.border_color.a *= alpha;
+        off.property.label_normal.a *= alpha;
+        off.property.label_hover.a *= alpha;
+        off.property.label_active.a *= alpha;
+        off.property.edit.normal.data.color.a *= alpha;
+        off.property.edit.hover.data.color.a *= alpha;
+        off.property.edit.active.data.color.a *= alpha;
+        off.property.edit.border_color.a *= alpha;
+        off.property.edit.cursor_normal.a *= alpha;
+        off.property.edit.cursor_hover.a *= alpha;
+        off.property.edit.cursor_text_normal.a *= alpha;
+        off.property.edit.cursor_text_hover.a *= alpha;
+        off.property.edit.text_normal.a *= alpha;
+        off.property.edit.text_hover.a *= alpha;
+        off.property.edit.text_active.a *= alpha;
+        off.property.edit.selected_normal.a *= alpha;
+        off.property.edit.selected_hover.a *= alpha;
+        off.property.edit.selected_text_normal.a *= alpha;
+        off.property.edit.selected_text_hover.a *= alpha;
+        off.property.dec_button.normal.data.color.a *= alpha;
+        off.property.dec_button.hover.data.color.a *= alpha;
+        off.property.dec_button.active.data.color.a *= alpha;
+        off.property.dec_button.border_color.a *= alpha;
+        off.property.dec_button.text_background.a *= alpha;
+        off.property.dec_button.text_normal.a *= alpha;
+        off.property.dec_button.text_hover.a *= alpha;
+        off.property.dec_button.text_active.a *= alpha;
+        off.property.inc_button.normal.data.color.a *= alpha;
+        off.property.inc_button.hover.data.color.a *= alpha;
+        off.property.inc_button.active.data.color.a *= alpha;
+        off.property.inc_button.border_color.a *= alpha;
+        off.property.inc_button.text_background.a *= alpha;
+        off.property.inc_button.text_normal.a *= alpha;
+        off.property.inc_button.text_hover.a *= alpha;
+        off.property.inc_button.text_active.a *= alpha;
+
+        off.edit.normal.data.color.a *= alpha;
+        off.edit.hover.data.color.a *= alpha;
+        off.edit.active.data.color.a *= alpha;
+        off.edit.border_color.a *= alpha;
+        off.edit.cursor_normal.a *= alpha;
+        off.edit.cursor_hover.a *= alpha;
+        off.edit.cursor_text_normal.a *= alpha;
+        off.edit.cursor_text_hover.a *= alpha;
+        off.edit.text_normal.a *= alpha;
+        off.edit.text_hover.a *= alpha;
+        off.edit.text_active.a *= alpha;
+        off.edit.selected_normal.a *= alpha;
+        off.edit.selected_hover.a *= alpha;
+        off.edit.selected_text_normal.a *= alpha;
+        off.edit.selected_text_hover.a *= alpha;
+
+        off.chart.background.data.color.a *= alpha;
+        off.chart.border_color.a *= alpha;
+        off.chart.selected_color.a *= alpha;
+        off.chart.color.a *= alpha;
+
+        off.scrollh.normal.data.color.a *= alpha;
+        off.scrollh.hover.data.color.a *= alpha;
+        off.scrollh.active.data.color.a *= alpha;
+        off.scrollh.border_color.a *= alpha;
+        off.scrollh.cursor_normal.data.color.a *= alpha;
+        off.scrollh.cursor_hover.data.color.a *= alpha;
+        off.scrollh.cursor_active.data.color.a *= alpha;
+        off.scrollh.cursor_border_color.a *= alpha;
+
+        off.scrollv.normal.data.color.a *= alpha;
+        off.scrollv.hover.data.color.a *= alpha;
+        off.scrollv.active.data.color.a *= alpha;
+        off.scrollv.border_color.a *= alpha;
+        off.scrollv.cursor_normal.data.color.a *= alpha;
+        off.scrollv.cursor_hover.data.color.a *= alpha;
+        off.scrollv.cursor_active.data.color.a *= alpha;
+        off.scrollv.cursor_border_color.a *= alpha;
+
+        off.tab.background.data.color.a *= alpha;
+        off.tab.border_color.a *= alpha;
+        off.tab.text.a *= alpha;
+
+        off.combo.normal.data.color.a *= alpha;
+        off.combo.hover.data.color.a *= alpha;
+        off.combo.active.data.color.a *= alpha;
+        off.combo.border_color.a *= alpha;
+        off.combo.label_normal.a *= alpha;
+        off.combo.label_hover.a *= alpha;
+        off.combo.label_active.a *= alpha;
+        off.combo.symbol_normal.a *= alpha;
+        off.combo.symbol_hover.a *= alpha;
+        off.combo.symbol_active.a *= alpha;
+        off.combo.button.normal.data.color.a *= alpha;
+        off.combo.button.hover.data.color.a *= alpha;
+        off.combo.button.active.data.color.a *= alpha;
+        off.combo.button.border_color.a *= alpha;
+        off.combo.button.text_background.a *= alpha;
+        off.combo.button.text_normal.a *= alpha;
+        off.combo.button.text_hover.a *= alpha;
+        off.combo.button.text_active.a *= alpha;
+
+        off.window.fixed_background.data.color.a *= alpha;
+        off.window.background.a *= alpha;
+        off.window.border_color.a *= alpha;
+        off.window.popup_border_color.a *= alpha;
+        off.window.combo_border_color.a *= alpha;
+        off.window.contextual_border_color.a *= alpha;
+        off.window.menu_border_color.a *= alpha;
+        off.window.group_border_color.a *= alpha;
+        off.window.tooltip_border_color.a *= alpha;
+        off.window.scaler.data.color.a *= alpha;
+        off.window.header.normal.data.color.a *= alpha;
+        off.window.header.hover.data.color.a *= alpha;
+        off.window.header.active.data.color.a *= alpha;
+    }
+    static struct nk_input input;
+    if (!enabled) {
+        ui_alpha_push(0.5);
+        ui_ctx->style = off; // .button = off.button;
+        input = ui_ctx->input;
+        memset(&ui_ctx->input, 0, sizeof(ui_ctx->input));
+    } else {
+        ui_alpha_pop();
+        ui_ctx->style = on; // .button = on.button;
+        ui_ctx->input = input;
+    }
+    return enabled;
+}
+
+static int ui_is_enabled = 1;
+int ui_enable() {
+    return ui_is_enabled == 1 ? 0 : ui_set_enable_(ui_is_enabled = 1);
+}
+int ui_disable() {
+    return ui_is_enabled == 0 ? 0 : ui_set_enable_(ui_is_enabled = 0);
+}
+int ui_enabled() {
+    return ui_is_enabled;
+}
+
+static
+void ui_destroy(void) {
+    if(ui_ctx) {
+        nk_glfw3_shutdown(&nk_glfw); // nk_sdl_shutdown();
+        ui_ctx = 0;
+    }
+}
+static
+void ui_create() {
+    do_once atexit(ui_destroy);
+
+    if( ui_dirty ) {
+        nk_glfw3_new_frame(&nk_glfw); //g->nk_glfw);
+        ui_dirty = 0;
+
+        ui_enable();
+    }
+}
+
+enum {
+    UI_NOTIFICATION_1 = 32, // sets panel as 1-story notification. used by ui_notify()
+    UI_NOTIFICATION_2 = 64, // sets panel as 2-story notification. used by ui_notify()
+};
+
+struct ui_notify {
+    char *title;
+    char *body; // char *icon;
+    float timeout;
+    float alpha;
+    int   used;
+};
+
+static array(struct ui_notify) ui_notifications; // format=("%d*%s\n%s", timeout, title, body)
+
+static
+void ui_notify_render() {
+    // draw queued notifications
+    if( array_count(ui_notifications) ) {
+        struct ui_notify *n = array_back(ui_notifications);
+
+        static double timeout = 0;
+        timeout += 1/60.f; // window_delta(); // @fixme: use editor_time() instead
+
+        ui_alpha_push( timeout >= n->timeout ? 1 - clampf(timeout - n->timeout,0,1) : 1 );
+
+            if( timeout < (n->timeout + 1) ) { // N secs display + 1s fadeout
+                if(n->used++ < 3) nk_window_set_focus(ui_ctx, "!notify");
+
+                if( ui_panel( "!notify", n->title && n->body ? UI_NOTIFICATION_2 : UI_NOTIFICATION_1 ) ) {
+                    if(n->title) ui_label(n->title);
+                    if(n->body)  ui_label(n->body);
+
+                    ui_panel_end();
+                }
+            }
+
+            if( timeout >= (n->timeout + 2) ) { // 1s fadeout + 1s idle
+                timeout = 0;
+
+                if(n->title) FREE(n->title);
+                if(n->body)  FREE(n->body);
+                array_pop(ui_notifications);
+            }
+
+        ui_alpha_pop();
+    }
+}
+
+static
+void ui_hue_cycle( unsigned num_cycles ) {
+    // cycle color (phi ratio)
+    for( unsigned i = 0; i < num_cycles; ++i ) {
+        //ui_hue = (ui_hue+0.61803f)*1.61803f; while(ui_hue > 1) ui_hue -= 1;
+        ui_hue *= 1.61803f / 1.85f; while(ui_hue > 1) ui_hue -= 1;
+    }
+}
+
+static
+void ui_render() {
+
+    // draw queued menus
+    ui_notify_render();
+    ui_menu_render();
+
+    /* IMPORTANT: `nk_sdl_render` modifies some global OpenGL state
+     * with blending, scissor, face culling, depth test and viewport and
+     * defaults everything back into a default state.
+     * Make sure to either a.) save and restore or b.) reset your own state after
+     * rendering the UI. */
+    //nk_sdl_render(NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
+
+    GLfloat bkColor[4]; glGetFloatv(GL_COLOR_CLEAR_VALUE, bkColor); // @transparent
+    glClearColor(0,0,0,1); // @transparent
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,!bkColor[3] ? GL_TRUE : GL_FALSE);  // @transparent
+    nk_glfw3_render(&nk_glfw, NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);  // @transparent
+
+#if is(ems)
+    glFinish();
+#endif
+
+    ui_dirty = 1;
+    ui_hue = 0;
+
+    ui_is_hover = nk_window_is_any_hovered(ui_ctx) && window_has_cursor();
+
+    if(input_down(MOUSE_L))
+        ui_is_active = (ui_is_hover && nk_item_is_any_active(ui_ctx));
+    if(input_up(MOUSE_L))
+        ui_is_active = 0;
+}
+
+
+// -----------------------------------------------------------------------------
+// save/restore all window layouts on every framebuffer resize
+
+#define UI_SNAP_PX      1 /*treshold of pixels when snapping panels/windows to the application borders [1..N]*/
+#define UI_ANIM_ALPHA 0.9 /*animation alpha used when restoring panels/windows state from application resizing events: [0..1]*/
+//#define UI_MENUBAR_Y     32 // menubar and row
+
+typedef struct ui_layout {
+    const char *title;
+
+    bool is_panel;
+
+    vec2   desktop;
+    vec2     p0,p1;
+    float    l0,l1;
+
+    float alpha;
+    float anim_timer;
+
+} ui_layout;
+
+static array(ui_layout) ui_layouts[2] = {0};
+
+static
+int ui_layout_find(const char *title, bool is_panel) {
+    int i = 0;
+    for each_array_ptr(ui_layouts[is_panel], ui_layout, s) {
+        if( !strcmp(title, s->title) ) return i;
+        ++i;
+    }
+    ui_layout s = {0};
+    s.is_panel = is_panel;
+    s.title = STRDUP(title);
+    array_push(ui_layouts[is_panel], s);
+    return array_count(ui_layouts[is_panel]) - 1;
+}
+
+static
+void ui_layout_save_mem(int idx, vec2 desktop, float workarea_h, struct nk_rect *xywh_, bool is_panel) {
+    struct nk_rect xywh = *xywh_; //< workaround for a (tcc-0.9.27+lubuntu16) bug, where xywh_ is never populated (ie, empty always) when passed by-copy
+
+    ui_layout *s = &ui_layouts[is_panel][idx];
+
+    struct nk_window *win = nk_window_find(ui_ctx, s->title);
+    // if(win && win->flags & NK_WINDOW_FULLSCREEN) return;    // skip if maximized
+
+    s->desktop = desktop;
+
+float excess = 0;
+if( win && (win->flags & NK_WINDOW_MINIMIZED)) {
+    excess = xywh.h - UI_MENUROW_HEIGHT;
+    xywh.h = UI_MENUROW_HEIGHT;
+}
+
+    // sanity checks
+    if(xywh.x<0)                               xywh.x = 0;
+    if(xywh.w>desktop.w-UI_SNAP_PX)            xywh.w = desktop.w-UI_SNAP_PX-1;
+
+    if(xywh.y<workarea_h)                      xywh.y = workarea_h;
+    if(xywh.h>desktop.h-workarea_h-UI_SNAP_PX) xywh.h = desktop.h-workarea_h-UI_SNAP_PX-1;
+
+    if((xywh.x+xywh.w)>desktop.w)              xywh.x-= xywh.x+xywh.w-desktop.w;
+    if((xywh.y+xywh.h)>desktop.h)              xywh.y-= xywh.y+xywh.h-desktop.h;
+
+if( win && (win->flags & NK_WINDOW_MINIMIZED)) {
+    xywh.h += excess;
+}
+
+    // build reconstruction vectors from bottom-right corner
+    s->p0 = vec2(xywh.x/s->desktop.x,xywh.y/s->desktop.y);
+    s->p1 = vec2(xywh.w/s->desktop.x,xywh.h/s->desktop.y);
+    s->p0 = sub2(s->p0, vec2(1,1)); s->l0 = len2(s->p0);
+    s->p1 = sub2(s->p1, vec2(1,1)); s->l1 = len2(s->p1);
+}
+
+static
+struct nk_rect ui_layout_load_mem(int idx, vec2 desktop, bool is_panel) {
+    ui_layout *s = &ui_layouts[is_panel][idx];
+
+    // extract reconstruction coords from bottom-right corner
+    vec2 p0 = mul2(add2(vec2(1,1), scale2(norm2(s->p0), s->l0)), desktop);
+    vec2 p1 = mul2(add2(vec2(1,1), scale2(norm2(s->p1), s->l1)), desktop);
+
+    return nk_rect( p0.x, p0.y, p1.x, p1.y );
+}
+
+static
+int ui_layout_all_reset(const char *mask) {
+    ui_layout z = {0};
+
+    vec2 desktop = vec2(window_width(), window_height());
+    float workarea_h = ui_has_menubar()*UI_MENUROW_HEIGHT; // @fixme workarea -> reserved_area
+
+    for( int is_panel = 0; is_panel < 2; ++is_panel ) {
+        for( int j = 0; j < array_count(ui_layouts[is_panel]); ++j ) {
+            if( ui_layouts[is_panel][j].title ) {
+
+                if( nk_window_is_hidden(ui_ctx, ui_layouts[is_panel][j].title) ) continue;
+
+                struct nk_rect xywh = { 0, workarea_h + j * UI_MENUROW_HEIGHT, desktop.w / 3.333, UI_MENUROW_HEIGHT };
+                if( is_panel ) {
+                    xywh.x = 0;
+                    xywh.y = workarea_h + j * UI_MENUROW_HEIGHT;
+                    xywh.w = desktop.w / 4;
+                    xywh.h = desktop.h / 3;
+                } else {
+                    xywh.x = desktop.w / 3.00 + j * UI_MENUROW_HEIGHT;
+                    xywh.y = workarea_h + j * UI_MENUROW_HEIGHT;
+                    xywh.w = desktop.w / 4;
+                    xywh.h = desktop.h / 3;
+                }
+                nk_window_set_focus(ui_ctx, ui_layouts[is_panel][j].title);
+                nk_window_collapse(ui_ctx, ui_layouts[is_panel][j].title, is_panel ? 0 : 1);
+                struct nk_window* win = is_panel ? 0 : nk_window_find(ui_ctx, ui_layouts[is_panel][j].title );
+                if(win) win->flags &= ~NK_WINDOW_FULLSCREEN;
+                if(win) win->flags &= ~NK_WINDOW_MINIMIZED;
+                ui_layout_save_mem(j, desktop, workarea_h, &xywh, is_panel);
+                ui_layouts[is_panel][j].anim_timer = 1.0;
+            }
+        }
+    }
+
+    return 1;
+}
+
+static
+int ui_layout_all_save_disk(const char *mask) {
+    float w = window_width(), h = window_height();
+    for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
+        struct nk_window *win = nk_window_find(ui_ctx, *k);
+        if( win && strmatchi(*k, mask) ) {
+            ini_write(WINDOWS_INI, *k, "x", va("%f", win->bounds.x / w ));
+            ini_write(WINDOWS_INI, *k, "y", va("%f", win->bounds.y / h ));
+            ini_write(WINDOWS_INI, *k, "w", va("%f", win->bounds.w / w ));
+            ini_write(WINDOWS_INI, *k, "h", va("%f", win->bounds.h / h ));
+            ini_write(WINDOWS_INI, *k, "visible", ui_visible(*k) ? "1":"0");
+        }
+    }
+    return 1;
+}
+
+static
+const char *ui_layout_load_disk(const char *title, const char *mask, ini_t i, struct nk_rect *r) {
+    if(!i) return 0;
+
+    const char *dot = strrchr(title, '.');
+    if( dot ) title = va("%.*s", (int)(dot - title), title);
+    if( !strmatchi(title, mask) ) return 0;
+
+    char **x = map_find(i, va("%s.x", title));
+    char **y = map_find(i, va("%s.y", title));
+    char **w = map_find(i, va("%s.w", title));
+    char **h = map_find(i, va("%s.h", title));
+    if( x && y && w && h ) {
+        float ww = window_width(), wh = window_height();
+        r->x = atof(*x) * ww;
+        r->y = atof(*y) * wh;
+        r->w = atof(*w) * ww;
+        r->h = atof(*h) * wh;
+
+        char **on = map_find(i, va("%s.visible", title));
+
+        return title;
+    }
+    return 0;
+}
+
+static
+int ui_layout_all_load_disk(const char *mask) {
+    ini_t i = ini(WINDOWS_INI); // @leak
+    if( !i ) return 0;
+    for each_map(i, char*, k, char*, v) {
+        struct nk_rect out = {0};
+        const char *title = ui_layout_load_disk(k, mask, i, &out);
+        if( title ) {
+            struct nk_window *win = nk_window_find(ui_ctx, title);
+            if( win ) {
+                win->bounds.x = out.x;
+                win->bounds.y = out.y;
+                win->bounds.w = out.w;
+                win->bounds.h = out.h;
+            }
+        }
+    }
+    return 1;
+}
+
+
+// -----------------------------------------------------------------------------
+// shared code for both panels and windows. really messy.
+
+static
+int ui_begin_panel_or_window_(const char *title, int flags, bool is_window) {
+
+struct nk_window *win = nk_window_find(ui_ctx, title);
+
+int is_panel = !is_window;
+bool starts_minimized = is_panel ? !(flags & PANEL_OPEN) : 0;
+bool is_closable = is_window;
+bool is_scalable = true;
+bool is_movable = true;
+bool is_auto_minimizes = starts_minimized; // false;
+bool is_pinned = win && (win->flags & NK_WINDOW_PINNED);
+
+if( is_pinned ) {
+//    is_closable = false;
+    is_auto_minimizes = false;
+    is_scalable = false;
+//    is_movable = false;
+}
+
+    ui_create();
+
+    uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
+    for(int i = 0; title[i]; ++i) hash = (hash ^ title[i]) * mult;
+    ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
+
+    int idx = ui_layout_find(title, is_panel);
+    ui_layout *s = &ui_layouts[is_panel][idx];
+
+vec2 desktop = vec2(window_width(), window_height());
+float workarea_h = ui_has_menubar()*UI_MENUROW_HEIGHT;
+
+    int row = idx + !!ui_has_menubar(); // add 1 to skip menu
+    vec2 offset = vec2(0, UI_ROW_HEIGHT*row);
+    float w = desktop.w / 3.33, h = (flags & UI_NOTIFICATION_2 ? UI_MENUROW_HEIGHT*2 : (flags & UI_NOTIFICATION_1 ? UI_MENUROW_HEIGHT : desktop.h - offset.y * 2 - 1)); // h = desktop.h * 0.66; //
+    struct nk_rect start_coords = {offset.x, offset.y, offset.x+w, offset.y+h};
+
+if(is_window) {
+    w = desktop.w / 1.5;
+    h = desktop.h / 1.5;
+    start_coords.x = (desktop.w-w)/2;
+    start_coords.y = (desktop.h-h)/2 + workarea_h/2;
+    start_coords.w = w;
+    start_coords.h = h;
+}
+
+    static vec2 edge = {0}; static int edge_type = 0; // [off],L,R,U,D
+    do_once edge = vec2(desktop.w * 0.33, desktop.h * 0.66);
+
+// do not snap windows and/or save windows when using may be interacting with UI
+int is_active = 0;
+int mouse_pressed = !!input(MOUSE_L) && ui_ctx->active == win;
+if( win ) {
+    // update global window activity bitmask
+    is_active = ui_ctx->active == win;
+    ui_active_mask = is_active ? ui_active_mask | (1ull << idx) : ui_active_mask & ~(1ull << idx);
+}
+
+//  struct nk_style *s = &ui_ctx->style;
+//  nk_style_push_color(ui_ctx, &s->window.header.normal.data.color, nk_hsv_f(ui_hue,0.6,0.8));
+
+// adjust inactive edges automatically
+if( win ) {
+    bool group1_any             = !is_active; // && !input(MOUSE_L);
+    bool group2_not_resizing    =  is_active && !win->is_window_resizing;
+    bool group2_interacting     =  is_active && input(MOUSE_L);
+
+#if 0
+    if( group1_any ) {
+        // cancel self-adjust if this window is not overlapping the active one that is being resized at the moment
+        struct nk_window *parent = ui_ctx->active;
+
+        struct nk_rect a = win->bounds, b = parent->bounds;
+        bool overlap = a.x <= (b.x+b.w) && b.x <= (a.x+a.w) && a.y <= (b.y+b.h) && b.y <= (a.y+a.h);
+
+        group1_any = overlap;
+    }
+#else
+    if( group1_any )
+        group1_any = !(win->flags & NK_WINDOW_PINNED);
+#endif
+
+    if( group1_any ) {
+        float mouse_x = clampf(input(MOUSE_X), 0, desktop.w);
+        float mouse_y = clampf(input(MOUSE_Y), 0, desktop.h);
+        float distance_x = absf(mouse_x - win->bounds.x) / desktop.w;
+        float distance_y = absf(mouse_y - win->bounds.y) / desktop.h;
+        float alpha_x = sqrt(sqrt(distance_x)); // amplify signals a little bit: 0.1->0.56,0.5->0.84,0.98->0.99,etc
+        float alpha_y = sqrt(sqrt(distance_y));
+
+        /**/ if( (edge_type & 1) && win->bounds.x <= UI_SNAP_PX ) {
+            win->bounds.w = win->bounds.w * alpha_y + edge.w * (1-alpha_y);
+        }
+        else if( (edge_type & 2) && (win->bounds.x + win->bounds.w) >= (desktop.w-UI_SNAP_PX) ) {
+            win->bounds.w = win->bounds.w * alpha_y + edge.w * (1-alpha_y);
+            win->bounds.x = desktop.w - win->bounds.w;
+        }
+        if( (edge_type & 8) && (win->bounds.y + (win->flags & NK_WINDOW_MINIMIZED ? UI_ROW_HEIGHT : win->bounds.h)) >= (desktop.h-UI_SNAP_PX) ) {
+            win->bounds.h = win->bounds.h * alpha_x + edge.h * (1-alpha_x);
+            win->bounds.y = desktop.h - (win->flags & NK_WINDOW_MINIMIZED ? UI_ROW_HEIGHT : win->bounds.h);
+        }
+    }
+
+    // skip any saving if window is animating (moving) and/or maximized
+    bool anim_in_progress = s->anim_timer > 1e-3;
+    s->anim_timer *= anim_in_progress * UI_ANIM_ALPHA;
+
+    if( group1_any || !group2_interacting || anim_in_progress ) {
+        struct nk_rect target = ui_layout_load_mem(idx, desktop, is_panel);
+        float alpha = len2sq(sub2(s->desktop, desktop)) ? 0 : UI_ANIM_ALPHA; // smooth unless we're restoring a desktop change
+#if 1
+        if( is_window && win->flags & NK_WINDOW_FULLSCREEN ) {
+            target.x = 1;
+            target.w = desktop.w - 1;
+            target.y = workarea_h + 1;
+            target.h = desktop.h - workarea_h - 2;
+        }
+        if( is_window && win->is_window_restoring > 1e-2) {
+            win->is_window_restoring = win->is_window_restoring * alpha + 0 * (1 - alpha);
+            target.w = desktop.w / 2;
+            target.h = (desktop.h - workarea_h) / 2;
+            target.x = (desktop.w - target.w) / 2;
+            target.y = ((desktop.h - workarea_h) - target.h) / 2;
+        }
+#endif
+        win->bounds = nk_rect(
+            win->bounds.x * alpha + target.x * (1 - alpha),
+            win->bounds.y * alpha + target.y * (1 - alpha),
+            win->bounds.w * alpha + target.w * (1 - alpha),
+            win->bounds.h * alpha + target.h * (1 - alpha)
+        );
+    }
+    if(!anim_in_progress)
+    ui_layout_save_mem(idx, desktop, workarea_h, &win->bounds, is_panel);
+} else { // if(!win)
+    ui_layout_save_mem(idx, desktop, workarea_h, &start_coords, is_panel);
+}
+
+
+    int window_flags = NK_WINDOW_PINNABLE | NK_WINDOW_MINIMIZABLE | NK_WINDOW_NO_SCROLLBAR_X | (is_window ? NK_WINDOW_MAXIMIZABLE : 0);
+    if( starts_minimized ) window_flags |= (win ? 0 : NK_WINDOW_MINIMIZED);
+    if( is_auto_minimizes ) window_flags |= is_active ? 0 : !!starts_minimized * NK_WINDOW_MINIMIZED;
+    if( is_movable )  window_flags |= NK_WINDOW_MOVABLE;
+    if( is_closable ) window_flags |= NK_WINDOW_CLOSABLE;
+    if( is_scalable ) {
+        window_flags |= NK_WINDOW_SCALABLE;
+        if(win) window_flags |= input(MOUSE_X) < (win->bounds.x + win->bounds.w/2) ? NK_WINDOW_SCALE_LEFT : 0;
+        if(win) window_flags |= input(MOUSE_Y) < (win->bounds.y + win->bounds.h/2) ? NK_WINDOW_SCALE_TOP : 0;
+    }
+
+//    if( is_pinned )
+        window_flags |= NK_WINDOW_BORDER;
+
+if( is_panel && win && !is_active ) {
+    if( !is_pinned && is_auto_minimizes ) {
+        window_flags |= NK_WINDOW_MINIMIZED;
+    }
+}
+
+// if( is_modal ) window_flags &= ~(NK_WINDOW_MINIMIZED | NK_WINDOW_MINIMIZABLE);
+if( is_panel && win ) {
+//    if( win->bounds.x > 0 && (win->bounds.x+win->bounds.w) < desktop.w-1 ) window_flags &= ~NK_WINDOW_MINIMIZED;
+}
+
+if(!win) { // if newly created window (!win)
+    // first time, try to restore from WINDOWS_INI file
+    static ini_t i; do_once i = ini(WINDOWS_INI); // @leak
+    ui_layout_load_disk(title, "*", i, &start_coords);
+    ui_layout_save_mem(idx, desktop, workarea_h, &start_coords, is_panel);
+}
+
+bool is_notify = flags & (UI_NOTIFICATION_1 | UI_NOTIFICATION_2);
+if( is_notify ) {
+    window_flags = NK_WINDOW_MOVABLE | NK_WINDOW_NOT_INTERACTIVE | NK_WINDOW_NO_SCROLLBAR;
+    start_coords = nk_rect(desktop.w / 2 - w / 2, -h, w, h);
+}
+
+    if( nk_begin(ui_ctx, title, start_coords, window_flags) ) {
+
+// set width for all inactive panels
+struct nk_rect bounds = nk_window_get_bounds(ui_ctx);
+if( mouse_pressed && win && win->is_window_resizing ) {
+    edge = vec2(bounds.w, bounds.h);
+
+    // push direction
+    int top  = !!(win->is_window_resizing & NK_WINDOW_SCALE_TOP);
+    int left = !!(win->is_window_resizing & NK_WINDOW_SCALE_LEFT), right = !left;
+
+    edge_type = 0;
+    /**/ if( right && (win->bounds.x <= UI_SNAP_PX) ) edge_type |= 1;
+    else if(  left && (win->bounds.x + win->bounds.w) >= (desktop.w-UI_SNAP_PX) ) edge_type |= 2;
+    /**/ if(   top && (win->bounds.y + win->bounds.h) >= (desktop.h-UI_SNAP_PX) ) edge_type |= 8;
+
+    // @fixme
+    // - if window is in a corner (sharing 2 edges), do not allow for multi edges. either vert or horiz depending on the clicked scaler
+    // - or maybe, only propagate edge changes to the other windows that overlapping our window.
+}
+
+        return 1;
+    } else {
+
+if(is_panel) {
+   ui_panel_end();
+} else ui_window_end();
+
+        return 0;
+    }
+}
+
+static const char *ui_last_title = 0;
+static int *ui_last_enabled = 0;
+static int ui_has_window = 0;
+static int ui_window_has_menubar = 0;
+int ui_window(const char *title, int *enabled) {
+    if( window_width() <= 0 ) return 0;
+    if( window_height() <= 0 ) return 0;
+    if( !ui_ctx || !ui_ctx->style.font ) return 0;
+
+    bool forced_creation = enabled && *enabled; // ( enabled ? *enabled : !ui_has_menubar() );
+    forced_creation |= ui_window_register(title);
+    if(!ui_visible(title)) {
+        if( !forced_creation ) return 0;
+        ui_show(title, forced_creation);
+    }
+
+    ui_last_enabled = enabled;
+    ui_last_title = title;
+    ui_has_window = 1;
+    return ui_begin_panel_or_window_(title, /*flags*/0, true);
+}
+int ui_window_end() {
+    if(ui_window_has_menubar) nk_menubar_end(ui_ctx), ui_window_has_menubar = 0;
+    nk_end(ui_ctx), ui_has_window = 0;
+
+    int closed = 0;
+    if( nk_window_is_hidden(ui_ctx, ui_last_title) ) {
+        nk_window_close(ui_ctx, ui_last_title);
+        ui_show(ui_last_title, false);
+        if( ui_last_enabled ) *ui_last_enabled = 0; // clear developers' flag
+        closed = 1;
+    }
+
+    // @transparent
+    #if !is(ems)
+    static bool has_transparent_attrib = 0; do_once has_transparent_attrib = glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE;
+    if( closed && has_transparent_attrib && !ui_has_menubar() ) {
+        bool any_open = 0;
+        for each_map_ptr(ui_windows, char*, k, unsigned, v) any_open |= *v & 1;
+        if( !any_open ) glfwSetWindowShouldClose(window_handle(), GLFW_TRUE);
+    }
+    #endif
+    // @transparent
+
+    return 0;
+}
+
+int ui_panel(const char *title, int flags) {
+    if( window_width() <= 0 ) return 0;
+    if( window_height() <= 0 ) return 0;
+    if( !ui_ctx || !ui_ctx->style.font ) return 0;
+
+    if( ui_has_window ) {
+        // transparent style
+        static struct nk_style_button transparent_style;
+        do_once transparent_style = ui_ctx->style.button;
+        do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
+        do_once transparent_style.border_color = nk_rgba(0,0,0,0);
+        do_once transparent_style.active = transparent_style.normal;
+        do_once transparent_style.hover = transparent_style.normal;
+        do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
+        transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE;
+
+        if(!ui_window_has_menubar) nk_menubar_begin(ui_ctx);
+        if(!ui_window_has_menubar) nk_layout_row_begin(ui_ctx, NK_STATIC, UI_MENUBAR_ICON_HEIGHT, 4);
+        if(!ui_window_has_menubar) nk_layout_row_push(ui_ctx, 70);
+        ui_window_has_menubar = 1;
+
+        return nk_menu_begin_text_styled(ui_ctx, title, strlen(title), NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, nk_vec2(220, 200), &transparent_style);
+    }
+
+    return ui_begin_panel_or_window_(title, flags, false);
+}
+int ui_panel_end() {
+    if( ui_has_window ) {
+        nk_menu_end(ui_ctx);
+        return 0;
+    }
+    nk_end(ui_ctx);
+//  nk_style_pop_color(ui_ctx);
+    return 0;
+}
+
+static unsigned ui_collapse_state = 0;
+int ui_collapse(const char *label, const char *id) { // mask: 0(closed),1(open),2(created)
+    int start_open = label[0] == '!'; label += start_open;
+
+    uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
+    for(int i = 0; id[i]; ++i) hash = (hash ^ id[i]) * mult;
+    ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
+
+    int forced = ui_filter && ui_filter[0];
+    enum nk_collapse_states forced_open = NK_MAXIMIZED;
+
+    ui_collapse_state = nk_tree_base_(ui_ctx, NK_TREE_NODE, 0, label, start_open ? NK_MAXIMIZED : NK_MINIMIZED, forced ? &forced_open : NULL, id, strlen(id), 0);
+
+    return ui_collapse_state & 1; // |1 open, |2 clicked, |4 toggled
+}
+int ui_collapse_clicked() {
+    return ui_collapse_state >> 1; // |1 clicked, |2 toggled
+}
+int ui_collapse_end() {
+    return nk_tree_pop(ui_ctx), 1;
+}
+
+
+int ui_contextual() {
+#if 0
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx); // = nk_window_get_bounds(ui_ctx);
+    bounds.y -= 25;
+    return ui_popups() ? 0 : nk_contextual_begin(ui_ctx, 0, nk_vec2(150, 300), bounds);
+#else
+    return ui_popups() ? 0 : nk_contextual_begin(ui_ctx, 0, nk_vec2(300, 220), nk_window_get_bounds(ui_ctx));
+#endif
+}
+int ui_contextual_end(int close) {
+    if(close) nk_contextual_close(ui_ctx);
+    nk_contextual_end(ui_ctx);
+    return 1;
+}
+int ui_submenu(const char *options) {
+    int choice = 0;
+    if( ui_contextual() ) {
+        array(char*) tokens = strsplit(options, ";");
+        for( int i = 0; i < array_count(tokens) ; ++i ) {
+            if( ui_button_transparent(tokens[i]) ) choice = i + 1;
+        }
+        ui_contextual_end(0);
+    }
+    return choice;
+}
+
+// -----------------------------------------------------------------------------
+// code for all the widgets
+
+static
+int nk_button_transparent(struct nk_context *ctx, const char *text) {
+    static struct nk_style_button transparent_style;
+    do_once transparent_style = ctx->style.button;
+    do_once transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE;
+    do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
+    do_once transparent_style.border_color = nk_rgba(0,0,0,0);
+    do_once transparent_style.active = transparent_style.normal;
+    do_once transparent_style.hover = transparent_style.normal;
+    do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
+    transparent_style.text_background.a = 255 * ui_alpha;
+    transparent_style.text_normal.a = 255 * ui_alpha;
+    transparent_style.text_hover.a = 255 * ui_alpha;
+    transparent_style.text_active.a = 255 * ui_alpha;
+    return nk_button_label_styled(ctx, &transparent_style, text);
+}
+
+// internal vars for our editor. @todo: maybe expose these to the end-user as well?
+bool ui_label_icon_highlight;
+vec2 ui_label_icon_clicked_L; // left
+vec2 ui_label_icon_clicked_R; // right
+
+static
+int ui_label_(const char *label, int alignment) {
+    // beware: assuming label can start with any ICON_MD_ glyph, which I consider them to be a 3-bytes utf8 sequence.
+    // done for optimization reasons because this codepath is called a lot!
+    const char *icon = label ? label : ""; while( icon[0] == '!' || icon[0] == '*' ) ++icon;
+    int has_icon = (unsigned)icon[0] > 127, icon_len = 3, icon_width_px = 1*24;
+
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+    const struct nk_input *input = &ui_ctx->input;
+    int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
+    if( is_hovering ) {
+        struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
+        is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
+
+        struct nk_window *win = ui_ctx->current;
+        bool has_contextual = !win->name; // contextual windows are annonymous
+
+        is_hovering &= has_contextual || nk_window_has_focus(ui_ctx);
+    }
+
+    int skip_color_tab = label && label[0] == '!';
+    if( skip_color_tab) label++;
+
+    int spacing = 8; // between left colorbar and content
+    struct nk_window *win = ui_ctx->current;
+    struct nk_panel *layout = win->layout;
+    layout->at_x += spacing;
+    layout->bounds.w -= spacing;
+    if( !skip_color_tab ) {
+        float w = is_hovering ? 4 : 2; // spacing*3/4 : spacing/2-1;
+        bounds.w = w;
+        bounds.h -= 1;
+        struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+        nk_fill_rect(canvas, bounds, 0, nk_hsva_f(ui_hue, 0.75f, 0.8f, ui_alpha) );
+    }
+
+    if(!label || !label[0]) {
+        nk_label(ui_ctx, "", alignment);
+        layout->at_x -= spacing;
+        layout->bounds.w += spacing;
+        return 0;
+    }
+
+        const char *split = strchr(label, '@');
+            char buffer[128]; if( split ) label = (snprintf(buffer, 128, "%.*s", (int)(split-label), label), buffer);
+
+struct nk_style *style = &ui_ctx->style;
+bool bold = label[0] == '*'; label += bold;
+struct nk_font *font = bold && nk_glfw.atlas.fonts->next ? nk_glfw.atlas.fonts->next->next /*3rd font*/ : NULL; // list
+
+if( !has_icon ) {
+    // set bold style and color if needed
+    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
+    if( font )  nk_style_push_color(ui_ctx, &style->text.color, nk_rgba(255, 255, 255, 255 * ui_alpha));
+    nk_label(ui_ctx, label, alignment);
+} else {
+    char *icon_glyph = va("%.*s", icon_len, icon);
+
+// @todo: implement nk_push_layout()
+//  nk_rect bounds = {..}; nk_panel_alloc_space(bounds, ctx);
+    struct nk_window *win = ui_ctx->current;
+    struct nk_panel *layout = win->layout, copy = *layout;
+    struct nk_rect before; nk_layout_peek(&before, ui_ctx);
+    nk_label_colored(ui_ctx, icon_glyph, alignment, nk_rgba(255, 255, 255, (64 + 192 * ui_label_icon_highlight) * ui_alpha) );
+    struct nk_rect after; nk_layout_peek(&after, ui_ctx);
+    *layout = copy;
+    layout->at_x += icon_width_px; layout->bounds.w -= icon_width_px; // nk_layout_space_push(ui_ctx, nk_rect(0,0,icon_width_px,0));
+
+    // set bold style and color if needed
+    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
+    if( font )  nk_style_push_color(ui_ctx, &style->text.color, nk_rgba(255, 255, 255, 255 * ui_alpha));
+    nk_label(ui_ctx, icon+icon_len, alignment);
+
+    layout->at_x -= icon_width_px; layout->bounds.w += icon_width_px;
+}
+
+if( font )  nk_style_pop_color(ui_ctx);
+if( font )  nk_style_pop_font(ui_ctx);
+
+            if (split && is_hovering && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
+                nk_tooltip(ui_ctx, split + 1); // @fixme: not working under ui_disable() state
+            }
+
+    layout->at_x -= spacing;
+    layout->bounds.w += spacing;
+
+    // old way
+    // ui_labeicon_l_icked_L.x = is_hovering ? nk_input_has_mouse_click_down_in_rect(input, NK_BUTTON_LEFT, layout->bounds, nk_true) : 0;
+    // new way
+    // this is an ugly hack to detect which icon (within a label) we're clicking on.
+    // @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
+    ui_label_icon_clicked_L.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (alignment == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
+
+    return ui_label_icon_clicked_L.x;
+}
+
+int ui_label(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    int align = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+    nk_layout_row_dynamic(ui_ctx, 0, 1);
+    return ui_label_(label, align);
+}
+
+static int nk_label_(struct nk_context *ui_ctx, const char *text_, int align2 ) {
+    const struct nk_input *input = &ui_ctx->input;
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+    int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
+    if( is_hovering ) {
+        struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
+        is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
+        is_hovering &= nk_window_has_focus(ui_ctx);
+    }
+
+        nk_label(ui_ctx, text_, align2);
+
+    // this is an ugly hack to detect which icon (within a label) we're clicking on.
+    // @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
+    ui_label_icon_clicked_R.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (align2 == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
+
+    return ui_label_icon_clicked_R.x;
+}
+
+
+int ui_label2(const char *label, const char *text_) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+
+    int align1 = NK_TEXT_LEFT;
+    int align2 = NK_TEXT_LEFT;
+    if( label ) align1 = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+    if( text_ ) align2 = text_[0] == '>' ? (text_++, NK_TEXT_RIGHT) : text_[0] == '=' ? (text_++, NK_TEXT_CENTERED) : text_[0] == '<' ? (text_++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+    ui_label_(label, align1);
+
+    return nk_label_(ui_ctx, text_, align2);
+}
+int ui_label2_bool(const char *text, bool value) {
+    bool b = !!value;
+    return ui_bool(text, &b), 0;
+}
+int ui_label2_float(const char *text, float value) {
+    float f = (float)value;
+    return ui_float(text, &f), 0;
+}
+int ui_label2_wrap(const char *label, const char *str) { // @fixme: does not work (remove dynamic layout?)
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+    nk_text_wrap(ui_ctx, str, strlen(str));
+    return 0;
+}
+int ui_label2_toolbar(const char *label, const char *icons) {
+    int mouse_click = ui_label2(label, va(">%s", icons));
+    int choice = !mouse_click ? 0 : 1 + -mouse_click / (UI_ICON_FONTSIZE + UI_ICON_SPACING_X); // divided by px per ICON_MD_ glyph approximately
+    int glyphs = strlen(icons) / 3;
+    return choice > glyphs ? 0 : choice;
+}
+
+int ui_notify(const char *title, const char *body) {
+    app_beep();
+
+    struct ui_notify n = {0};
+    n.title = title && title[0] ? stringf("*%s", title) : 0;
+    n.body = body && body[0] ? STRDUP(body) : 0;
+    n.timeout = 2; // 4s = 2s timeout (+ 1s fade + 1s idle)
+    n.alpha = 1;
+    array_push_front(ui_notifications, n);
+    return 1;
+}
+
+int ui_button_transparent(const char *text) {
+    nk_layout_row_dynamic(ui_ctx, 0, 1);
+    int align = text[0] == '>' ? (text++, NK_TEXT_RIGHT) : text[0] == '=' ? (text++, NK_TEXT_CENTERED) : text[0] == '<' ? (text++, NK_TEXT_LEFT) : NK_TEXT_CENTERED;
+    return !!nk_contextual_item_label(ui_ctx, text, align);
+}
+
+#ifndef UI_BUTTON_MONOCHROME
+#define UI_BUTTON_MONOCHROME 0
+#endif
+
+static
+int ui_button_(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    if( 1 ) {
+#if UI_BUTTON_MONOCHROME
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba(0,0,0,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba(0,0,0,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba(0,0,0,ui_alpha));
+
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.0,0.8*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,0.0,1.0*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.0,0.4*ui_alpha));
+#elif 0 // old
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba(0,0,0,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba(0,0,0,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba(0,0,0,ui_alpha));
+
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.75,0.8*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,1.00,1.0*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.60,0.4*ui_alpha));
+#else // new
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba_f(0.00,0.00,0.00,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba_f(0.11,0.11,0.11,ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba_f(0.00,0.00,0.00,ui_alpha));
+
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.80,0.6,0.90*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,0.85,0.9,0.90*ui_alpha));
+        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.80,0.6,0.90*ui_alpha));
+#endif
+    }
+
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+
+    const char *split = strchr(label, '@'), *tooltip = split + 1;
+    int ret = nk_button_text(ui_ctx, label, split ? (int)(split - label) : strlen(label) );
+
+    const struct nk_input *in = &ui_ctx->input;
+    if (split && nk_input_is_mouse_hovering_rect(in, bounds) && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
+        nk_tooltip(ui_ctx, tooltip);
+    }
+
+    if( 1 ) {
+        nk_style_pop_color(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+
+        nk_style_pop_color(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+        nk_style_pop_color(ui_ctx);
+    }
+
+    return ret;
+}
+
+int ui_buttons(int buttons, ...) {
+    static array(char*) args = 0;
+    array_resize(args, 0);
+
+    int num_skips = 0;
+        va_list list;
+        va_start(list, buttons);
+        for( int i = 0; i < buttons; ++i ) {
+            const char *label = va_arg(list, const char*);
+            int skip = ui_filter && ui_filter[0] && !strstri(label, ui_filter);
+            array_push(args, skip ? NULL : (char*)label);
+            num_skips += skip;
+        }
+        va_end(list);
+
+    if( num_skips == array_count(args) ) return 0;
+    buttons = array_count(args) - num_skips;
+
+    nk_layout_row_dynamic(ui_ctx, 0, buttons);
+
+    float ui_hue_old = ui_hue;
+
+        int indent = 8;
+        struct nk_window *win = ui_ctx->current;
+        struct nk_panel *layout = win->layout;
+        struct nk_panel copy = *layout;
+        ui_label_("", NK_TEXT_LEFT);
+        *layout = copy;
+        layout->at_x += indent;
+        layout->bounds.w -= indent;
+
+            int rc = 0;
+            for( int i = 0, end = array_count(args); i < end; ++i ) {
+                if( args[i] && ui_button_( args[i] ) ) rc = i+1;
+                ui_hue_cycle( 3 );
+            }
+            va_end(list);
+
+        layout->at_x -= indent;
+        layout->bounds.w += indent;
+
+    ui_hue = ui_hue_old;
+    return rc;
+}
+
+int ui_button(const char *s) {
+    return ui_buttons(1, s);
+}
+
+int ui_toggle(const char *label, bool *value) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    // nk_label(ui_ctx, label, alignment);
+    int rc = nk_button_transparent(ui_ctx, *value ? ICON_MD_TOGGLE_ON : ICON_MD_TOGGLE_OFF);
+    return rc ? (*value ^= 1), rc : rc;
+}
+
+int ui_color4f(const char *label, float *color4) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float c[4] = { color4[0]*255, color4[1]*255, color4[2]*255, color4[3]*255 };
+    int ret = ui_color4(label, c);
+    for( int i = 0; i < 4; ++i ) color4[i] = c[i] / 255.0f;
+    return ret;
+}
+
+static enum color_mode {COL_RGB, COL_HSV} ui_color_mode = COL_RGB;
+
+int ui_color4(const char *label, float *color4) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { color4[0]*ui_alpha/255, color4[1]*ui_alpha/255, color4[2]*ui_alpha/255, color4[3]/255 }, before = after;
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGBA);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
+            after.a = nk_propertyf(ui_ctx, "#A:", 0, after.a, 1.0f, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
+            hsva[3] = nk_propertyf(ui_ctx, "#A:", 0, hsva[3], 1.0f, 0.01f,0.05f);
+            after = nk_hsva_colorfv(hsva);
+        }
+
+        color4[0] = after.r * 255;
+        color4[1] = after.g * 255;
+        color4[2] = after.b * 255;
+        color4[3] = after.a * 255;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+
+int ui_color3f(const char *label, float *color3) {
+    float c[3] = { color3[0]*255, color3[1]*255, color3[2]*255 };
+    int ret = ui_color3(label, c);
+    for( int i = 0; i < 3; ++i ) color3[i] = c[i] / 255.0f;
+    return ret;
+}
+
+int ui_color3(const char *label, float *color3) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { color3[0]*ui_alpha/255, color3[1]*ui_alpha/255, color3[2]*ui_alpha/255, 1 }, before = after;
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGB);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
+            after = nk_hsva_colorfv(hsva);
+        }
+
+        color3[0] = after.r * 255;
+        color3[1] = after.g * 255;
+        color3[2] = after.b * 255;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+
+int ui_list(const char *label, const char **items, int num_items, int *selector) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    int val = nk_combo(ui_ctx, items, num_items, *selector, UI_ROW_HEIGHT, nk_vec2(200,200));
+    int chg = val != *selector;
+    *selector = val;
+    return chg;
+}
+
+int ui_slider(const char *label, float *slider) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    // return ui_slider2(label, slider, va("%.2f ", *slider));
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    nk_size val = *slider * 1000;
+    int chg = nk_progress(ui_ctx, &val, 1000, NK_MODIFIABLE);
+    *slider = val / 1000.f;
+    return chg;
+}
+int ui_slider2(const char *label, float *slider, const char *caption) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_window *win = ui_ctx->current;
+    const struct nk_style *style = &ui_ctx->style;
+    struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx); bounds.w -= 10; // bounds.w *= 0.95f;
+    struct nk_vec2 item_padding = style->text.padding;
+    struct nk_text text;
+    text.padding.x = item_padding.x;
+    text.padding.y = item_padding.y;
+    text.background = style->window.background;
+    text.text = nk_rgba_f(1,1,1,ui_alpha);
+
+        nk_size val = *slider * 1000;
+        int chg = nk_progress(ui_ctx, &val, 1000, NK_MODIFIABLE);
+        *slider = val / 1000.f;
+
+    chg |= input(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds); // , true);
+
+    nk_widget_text(&win->buffer, bounds, caption, strlen(caption), &text, NK_TEXT_RIGHT, style->font);
+    return chg;
+}
+
+int ui_bool(const char *label, bool *enabled ) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    int val = *enabled;
+#if 0
+    int chg = !!nk_checkbox_label(ui_ctx, "", &val);
+#else
+    int chg = !!nk_button_transparent(ui_ctx, val ? ICON_MD_CHECK_BOX : ICON_MD_CHECK_BOX_OUTLINE_BLANK );
+#endif
+    *enabled ^= chg;
+    return chg;
+}
+
+int ui_int(const char *label, int *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    int prev = *v;
+    *v = nk_propertyi(ui_ctx, "#", INT_MIN, *v, INT_MAX, 1,1);
+    return prev != *v;
+}
+
+int ui_unsigned(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    unsigned prev = *v;
+    *v = (unsigned)nk_propertyd(ui_ctx, "#", 0, *v, UINT_MAX, 1,1);
+    return prev != *v;
+}
+
+int ui_short(const char *label, short *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    int i = *v, ret = ui_int( label, &i );
+    return *v = (short)i, ret;
+}
+
+int ui_float(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, 0.01f,0.005f);
+    return prev != v[0];
+}
+
+int ui_double(const char *label, double *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    double prev = v[0]; v[0] = nk_propertyd(ui_ctx, "#", -DBL_MAX, v[0], DBL_MAX, 0.01f,0.005f);
+    return prev != v[0];
+}
+
+int ui_clampf(const char *label, float *v, float minf, float maxf) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    if( minf > maxf ) return ui_clampf(label, v, maxf, minf);
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, 0.1f,0.05f);
+    return prev != v[0];
+}
+
+static bool ui_float_sign = 0;
+
+int ui_float2(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.3f %+.3f", v[0], v[1]) :
+        va("%.3f, %.3f", v[0], v[1]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1];
+    }
+    return 0;
+}
+
+int ui_float3(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
+        va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
+    }
+    return 0;
+}
+
+int ui_float4(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
+        va("%.2f,%.2f,%.2f,%.2f", v[0], v[1], v[2], v[3]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
+        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2] || prev3 != v[3];
+    }
+
+    return 0;
+}
+
+int ui_mat33(const char *label, float M[9]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 3;
+    int changed = 0;
+    changed |= ui_label(label);
+    changed |= ui_float3(NULL, M);
+    changed |= ui_float3(NULL, M+3);
+    changed |= ui_float3(NULL, M+6);
+    return changed;
+}
+int ui_mat34(const char *label, float M[12]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 3;
+    int changed = 0;
+    changed |= ui_label(label);
+    changed |= ui_float4(NULL, M);
+    changed |= ui_float4(NULL, M+4);
+    changed |= ui_float4(NULL, M+8);
+    return changed;
+}
+int ui_mat44(const char *label, float M[16]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 4;
+    int changed = 0;
+    changed |= ui_label(label);
+    changed |= ui_float4(NULL, M);
+    changed |= ui_float4(NULL, M+4);
+    changed |= ui_float4(NULL, M+8);
+    changed |= ui_float4(NULL, M+12);
+    return changed;
+}
+
+int ui_buffer(const char *label, char *buffer, int buflen) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 1 + (label && label[0]));
+    if(label && label[0]) ui_label_(label, NK_TEXT_LEFT);
+
+    int active = nk_edit_string_zero_terminated(ui_ctx, NK_EDIT_AUTO_SELECT|NK_EDIT_CLIPBOARD|NK_EDIT_FIELD/*NK_EDIT_BOX*/|NK_EDIT_SIG_ENTER, buffer, buflen, nk_filter_default);
+    return !!(active & NK_EDIT_COMMITED) ? nk_edit_unfocus(ui_ctx), 1 : 0;
+}
+
+int ui_string(const char *label, char **str) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    char *bak = va("%s%c", *str ? *str : "", '\0');
+    int rc = ui_buffer(label, bak, strlen(bak)+2);
+    if( *str ) 0[*str] = '\0';
+    strcatf(str, "%s", bak);
+    return rc;
+}
+
+int ui_separator() {
+    if( /*label &&*/ ui_filter && ui_filter[0] ) return 0; // if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, UI_SEPARATOR_HEIGHT, 1);
+
+    ui_hue_cycle( 1 );
+
+    struct nk_command_buffer *canvas;
+    struct nk_input *input = &ui_ctx->input;
+    canvas = nk_window_get_canvas(ui_ctx);
+    struct nk_rect space;
+    enum nk_widget_layout_states state;
+    state = nk_widget(&space, ui_ctx);
+    if (state) nk_fill_rect(canvas, space, 0, ui_ctx->style.window.header.normal.data.color );
+
+    return 1;
+}
+
+int ui_subimage(const char *label, handle id, unsigned iw, unsigned ih, unsigned sx, unsigned sy, unsigned sw, unsigned sh) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, sh < 30 || id == texture_checker().id ? 0 : sh, 1 + (label && label[0]));
+    if( label && label[0] ) ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx); bounds.w -= 10; // bounds.w *= 0.95f;
+
+    int ret = nk_button_image_styled(ui_ctx, &ui_ctx->style.button, nk_subimage_id((int)id, iw, ih, nk_rect(sx,sy,sw,sh)));
+    if( !ret ) {
+        ret |= input(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds); // , true);
+    }
+    if( ret ) {
+        int px = 100 * (ui_ctx->input.mouse.pos.x - bounds.x ) / (float)bounds.w;
+        int py = 100 * (ui_ctx->input.mouse.pos.y - bounds.y ) / (float)bounds.h;
+        return px * 100 + py; // printf("%d %d xy:%d\n", px, py, (px * 100) + py);
+    }
+    return ret; // !!ret;
+}
+
+int ui_image(const char *label, handle id, unsigned w, unsigned h) {
+    return ui_subimage(label, id, w,h, 0,0,w,h);
+}
+
+int ui_texture(const char *label, texture_t t) {
+    return ui_subimage(label, t.id, t.w,t.h, 0,0,t.w,t.h);
+}
+
+int ui_subtexture(const char *label, texture_t t, unsigned x, unsigned y, unsigned w, unsigned h) {
+    return ui_subimage(label, t.id, t.w,t.h, x,y,w,h);
+}
+
+int ui_colormap( const char *label, colormap_t *cm ) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    int ret = 0;
+    if( !cm->texture ) {
+        const char *title = va("%s (no image)", label);
+        if( ui_image( title, texture_checker().id, 0,0 ) ) {
+            ret = 2;
+        }
+    } else {
+        unsigned w = cm->texture->w, h = cm->texture->h;
+        ui_label(va("%s (%s)", label, cm->texture->filename) ); // @fixme: labelf would crash?
+
+        const char *fmt[] = { "", "R", "RG", "RGB", "RGBA" };
+        const char *title = va("%s %dx%d %s", label, w, h, fmt[cm->texture->n]);
+        if( ui_image( title, cm->texture->id, 128, 128 ) ) {
+            ret = 2;
+        }
+    }
+
+    if( ui_color4f( va("%s Color", label), (float *) &cm->color ) ) {
+        ret = 1;
+    }
+    return ret;
+}
+
+int ui_radio(const char *label, const char **items, int num_items, int *selector) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    int ret = 0;
+    if( label && label[0] ) ui_label(label);
+    for( int i = 0; i < num_items; i++ ) {
+        bool enabled = *selector == i;
+        if( ui_bool( va("%s%s", label && label[0] ? "  ":"", items[i]), &enabled ) ) {
+            *selector = i;
+            ret |= 1;
+        }
+    }
+    return ret;
+}
+
+int ui_section(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    //ui_separator();
+    return ui_label(va("*%s", label));
+}
+
+int ui_dialog(const char *label, const char *text, int choices, bool *show) { // @fixme: return
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_has_active_popups = 0;
+    if(*show) {
+        static struct nk_rect s = {0, 0, 300, 190};
+        if (nk_popup_begin(ui_ctx, NK_POPUP_STATIC, label, NK_WINDOW_BORDER|NK_WINDOW_CLOSABLE, s)) {
+            nk_layout_row_dynamic(ui_ctx, 20, 1);
+            for( char t[1024]; *text && sscanf(text, "%[^\r\n]", t); ) {
+                nk_label(ui_ctx, t, NK_TEXT_LEFT);
+                text += strlen(t); while(*text && *text < 32) text++;
+            }
+
+            if( choices ) {
+                if( ui_buttons(choices > 1 ? 2 : 1, "OK", "Cancel") ) {
+                    *show = 0;
+                    nk_popup_close(ui_ctx);
+                }
+            }
+
+            nk_popup_end(ui_ctx);
+        } else {
+            *show = nk_false;
+        }
+        ui_has_active_popups = *show;
+    }
+    return *show;
+}
+
+#define ui_bitmask_template(X) \
+int ui_bitmask##X(const char *label, uint##X##_t *enabled) { \
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0; \
+\
+    /* @fixme: better way to retrieve widget width? nk_layout_row_dynamic() seems excessive */ \
+    nk_layout_row_dynamic(ui_ctx, 1, 1); \
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx); \
+\
+    /* actual widget: label + X checkboxes */ \
+    nk_layout_row_begin(ui_ctx, NK_STATIC, 0, 1+X); \
+\
+        int offset = bounds.w > (15*X) ? bounds.w - (15*X) : 0; /* bits widget below needs at least 118px wide */ \
+        nk_layout_row_push(ui_ctx, offset); \
+        ui_label_(label, NK_TEXT_LEFT); \
+\
+        uint8_t copy = *enabled; \
+        for( int i = 0; i < X; ++i ) { \
+            int b = (X-1-i); \
+            nk_layout_row_push(ui_ctx, 10); \
+            /* bit */ \
+            int val = (*enabled >> b) & 1; \
+            int chg = nk_checkbox_label(ui_ctx, "", &val); \
+            *enabled = (*enabled & ~(1 << b)) | ((!!val) << b); \
+            /* tooltip */ \
+            struct nk_rect bb = { offset + 10 + i * 14, bounds.y, 14, 30 }; /* 10:padding,14:width,30:height */ \
+            if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bb) && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) { \
+                nk_tooltipf(ui_ctx, "Bit %d", b); \
+            } \
+        } \
+\
+    nk_layout_row_end(ui_ctx); \
+    return copy ^ *enabled; \
+}
+
+ui_bitmask_template(8);
+ui_bitmask_template(16);
+//ui_bitmask_template(32);
+
+int ui_console() { // @fixme: buggy
+    static char *cmd = 0;
+    static int enter = 0;
+
+    struct nk_font *font = nk_glfw.atlas.fonts->next /*2nd font*/;
+    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
+
+        struct nk_rect bounds = {0,0,400,300}; // @fixme: how to retrieve inlined region below? (inlined)
+        if( 1 ) /*if( windowed || (!windowed && *inlined) )*/ bounds = nk_window_get_content_region(ui_ctx);
+        else { struct nk_rect b; nk_layout_peek(&b, ui_ctx); bounds.w = b.w; }
+
+    nk_layout_row_static(ui_ctx, bounds.h - UI_ROW_HEIGHT, bounds.w, 1);
+
+    static array(char*) lines = 0;
+    for( int i = 0; i < array_count(lines); ++i )
+    if(lines[i]) nk_label_wrap(ui_ctx, lines[i]); // "This is a very long line to hopefully get this text to be wrapped into multiple lines to show line wrapping");
+
+    if( enter ) {
+        array_push(lines, 0);
+
+        for( FILE *fp = popen(cmd, "r"); fp; pclose(fp), fp = 0) {
+            int ch;
+            do {
+                ch = fgetc(fp);
+                if( strchr("\r\n\t\b", ch) ) {
+                    array_push(lines,0);
+                    continue;
+                }
+                if( ch >= ' ' ) strcatf(array_back(lines), "%c", ch);
+            } while(ch > 0);
+        }
+
+        cmd[0] = 0;
+    }
+
+    enter = ui_string("", &cmd);
+
+    if( font )  nk_style_pop_font(ui_ctx);
+
+    return enter;
+}
+
+int ui_browse(const char **output, bool *inlined) {
+    static struct browser_media media = {0};
+    static struct browser browsers[2] = {0}; // 2 instances max: 0=inlined, 1=windowed
+    static char *results[2] = {0}; // 2 instances max: 0=inlined, 1=windowed
+    do_once {
+        const int W = 96, H = 96; // 2048x481 px, 21x5 cells
+        texture_t i = texture("icons/suru.png", TEXTURE_RGBA|TEXTURE_MIPMAPS);
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 16, 3), BROWSER_FOLDER); // default group
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  2, 4), BROWSER_HOME);
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 17, 3), BROWSER_COMPUTER);
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  1, 4), BROWSER_PROJECT);
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  0, 4), BROWSER_DESKTOP);
+
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 0), "");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 10, 2), ".txt.md.doc.license" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 1), ".ini.cfg" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 3), ".xlsx" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  9, 0), ".c" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 1), ".h.hpp.hh.hxx" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 2), ".fs.vs.gs.fx.glsl.shader" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 12, 0), ".cpp.cc.cxx" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 0), ".json" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 2), ".bat.sh" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 1), ".htm.html" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 20, 1), ".xml" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 12, 1), ".js" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  0, 3), ".ts" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 2), ".py" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 16, 1), ".lua" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 10, 0), ".css.doc" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 0), ".wav.flac.ogg.mp1.mp3.mod.xm.s3m.it.sfxr.mid.fur" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  1, 3), ".ttf.ttc.otf" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  7, 1), ".jpg.jpeg.png.bmp.psd.pic.pnm.ico.ktx.pvr.dds.astc.basis.hdr.tga.gif" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 3), ".mp4.mpg.ogv.mkv.wmv.avi" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  2, 1), ".iqm.iqe.gltf.gltf2.glb.fbx.obj.dae.blend.md3.md5.ms3d.smd.x.3ds.bvh.dxf.lwo" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  0, 1), ".exe" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  7, 0), ".bin.dSYM.pdb.o.lib.dll" ".");
+        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 3), ".zip.rar.7z.pak" ".");
+
+        for( int j = 0; j < countof(browsers); ++j ) browser_init(&browsers[j]);
+        browsers[0].listing = 1; // inlined version got listing by default, as there is not much space for layouting
+    }
+    // at_exit: browser_free(&browser);
+
+    int clicked = 0;
+    bool windowed = !inlined;
+    if( windowed || (!windowed && *inlined) ) {
+
+        struct browser *browser = browsers + windowed; // select instance
+        char **result = results + windowed; // select instance
+
+        struct nk_rect bounds = {0}; // // {0,0,400,300};
+        // #define P(b) printf(FILELINE " (%3d,%3d) %3d,%3d\n", (int)b.x,(int)b.y, (int)b.w,(int)b.h)
+        // if(ui_ctx->current) bounds = nk_layout_space_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_layout_widget_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_widget_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_window_get_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_window_get_content_region(ui_ctx), P(bounds);
+        // if(ui_ctx->current) nk_layout_peek(&bounds, ui_ctx), P(bounds);
+        // // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
+        // #undef P
+
+        // panel
+        // fwk_ui.c:2497 (  6, 34) 310, 24
+        // fwk_ui.c:2498 ( 16, 62) 286, 24
+        // fwk_ui.c:2499 ( 16, 86) 296, 24
+        // fwk_ui.c:2500 (  0,  0) 327,613
+        // fwk_ui.c:2501 (  6, 34) 310,572 << ok
+        // fwk_ui.c:2502 ( 16, 86) 296, 24
+        // fwk_ui.c:2503 (316, 62) 297, 24
+
+        // window
+        // fwk_ui.c:2497 (188,152) 711,  4
+        // fwk_ui.c:2498 (188,152) 711,  4
+        // fwk_ui.c:2499 (-2147483648,156) -2147483648,  4
+        // fwk_ui.c:2500 (182,118) 728,409
+        // fwk_ui.c:2501 (188,152) 711,368 << ok
+        // fwk_ui.c:2502 (-2147483648,156) -2147483648,  4
+        // fwk_ui.c:2503 (-2147483648,152) -2147483648,  4
+
+        // popup
+        // fwk_ui.c:2497 (  9, 30) 350, 24
+        // fwk_ui.c:2498 ( 19, 58) 326, 24
+        // fwk_ui.c:2499 ( 19, 82) 336, 24
+        // fwk_ui.c:2500 (  4, 29) 360,460
+        // fwk_ui.c:2501 (  9, 30) 350,458 << ok
+        // fwk_ui.c:2502 ( 19, 82) 336, 24
+        // fwk_ui.c:2503 (359, 58) 336, 24
+
+        bounds = nk_window_get_content_region(ui_ctx);
+        if( !windowed && *inlined ) bounds.h *= 0.80;
+
+        clicked = browser_run(ui_ctx, browser, windowed, bounds);
+        if( clicked ) {
+            strcatf(result, "%d", 0);
+            (*result)[0] = '\0';
+            strcatf(result, "%s", browser->file);
+            if( inlined ) *inlined = 0;
+
+            const char *target = ifdef(win32, "/", "\\"), *replace = ifdef(win32, "\\", "/");
+            strswap(*result, target, replace);
+
+            if( output ) *output = *result;
+        }
+    }
+
+    return clicked;
+}
+
+/*
+//  demo:
+    static const char *file;
+    if( ui_panel("inlined", 0)) {
+        static bool show_browser = 0;
+        if( ui_button("my button") ) { show_browser = true; }
+        if( ui_browse(&file, &show_browser) ) puts(file);
+        ui_panel_end();
+    }
+    if( ui_window("windowed", 0) ) {
+        if( ui_browse(&file, NULL) ) puts(file);
+        ui_window_end();
+    }
+*/
+
+// ----------------------------------------------------------------------------
+
+int ui_demo(int do_windows) {
+    static int integer = 42;
+    static bool toggle = true;
+    static bool boolean = true;
+    static float floating = 3.14159;
+    static float float2[2] = {1,2};
+    static float float3[3] = {1,2,3};
+    static float float4[4] = {1,2,3,4};
+    static float rgb[3] = {0.84,0.67,0.17};
+    static float rgba[4] = {0.67,0.90,0.12,1};
+    static float slider = 0.5f;
+    static float slider2 = 0.5f;
+    static char string[64] = "hello world 123";
+    static int item = 0; const char *list[] = {"one","two","three"};
+    static bool show_dialog = false;
+    static bool show_browser = false;
+    static const char* browsed_file = "";
+    static uint8_t bitmask = 0x55;
+    static int hits = 0;
+    static int window1 = 0, window2 = 0, window3 = 0;
+    static int disable_all = 0;
+
+    if( ui_panel("UI", 0) ) {
+        int choice = ui_toolbar("Browser;Toast@Notify;Toggle on/off");
+            if(choice == 1) show_browser = true;
+            if(choice == 2) ui_notify(va("My random toast (%d)", rand()), va("This is notification #%d", ++hits));
+            if(choice == 3) disable_all ^= 1;
+
+        if( disable_all ) ui_disable();
+
+        if( ui_browse(&browsed_file, &show_browser) ) puts(browsed_file);
+
+        if( ui_section("Labels")) {}
+        if( ui_label("my label")) {}
+        if( ui_label("my label with tooltip@built on " __DATE__ " " __TIME__)) {}
+        if( ui_label2_toolbar("my toolbar", ICON_MD_STAR ICON_MD_STAR_OUTLINE ICON_MD_BOOKMARK ICON_MD_BOOKMARK_BORDER) ) {}
+        //if( ui_label2_wrap("my long label", "and some long long long long text wrapped")) {}
+
+        if( ui_section("Types")) {}
+        if( ui_bool("my bool", &boolean) ) puts("bool changed");
+        if( ui_int("my int", &integer) ) puts("int changed");
+        if( ui_float("my float", &floating) ) puts("float changed");
+        if( ui_buffer("my string", string, 64) ) puts("string changed");
+
+        if( ui_section("Vectors") ) {}
+        if( ui_float2("my float2", float2) ) puts("float2 changed");
+        if( ui_float3("my float3", float3) ) puts("float3 changed");
+        if( ui_float4("my float4", float4) ) puts("float4 changed");
+
+        if( ui_section("Lists")) {}
+        if( ui_list("my list", list, 3, &item ) ) puts("list changed");
+
+        if( ui_section("Colors")) {}
+        if( ui_color3f("my color3", rgb) ) puts("color3 changed");
+        if( ui_color4f("my color4@this is a tooltip", rgba) ) puts("color4 changed");
+
+        if( ui_section("Sliders")) {}
+        if( ui_slider("my slider", &slider)) puts("slider changed");
+        if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
+
+        if( do_windows ) {
+        if( ui_section("Windows")) {}
+        int show = ui_buttons(3, "Container", "SubPanel", "SubRender");
+        if( show == 1 ) window1 = 1;
+        if( show == 2 ) window2 = 1;
+        if( show == 3 ) window3 = 1;
+        }
+
+        if( ui_section("Others")) {}
+        if( ui_bitmask8("my bitmask", &bitmask) ) printf("bitmask changed %x\n", bitmask);
+        if( ui_toggle("my toggle", &toggle) ) printf("toggle %s\n", toggle ? "on":"off");
+        if( ui_image("my image", texture_checker().id, 0, 0) ) { puts("image clicked"); }
+
+        if( ui_separator() ) {}
+        if( ui_button("my button") ) { puts("button clicked"); show_dialog = true; }
+        if( ui_buttons(2, "yes", "no") ) { puts("button clicked"); }
+        if( ui_buttons(3, "yes", "no", "maybe") ) { puts("button clicked"); }
+        if( ui_dialog("my dialog", __FILE__ "\n" __DATE__ "\n" "Public Domain.", 2/*two buttons*/, &show_dialog) ) {}
+
+        if( disable_all ) ui_enable(); // restore enabled state
+
+        ui_panel_end();
+    }
+
+    if( !do_windows ) return 0;
+
+    // window api showcasing
+    if( ui_window("Container demo", &window1) ) {
+        ui_label("label #1");
+        if( ui_bool("my bool", &boolean) ) puts("bool changed");
+        if( ui_int("my int", &integer) ) puts("int changed");
+        if( ui_float("my float", &floating) ) puts("float changed");
+        if( ui_buffer("my string", string, 64) ) puts("string changed");
+        ui_window_end();
+    }
+
+    if( ui_window("SubPanel demo", &window2) ) {
+        if( ui_panel("panel #2", 0) ) {
+            ui_label("label #2");
+            if( ui_bool("my bool", &boolean) ) puts("bool changed");
+            if( ui_int("my int", &integer) ) puts("int changed");
+            if( ui_float("my float", &floating) ) puts("float changed");
+            if( ui_buffer("my string", string, 64) ) puts("string changed");
+            ui_panel_end();
+        }
+        ui_window_end();
+    }
+
+    if( ui_window("SubRender demo", &window3) ) {
+        if( ui_panel("panel #3A", 0) ) {
+            if( ui_bool("my bool", &boolean) ) puts("bool changed");
+            if( ui_int("my int", &integer) ) puts("int changed");
+            if( ui_float("my float", &floating) ) puts("float changed");
+            if( ui_buffer("my string", string, 64) ) puts("string changed");
+            if( ui_separator() ) {}
+            if( ui_slider("my slider", &slider)) puts("slider changed");
+            if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
+            ui_panel_end();
+        }
+        if( ui_panel("panel #3B", 0) ) {
+            if( ui_bool("my bool", &boolean) ) puts("bool changed");
+            if( ui_int("my int", &integer) ) puts("int changed");
+            if( ui_float("my float", &floating) ) puts("float changed");
+            if( ui_buffer("my string", string, 64) ) puts("string changed");
+            if( ui_separator() ) {}
+            if( ui_slider("my slider", &slider)) puts("slider changed");
+            if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
+            ui_panel_end();
+        }
+
+        const char *title = "SubRender demo";
+        struct nk_window *win = nk_window_find(ui_ctx, title);
+        if( win ) {
+            enum { menubar_height = 65 }; // title bar (~32) + menu bounds (~25)
+            struct nk_rect bounds = win->bounds; bounds.y += menubar_height; bounds.h -= menubar_height;
+#if 1
+            ddraw_flush();
+
+            // @fixme: this is breaking rendering when post-fxs are in use. edit: cannot reproduce
+            static texture_t tx = {0};
+            if( texture_rec_begin(&tx, bounds.w, bounds.h )) {
+                glClearColor(0.15,0.15,0.15,1);
+                glClear(GL_COLOR_BUFFER_BIT);
+                ddraw_grid(10);
+                ddraw_flush();
+                texture_rec_end(&tx);
+            }
+            struct nk_image image = nk_image_id((int)tx.id);
+            nk_draw_image_flipped(nk_window_get_canvas(ui_ctx), bounds, &image, nk_white);
+#else
+            static video_t *v = NULL;
+            do_once v = video( "bjork-all-is-full-of-love.mp4", VIDEO_RGB );
+
+            texture_t *textures = video_decode( v );
+
+            struct nk_image image = nk_image_id((int)textures[0].id);
+            nk_draw_image(nk_window_get_canvas(ui_ctx), bounds, &image, nk_white);
+#endif
+        }
+
+        ui_window_end();
+    }
+    return 0;
+}
+#line 0
+
+
 #line 1 "fwk_audio.c"
-// @fixme: really shutdown audio & related threads before quitting. drwav crashes.
+// @fixme: really shutdown audio & related threads before quitting. ma_dr_wav crashes.
 
 
 #if is(win32) && !is(gcc)
@@ -978,7 +3788,7 @@ static AudioUnit midi_out_handle = 0;
 static void midi_init() {
 #if is(win32) && !is(gcc)
     if( midiOutGetNumDevs() != 0 ) {
-        midiOutOpen(&midi_out_handle, 0, 0, 0, 0);        
+        midiOutOpen(&midi_out_handle, 0, 0, 0, 0);
     }
 #elif is(osx)
     AUGraph graph;
@@ -1020,15 +3830,15 @@ void midi_send(unsigned midi_msg) {
 #endif
 }
 
-// encapsulate drwav,drmp3,stbvorbis and some buffer with the sts_mixer_stream_t
+// encapsulate ma_dr_wav,ma_dr_mp3,stbvorbis and some buffer with the sts_mixer_stream_t
 enum { UNK, WAV, OGG, MP1, MP3 };
 typedef struct {
     int type;
     union {
-        drwav wav;
+        ma_dr_wav wav;
         stb_vorbis *ogg;
         void *opaque;
-        drmp3           mp3_;
+        ma_dr_mp3           mp3_;
     };
     sts_mixer_stream_t  stream;             // mixer stream
     union {
@@ -1066,16 +3876,16 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
         default:
         break; case WAV: {
             int sl = sample->length / 2; /*sample->channels*/;
-            if( stream->rewind ) stream->rewind = 0, drwav_seek_to_pcm_frame(&stream->wav, 0);
-            if (drwav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
-                drwav_seek_to_pcm_frame(&stream->wav, 0);
+            if( stream->rewind ) stream->rewind = 0, ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
+            if (ma_dr_wav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
+                ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
             }
         }
         break; case MP3: {
             int sl = sample->length / 2; /*sample->channels*/;
-            if( stream->rewind ) stream->rewind = 0, drmp3_seek_to_pcm_frame(&stream->mp3_, 0);
-            if (drmp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
-                drmp3_seek_to_pcm_frame(&stream->mp3_, 0);
+            if( stream->rewind ) stream->rewind = 0, ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
+            if (ma_dr_mp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
+                ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
             }
         }
         break; case OGG: {
@@ -1106,14 +3916,14 @@ static bool load_stream(mystream_t* stream, const char *filename) {
         stream->stream.sample.frequency = info.sample_rate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_16;
     }
-    if( stream->type == UNK && drwav_init_memory(&stream->wav, data, datalen, NULL)) {
+    if( stream->type == UNK && ma_dr_wav_init_memory(&stream->wav, data, datalen, NULL)) {
         if( stream->wav.channels != 2 ) { puts("cannot stream wav file. stereo required."); goto end; } // @fixme: upsample
         stream->type = WAV;
         stream->stream.sample.frequency = stream->wav.sampleRate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_16;
     }
-    drmp3_config mp3_cfg = { 2, HZ };
-    if( stream->type == UNK && (drmp3_init_memory(&stream->mp3_, data, datalen, NULL/*&mp3_cfg*/) != 0) ) {
+    ma_dr_mp3_config mp3_cfg = { 2, HZ };
+    if( stream->type == UNK && (ma_dr_mp3_init_memory(&stream->mp3_, data, datalen, NULL/*&mp3_cfg*/) != 0) ) {
         stream->type = MP3;
         stream->stream.sample.frequency = stream->mp3_.sampleRate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_FLOAT;
@@ -1141,14 +3951,14 @@ static bool load_sample(sts_mixer_sample_t* sample, const char *filename) {
     int error;
     int channels = 0;
 
-    if( !channels ) for( drwav w = {0}, *wav = &w; wav && drwav_init_memory(wav, data, datalen, NULL); wav = 0 ) {
+    if( !channels ) for( ma_dr_wav w = {0}, *wav = &w; wav && ma_dr_wav_init_memory(wav, data, datalen, NULL); wav = 0 ) {
         channels = wav->channels;
         sample->frequency = wav->sampleRate;
         sample->audio_format = STS_MIXER_SAMPLE_FORMAT_16;
         sample->length = wav->totalPCMFrameCount;
         sample->data = REALLOC(0, sample->length * sizeof(short) * channels);
-        drwav_read_pcm_frames_s16(wav, sample->length, (short*)sample->data);
-        drwav_uninit(wav);
+        ma_dr_wav_read_pcm_frames_s16(wav, sample->length, (short*)sample->data);
+        ma_dr_wav_uninit(wav);
     }
     if( !channels ) for( stb_vorbis *ogg = stb_vorbis_open_memory((const unsigned char *)data, datalen, &error, NULL); ogg; ogg = 0 ) {
         stb_vorbis_info info = stb_vorbis_get_info(ogg);
@@ -1163,9 +3973,9 @@ static bool load_sample(sts_mixer_sample_t* sample, const char *filename) {
         stb_vorbis_decode_memory((const unsigned char *)data, datalen, &channels, &sample_rate, (short **)&buffer);
         sample->data = buffer;
     }
-    drmp3_config mp3_cfg = { 2, 44100 };
-    drmp3_uint64 mp3_fc;
-    if( !channels ) for( short *fbuf = drmp3_open_memory_and_read_pcm_frames_s16(data, datalen, &mp3_cfg, &mp3_fc, NULL); fbuf ; fbuf = 0 ) {
+    ma_dr_mp3_config mp3_cfg = { 2, 44100 };
+    ma_uint64 mp3_fc;
+    if( !channels ) for( short *fbuf = ma_dr_mp3_open_memory_and_read_pcm_frames_s16(data, datalen, &mp3_cfg, &mp3_fc, NULL); fbuf ; fbuf = 0 ) {
         channels = mp3_cfg.channels;
         sample->frequency = mp3_cfg.sampleRate;
         sample->audio_format = STS_MIXER_SAMPLE_FORMAT_16;
@@ -1215,11 +4025,11 @@ static ma_context context;
 static sts_mixer_t mixer;
 
 // This is the function that's used for sending more data to the device for playback.
-static ma_uint32 audio_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+static void audio_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     int len = frameCount;
     sts_mixer_mix_audio(&mixer, pOutput, len / (sizeof(int32_t) / 4));
     (void)pDevice; (void)pInput;
-    return len / (sizeof(int32_t) / 4);
+    // return len / (sizeof(int32_t) / 4);
 }
 
 void audio_drop(void) {
@@ -1242,13 +4052,14 @@ int audio_init( int flags ) {
         ma_backend_wasapi, // Higest priority.
         ma_backend_dsound,
         ma_backend_winmm,
+        ma_backend_coreaudio,
         ma_backend_pulseaudio,
         ma_backend_alsa,
         ma_backend_oss,
         ma_backend_jack,
         ma_backend_opensl,
-        //ma_backend_webaudio,
-        //ma_backend_openal,
+        // ma_backend_webaudio,
+        // ma_backend_openal,
         //ma_backend_sdl,
         ma_backend_null    // Lowest priority.
 #else
@@ -1256,17 +4067,17 @@ int audio_init( int flags ) {
         ma_backend_wasapi,      // WASAPI      |  Windows Vista+
         ma_backend_dsound,      // DirectSound |  Windows XP+
         ma_backend_winmm,       // WinMM       |  Windows XP+ (may work on older versions, but untested)
-        ma_backend_coreaudio,   // Core Audio  |  macOS, iOS 
+        ma_backend_coreaudio,   // Core Audio  |  macOS, iOS
         ma_backend_pulseaudio,  // PulseAudio  |  Cross Platform (disabled on Windows, BSD and Android)
-        ma_backend_alsa,        // ALSA        |  Linux 
-        ma_backend_oss,         // OSS         |  FreeBSD 
+        ma_backend_alsa,        // ALSA        |  Linux
+        ma_backend_oss,         // OSS         |  FreeBSD
         ma_backend_jack,        // JACK        |  Cross Platform (disabled on BSD and Android)
         ma_backend_opensl,      // OpenSL ES   |  Android (API level 16+)
         ma_backend_webaudio,    // Web Audio   |  Web (via Emscripten)
-        ma_backend_sndio,       // sndio       |  OpenBSD 
-        ma_backend_audio4,      // audio(4)    |  NetBSD, OpenBSD 
+        ma_backend_sndio,       // sndio       |  OpenBSD
+        ma_backend_audio4,      // audio(4)    |  NetBSD, OpenBSD
         ma_backend_aaudio,      // AAudio      |  Android 8+
-        ma_backend_custom,      // Custom      |  Cross Platform 
+        ma_backend_custom,      // Custom      |  Cross Platform
         ma_backend_null,        // Null        |  Cross Platform (not used on Web)
         // Lowest priority
 #endif
@@ -1350,10 +4161,17 @@ float audio_volume_master(float gain) {
         mixer.gain = volume_master;
     return sqrt( volume_master );
 }
+int audio_mute(int mute) {
+    static bool muted = 0; do_once muted = flag("--mute") || flag("--muted");
+    if( mute >= 0 && mute <= 1 ) muted = mute;
+    return muted;
+}
+int audio_muted() {
+    return audio_mute(-1);
+}
 
 int audio_play_gain_pitch_pan( audio_t a, int flags, float gain, float pitch, float pan ) {
-    static bool muted = 0; do_once muted = flag("--mute") || flag("--muted");
-    if(muted) return 1;
+    if(audio_muted()) return 1;
 
     if( flags & AUDIO_IGNORE_MIXER_GAIN ) {
         // do nothing, gain used as-is
@@ -1512,6 +4330,796 @@ int audio_queue( const void *samples, int num_samples, int flags ) {
 
     return audio_queue_voice;
 }
+
+int ui_audio() {
+    int changed = 0;
+
+    float sfx = sqrt(volume_clip), bgm = sqrt(volume_stream), master = sqrt(volume_master);
+    if( ui_slider2("BGM volume", &bgm, va("%.2f", bgm))) changed = 1, audio_volume_stream(bgm);
+    if( ui_slider2("SFX volume", &sfx, va("%.2f", sfx))) changed = 1, audio_volume_clip(sfx);
+    if( ui_slider2("Master volume", &master, va("%.2f", master))) changed = 1, audio_volume_master(master);
+
+    ui_separator();
+
+    int num_voices = sts_mixer_get_active_voices(&mixer);
+    ui_label2("Format", mixer.audio_format == 0 ? "None" : mixer.audio_format == 1 ? "8-bit" : mixer.audio_format == 2 ? "16-bit" : mixer.audio_format == 3 ? "32-bit integer" : "32-bit float");
+    ui_label2("Frequency", va("%4.1f KHz", mixer.frequency / 1000.0));
+    ui_label2("Voices", va("%d/%d", num_voices, STS_MIXER_VOICES));
+    ui_separator();
+
+    for( int i = 0; i < STS_MIXER_VOICES; ++i ) {
+        if( mixer.voices[i].state != STS_MIXER_VOICE_STOPPED ) { // PLAYING || STREAMING
+            ui_label(va("Voice %d", i+1));
+
+            // float mul = mixer.voices[i].state == STS_MIXER_VOICE_STREAMING ? 2 : 1;
+            // float div = mixer.voices[i].state == STS_MIXER_VOICE_STREAMING ? mixer.voices[i].stream->sample.length : mixer.voices[i].sample->length;
+            // float pct = mixer.voices[i].position * mul / div;
+            // if(ui_slider2("Position", &pct, va("%5.2f", pct))) changed = 1;
+            if(ui_slider2("Gain", &mixer.voices[i].gain, va("%5.2f", mixer.voices[i].gain))) changed = 1;
+            if(ui_slider2("Pitch", &mixer.voices[i].pitch, va("%5.2f", mixer.voices[i].pitch))) changed = 1;
+            if(ui_slider2("Pan", &mixer.voices[i].pan, va("%5.2f", mixer.voices[i].pan))) changed = 1;
+            ui_separator();
+        }
+    }
+
+    return changed;
+}
+#line 0
+
+#line 1 "fwk_buffer.c"
+// ----------------------------------------------------------------------------
+// compression api
+
+static struct zcompressor {
+    // id of compressor
+    unsigned enumerator;
+    // name of compressor
+    const char name1, *name4, *name;
+    // returns worst case compression estimation for selected flags
+    unsigned (*bounds)(unsigned bytes, unsigned flags);
+    // returns number of bytes written. 0 if error.
+    unsigned (*encode)(const void *in, unsigned inlen, void *out, unsigned outcap, unsigned flags);
+    // returns number of excess bytes that will be overwritten when decoding.
+    unsigned (*excess)(unsigned flags);
+    // returns number of bytes written. 0 if error.
+    unsigned (*decode)(const void *in, unsigned inlen, void *out, unsigned outcap);
+} zlist[] = {
+    { COMPRESS_RAW,     '0', "raw",  "raw",     raw_bounds, raw_encode, raw_excess, raw_decode },
+    { COMPRESS_PPP,     'p', "ppp",  "ppp",     ppp_bounds, ppp_encode, ppp_excess, ppp_decode },
+    { COMPRESS_ULZ,     'u', "ulz",  "ulz",     ulz_bounds, ulz_encode, ulz_excess, ulz_decode },
+    { COMPRESS_LZ4,     '4', "lz4x", "lz4x",    lz4x_bounds, lz4x_encode, lz4x_excess, lz4x_decode },
+    { COMPRESS_CRUSH,   'c', "crsh", "crush",   crush_bounds, crush_encode, crush_excess, crush_decode },
+    { COMPRESS_DEFLATE, 'd', "defl", "deflate", deflate_bounds, deflate_encode, deflate_excess, deflate_decode },
+    { COMPRESS_LZP1,    '1', "lzp1", "lzp1",    lzp1_bounds, lzp1_encode, lzp1_excess, lzp1_decode },
+    { COMPRESS_LZMA,    'm', "lzma", "lzma",    lzma_bounds, lzma_encode, lzma_excess, lzma_decode },
+    { COMPRESS_BALZ,    'b', "balz", "balz",    balz_bounds, balz_encode, balz_excess, balz_decode },
+    { COMPRESS_LZW3,    'w', "lzw3", "lzrw3a",  lzrw3a_bounds, lzrw3a_encode, lzrw3a_excess, lzrw3a_decode },
+    { COMPRESS_LZSS,    's', "lzss", "lzss",    lzss_bounds, lzss_encode, lzss_excess, lzss_decode },
+    { COMPRESS_BCM,     'B', "bcm",  "bcm",     bcm_bounds, bcm_encode, bcm_excess, bcm_decode },
+    { COMPRESS_ZLIB,    'z', "zlib", "zlib",    deflate_bounds, deflatez_encode, deflate_excess, deflatez_decode },
+};
+
+enum { COMPRESS_NUM = 14 };
+
+static char *znameof(unsigned flags) {
+    static __thread char buf[16];
+    snprintf(buf, 16, "%4s.%c", zlist[(flags>>4)&0x0F].name4, "0123456789ABCDEF"[flags&0xF]);
+    return buf;
+}
+unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].encode(in, inlen, (uint8_t*)out, outlen, flags & 0x0F);
+}
+unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].decode((uint8_t*)in, inlen, out, outlen);
+}
+unsigned zbounds(unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].bounds(inlen, flags & 0x0F);
+}
+unsigned zexcess(unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].excess(flags & 0x0F);
+}
+
+// ----------------------------------------------------------------------------
+// BASE92 en/decoder
+// THE BEERWARE LICENSE (Revision 42):
+// <thenoviceoof> wrote this file. As long as you retain this notice you
+// can do whatever you want with this stuff. If we meet some day, and you
+// think this stuff is worth it, you can buy me a beer in return
+// - Nathan Hwang (thenoviceoof)
+
+unsigned base92_bounds(unsigned inlen) {
+    unsigned size = (inlen * 8) % 13, extra_null = 1;
+    if(size == 0) return 2 * ((inlen * 8) / 13) + extra_null;
+    if(size  < 7) return 2 * ((inlen * 8) / 13) + extra_null + 1;
+                  return 2 * ((inlen * 8) / 13) + extra_null + 2;
+}
+
+unsigned base92_encode(const void* in, unsigned inlen, void *out, unsigned size) {
+    char *res = (char *)out;
+    const unsigned char *str = (const unsigned char *)in;
+    unsigned int j = 0;          // j for encoded
+    unsigned long workspace = 0; // bits holding bin
+    unsigned short wssize = 0;   // number of good bits in workspace
+    unsigned char c;
+    const unsigned char ENCODE_MAPPING[256] = {
+        33, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+        44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+        64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
+        74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+        84, 85, 86, 87, 88, 89, 90, 91, 92, 93,
+        94, 95, 97, 98, 99, 100, 101, 102, 103, 104,
+        105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
+        115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+        125, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0
+    };
+    if (inlen) {
+        for (unsigned i = 0; i < inlen; i++) {
+            workspace = workspace << 8 | str[i];
+            wssize += 8;
+            if (wssize >= 13) {
+                int tmp = (workspace >> (wssize - 13)) & 8191;
+                c = ENCODE_MAPPING[(tmp / 91)];
+                if (c == 0) return 0; // illegal char
+                res[j++] = c;
+                c = ENCODE_MAPPING[(tmp % 91)];
+                if (c == 0) return 0; // illegal char
+                res[j++] = c;
+                wssize -= 13;
+            }
+        }
+        // encode a last byte
+        if (0 < wssize && wssize < 7) {
+            int tmp = (workspace << (6 - wssize)) & 63;  // pad the right side
+            c = ENCODE_MAPPING[(tmp)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+        } else if (7 <= wssize) {
+            int tmp = (workspace << (13 - wssize)) & 8191; // pad the right side
+            c = ENCODE_MAPPING[(tmp / 91)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+            c = ENCODE_MAPPING[(tmp % 91)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+        }
+    } else {
+        res[j++] = '~';
+    }
+    // add null byte
+    res[j] = 0;
+    return j;
+}
+
+// this guy expects a null-terminated string
+// gives back a non-null terminated string, and properly filled len
+unsigned base92_decode(const void* in, unsigned size, void *out, unsigned outlen_unused) {
+    const char* str = (const char*)in;
+    unsigned char *res = (unsigned char *)out;
+    int i, j = 0, b1, b2;
+    unsigned long workspace = 0;
+    unsigned short wssize = 0;
+    const unsigned char DECODE_MAPPING[256] = {
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 0, 255, 1, 2, 3, 4, 5,
+        6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+        36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 255, 62, 63, 64,
+        65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+        75, 76, 77, 78, 79, 80, 81, 82, 83, 84,
+        85, 86, 87, 88, 89, 90, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255
+    };
+
+    // handle small cases first
+    if (size == 0 || (str[0] == '~' && str[1] == '\0')) {
+        res[0] = 0;
+        return 1;
+    }
+    // calculate size
+    int len = ((size/2 * 13) + (size%2 * 6)) / 8;
+    // handle pairs of chars
+    for (i = 0; i + 1 < size; i += 2) {
+        b1 = DECODE_MAPPING[(str[i])];
+        b2 = DECODE_MAPPING[(str[i+1])];
+        workspace = (workspace << 13) | (b1 * 91 + b2);
+        wssize += 13;
+        while (wssize >= 8) {
+            res[j++] = (workspace >> (wssize - 8)) & 255;
+            wssize -= 8;
+        }
+    }
+    // handle single char
+    if (size % 2 == 1) {
+        workspace = (workspace << 6) | DECODE_MAPPING[(str[size - 1])];
+        wssize += 6;
+        while (wssize >= 8) {
+            res[j++] = (workspace >> (wssize - 8)) & 255;
+            wssize -= 8;
+        }
+    }
+    //assert(j == len);
+    return j;
+}
+
+// ----------------------------------------------------------------------------
+// COBS en/decoder
+// Based on code by Jacques Fortier.
+// "Redistribution and use in source and binary forms are permitted, with or without modification."
+//
+// Consistent Overhead Byte Stuffing is an encoding that removes all 0 bytes from arbitrary binary data.
+// The encoded data consists only of bytes with values from 0x01 to 0xFF. This is useful for preparing data for
+// transmission over a serial link (RS-232 or RS-485 for example), as the 0 byte can be used to unambiguously indicate
+// packet boundaries. COBS also has the advantage of adding very little overhead (at least 1 byte, plus up to an
+// additional byte per 254 bytes of data). For messages smaller than 254 bytes, the overhead is constant.
+//
+// This implementation is designed to be both efficient and robust.
+// The decoder is designed to detect malformed input data and report an error upon detection.
+//
+
+unsigned cobs_bounds( unsigned len ) {
+    return len + ceil(len / 254.0) + 1;
+}
+unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen) {
+    const uint8_t *src = (const uint8_t *)in;
+    uint8_t *dst = (uint8_t*)out;
+    size_t srclen = inlen;
+
+    uint8_t code = 1;
+    size_t read_index = 0, write_index = 1, code_index = 0;
+
+    while( read_index < srclen ) {
+        if( src[ read_index ] == 0) {
+            dst[ code_index ] = code;
+            code = 1;
+            code_index = write_index++;
+            read_index++;
+        } else {
+            dst[ write_index++ ] = src[ read_index++ ];
+            code++;
+            if( code == 0xFF ) {
+                dst[ code_index ] = code;
+                code = 1;
+                code_index = write_index++;
+            }
+        }
+    }
+
+    dst[ code_index ] = code;
+    return write_index;
+}
+unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen) {
+    const uint8_t *src = (const uint8_t *)in;
+    uint8_t *dst = (uint8_t*)out;
+    size_t srclen = inlen;
+
+    uint8_t code, i;
+    size_t read_index = 0, write_index = 0;
+
+    while( read_index < srclen ) {
+        code = src[ read_index ];
+
+        if( ((read_index + code) > srclen) && (code != 1) ) {
+            return 0;
+        }
+
+        read_index++;
+
+        for( i = 1; i < code; i++ ) {
+            dst[ write_index++ ] = src[ read_index++ ];
+        }
+        if( (code != 0xFF) && (read_index != srclen) ) {
+            dst[ write_index++ ] = '\0';
+        }
+    }
+
+    return write_index;
+}
+
+#if 0
+static
+void cobs_test( const char *buffer, int buflen ) {
+    char enc[4096];
+    int enclen = cobs_encode( buffer, buflen, enc, 4096 );
+
+    char dec[4096];
+    int declen = cobs_decode( enc, enclen, dec, 4096 );
+
+    test( enclen >= buflen );
+    test( declen == buflen );
+    test( memcmp(dec, buffer, buflen) == 0 );
+
+    printf("%d->%d->%d (+%d extra bytes)\n", declen, enclen, declen, enclen - declen);
+}
+AUTORUN {
+    const char *null = 0;
+    cobs_test( null, 0 );
+
+    const char empty[] = "";
+    cobs_test( empty, sizeof(empty) );
+
+    const char text[] = "hello world\n";
+    cobs_test( text, sizeof(text) );
+
+    const char bintext[] = "hello\0\0\0world\n";
+    cobs_test( bintext, sizeof(bintext) );
+
+    const char blank[512] = {0};
+    cobs_test( blank, sizeof(blank) );
+
+    char longbintext[1024];
+    for( int i = 0; i < 1024; ++i ) longbintext[i] = (unsigned char)i;
+    cobs_test( longbintext, sizeof(longbintext) );
+
+    assert(~puts("Ok"));
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// netstring en/decoder
+// - rlyeh, public domain.
+
+unsigned netstring_bounds(unsigned inlen) {
+    return 5 + inlen + 3; // 3 for ;,\0 + 5 if inlen < 100k ; else (unsigned)ceil(log10(inlen + 1))
+}
+unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen) {
+//  if(outlen < netstring_bounds(inlen)) return 0;
+    sprintf(out, "%u:%.*s,", inlen, inlen, in);
+    return strlen(out);
+}
+unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen) {
+//  if(outlen < inlen) return 0;
+    const char *bak = in;
+    sscanf(in, "%u", &outlen);
+    while( *++in != ':' );
+    memcpy(out, in+1, outlen), out[outlen-1] = 0;
+    // return outlen; // number of written bytes
+    return (outlen + (in+2 - bak)); // number of read bytes
+}
+
+#if 0
+AUTORUN {
+    // encode
+    const char text1[] = "hello world!", text2[] = "abc123";
+    unsigned buflen = netstring_bounds(strlen(text1) + strlen(text2));
+    char *buf = malloc(buflen), *ptr = buf;
+    ptr += netstring_encode(text1, strlen(text1), ptr, buflen -= (ptr - buf));
+    ptr += netstring_encode(text2, strlen(text2), ptr, buflen -= (ptr - buf));
+    printf("%s -> ", buf);
+
+    // decode
+    char out[12];
+    unsigned plen = strlen(ptr = buf);
+    while(plen > 0) {
+        int written = netstring_decode(ptr, plen, out, 12);
+        ptr += written;
+        plen -= written;
+        printf("'%s'(%s)(%d), ", out, ptr, plen );
+    }
+    puts("");
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// array de/interleaving
+// - rlyeh, public domain.
+//
+// results:
+// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
+// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
+
+void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns ) {
+    void *bak = out;
+    assert( columns < list_count ); // required
+    int row_count = list_count / columns;
+    for( int offset = 0; offset < columns; offset++ ) {
+        for( int row = 0; row < row_count; row++ ) {
+            memcpy( out, &((char*)list)[ (offset + row * columns) * sizeof_item ], sizeof_item );
+            out = ((char*)out) + sizeof_item;
+        }
+    }
+    return bak;
+}
+
+#if 0
+static
+void interleave_test( const char *name, int interleaving, int deinterleaving, const char *original ) {
+    char interleaved[128] = {0};
+    interleave( interleaved, original, strlen(original)/2, 2, interleaving );
+    char deinterleaved[128] = {0};
+    interleave( deinterleaved, interleaved, strlen(original)/2, 2, deinterleaving );
+
+    printf( "\n%s\n", name );
+    printf( "original:\t%s\n", original );
+    printf( "interleaved:\t%s\n", interleaved );
+    printf( "deinterleaved:\t%s\n", deinterleaved );
+
+    assert( 0 == strcmp(original, deinterleaved) );
+}
+
+AUTORUN {
+    interleave_test(
+        "audio 2ch", 2, 3,
+        "L0R0"
+        "L1R1"
+        "L2R2"
+    );
+    interleave_test(
+        "image 3ch", 3, 3,
+        "R0G0B0"
+        "R1G1B1"
+        "R2G2B2"
+    );
+    interleave_test(
+        "image 4ch", 4, 3,
+        "R0G0B0A0"
+        "R1G1B1A1"
+        "R2G2B2A2"
+    );
+    interleave_test(
+        "audio 5ch", 5, 3,
+        "A0B0C0L0R0"
+        "A1B1C1L1R1"
+        "A2B2C2L2R2"
+    );
+    interleave_test(
+        "audio 5.1ch", 6, 3,
+        "A0B0C0L0R0S0"
+        "A1B1C1L1R1S1"
+        "A2B2C2L2R2S2"
+    );
+    interleave_test(
+        "opengl material 9ch", 9, 3,
+        "X0Y0Z0q0w0e0r0u0v0"
+        "X1Y1Z1q1w1e1r1u1v1"
+        "X2Y2Z2q2w2e2r2u2v2"
+    );
+    interleave_test(
+        "opengl material 10ch", 10, 3,
+        "X0Y0Z0q0w0e0r0s0u0v0"
+        "X1Y1Z1q1w1e1r1s1u1v1"
+        "X2Y2Z2q2w2e2r2s2u2v2"
+    );
+    assert(~puts("Ok"));
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// delta encoder
+
+#define delta_expand_template(N) \
+void delta##N##_encode(void *buffer_, unsigned count) { \
+    uint##N##_t current, last = 0, *buffer = (uint##N##_t*)buffer_; \
+    for( unsigned i = 0; i < count; i++ ) { \
+        current = buffer[i]; \
+        buffer[i] = current - last; \
+        last = current; \
+    } \
+} \
+void delta##N##_decode(void *buffer_, unsigned count) { \
+    uint##N##_t delta, last = 0, *buffer = (uint##N##_t*)buffer_; \
+    for( unsigned i = 0; i < count; i++ ) { \
+        delta = buffer[i]; \
+        buffer[i] = delta + last; \
+        last = buffer[i]; \
+    } \
+}
+delta_expand_template(8);
+delta_expand_template(16);
+delta_expand_template(32);
+delta_expand_template(64);
+
+#if 0
+AUTORUN {
+    char buf[] = "1231112223345555";
+    int buflen = strlen(buf);
+
+    char *dt = strdup(buf);
+    printf("  delta8: ", dt);
+    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
+    printf("->");
+    delta8_encode(dt, buflen);
+    for( int i = 0; i < buflen; ++i ) printf("%02d,", dt[i] );
+    printf("->");
+    delta8_decode(dt, buflen);
+    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
+    printf("\r%c\n", 0 == strcmp(buf,dt) ? 'Y':'N');
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// zigzag en/decoder
+// - rlyeh, public domain
+
+uint64_t zig64( int64_t value ) { // convert sign|magnitude to magnitude|sign
+    return (value >> 63) ^ (value << 1);
+}
+int64_t zag64( uint64_t value ) { // convert magnitude|sign to sign|magnitude
+    return (value >> 1) ^ -(value & 1);
+}
+
+// branchless zigzag encoding 32/64
+// sign|magnitude to magnitude|sign and back
+// [ref] https://developers.google.com/protocol-buffers/docs/encoding
+uint32_t enczig32u( int32_t n) { return ((n << 1) ^ (n >> 31)); }
+uint64_t enczig64u( int64_t n) { return ((n << 1) ^ (n >> 63)); }
+ int32_t deczig32i(uint32_t n) { return ((n >> 1) ^  -(n & 1)); }
+ int64_t deczig64i(uint64_t n) { return ((n >> 1) ^  -(n & 1)); }
+
+#if 0
+AUTORUN {
+    int16_t x = -1000;
+    printf("%d -> %llu %llx -> %lld\n", x, zig64(x), zig64(x), zag64(zig64(x)));
+}
+AUTORUN {
+    #define CMP32(signedN) do { \
+        int32_t reconverted = deczig32i( enczig32u(signedN) ); \
+        int equal = signedN == reconverted; \
+        printf("[%s] %d vs %d\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
+    } while(0)
+
+    #define CMP64(signedN) do { \
+        int64_t reconverted = deczig64i( enczig64u(signedN) ); \
+        int equal = signedN == reconverted; \
+        printf("[%s] %lld vs %lld\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
+    } while(0)
+
+    CMP32( 0);
+    CMP32(-1);
+    CMP32(+1);
+    CMP32(-2);
+    CMP32(+2);
+    CMP32(INT32_MAX - 1);
+    CMP32(INT32_MIN + 1);
+    CMP32(INT32_MAX);
+    CMP32(INT32_MIN);
+
+    CMP64( 0ll);
+    CMP64(-1ll);
+    CMP64(+1ll);
+    CMP64(-2ll);
+    CMP64(+2ll);
+    CMP64(INT64_MAX - 1);
+    CMP64(INT64_MIN + 1);
+    CMP64(INT64_MAX);
+    CMP64(INT64_MIN);
+}
+void TESTU( uint64_t N ) {
+    uint8_t buf[9] = {0};
+    enczig64i(buf, (N));
+    uint64_t reconstructed = deczig64i(buf, 0);
+    if( reconstructed != (N) ) printf("[FAIL] %llu vs %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", (N), buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8] );
+    else if( 0xffffff == ((N) & 0xffffff) ) printf("[ OK ] %llx\n", (N));
+}
+void TESTI( int64_t N ) {
+    TESTU( enczig64u(N) );
+}
+AUTORUN {
+    TESTU(0LLU);
+    TESTU(1LLU);
+    TESTU(2LLU);
+    TESTU(UINT64_MAX/8);
+    TESTU(UINT64_MAX/4);
+    TESTU(UINT64_MAX/2);
+    TESTU(UINT64_MAX-2);
+    TESTU(UINT64_MAX-1);
+    TESTU(UINT64_MAX);
+
+   #pragma omp parallel for  // compile with /openmp
+   for( int64_t N = INT64_MIN; N < INT64_MAX; ++N ) {
+        TESTU(N);
+        TESTI((int64_t)N);
+   }
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// ARC4 en/decryptor. Based on code by Mike Shaffer.
+// - rlyeh, public domain.
+
+void *arc4( void *buf_, unsigned buflen, const void *pass_, unsigned passlen ) {
+    // [ref] http://www.4guysfromrolla.com/webtech/code/rc4.inc.html
+    assert(passlen);
+    int sbox[256], key[256];
+    char *buf = (char*)buf_;
+    const char *pass = (const char*)pass_;
+    for( unsigned a = 0; a < 256; a++ ) {
+        key[a] = pass[a % passlen];
+        sbox[a] = a;
+    }
+    for( unsigned a = 0, b = 0; a < 256; a++ ) {
+        b = (b + sbox[a] + key[a]) % 256;
+        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
+    }
+    for( unsigned a = 0, b = 0, i = 0; i < buflen; ++i ) {
+        a = (a + 1) % 256;
+        b = (b + sbox[a]) % 256;
+        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
+        buf[i] ^= sbox[(sbox[a] + sbox[b]) % 256];
+    }
+    return buf_;
+}
+
+#if 0
+AUTORUN {
+    char buffer[] = "Hello world."; int buflen = strlen(buffer);
+    char *password = "abc123"; int passlen = strlen(password);
+
+    printf("Original: %s\n", buffer);
+    printf("Password: %s\n", password);
+
+    char *encrypted = arc4( buffer, buflen, password, passlen );
+    printf("ARC4 Encrypted text: '%s'\n", encrypted);
+
+    char *decrypted = arc4( buffer, buflen, password, passlen );
+    printf("ARC4 Decrypted text: '%s'\n", decrypted);
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// crc64
+// - rlyeh, public domain
+
+uint64_t crc64(uint64_t h, const void *ptr, uint64_t len) {
+    // based on public domain code by Lasse Collin
+    // also, use poly64 0xC96C5795D7870F42 for crc64-ecma
+    static uint64_t crc64_table[256];
+    static uint64_t poly64 = UINT64_C(0x95AC9329AC4BC9B5);
+    if( poly64 ) {
+        for( int b = 0; b < 256; ++b ) {
+            uint64_t r = b;
+            for( int i = 0; i < 8; ++i ) {
+                r = r & 1 ? (r >> 1) ^ poly64 : r >> 1;
+            }
+            crc64_table[ b ] = r;
+            //printf("%016llx\n", crc64_table[b]);
+        }
+        poly64 = 0;
+    }
+    const uint8_t *buf = (const uint8_t *)ptr;
+    uint64_t crc = ~h; // ~crc;
+    while( len != 0 ) {
+        crc = crc64_table[(uint8_t)crc ^ *buf++] ^ (crc >> 8);
+        --len;
+    }
+    return ~crc;
+}
+
+#if 0
+unsigned crc32(unsigned h, const void *ptr_, unsigned len) {
+    // based on public domain code by Karl Malbrain
+    const uint8_t *ptr = (const uint8_t *)ptr_;
+    if (!ptr) return 0;
+    const unsigned tbl[16] = {
+        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c };
+    for(h = ~h; len--; ) { uint8_t b = *ptr++; h = (h >> 4) ^ tbl[(h & 15) ^ (b & 15)]; h = (h >> 4) ^ tbl[(h & 15) ^ (b >> 4)]; }
+    return ~h;
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// entropy encoder
+
+#if is(win32)
+#include <winsock2.h>
+#include <wincrypt.h>
+#pragma comment(lib, "advapi32")
+
+void entropy( void *buf, unsigned n ) {
+    HCRYPTPROV provider;
+    if( CryptAcquireContext( &provider, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT ) == 0 ) {
+        assert(!"CryptAcquireContext failed");
+    }
+
+    int rc = CryptGenRandom( provider, n, (BYTE *)buf );
+    assert( rc != 0 );
+    CryptReleaseContext( provider, 0 );
+}
+
+#elif is(linux) || is(osx)
+
+void entropy( void *buf, unsigned n ) {
+    FILE *fp = fopen( "/dev/urandom", "r" );
+    if( !fp ) assert(!"/dev/urandom open failed");
+
+    size_t read = fread( buf, 1, n, fp );
+    assert( read == n && "/dev/urandom read failed" );
+    fclose( fp );
+}
+
+#else // unused for now. likely emscripten will hit this
+
+// pseudo random number generator with 128 bit internal state... probably not suited for cryptographical usage.
+// [src] http://github.com/kokke (UNLICENSE)
+// [ref] http://burtleburtle.net/bob/rand/smallprng.html
+
+#include <time.h>
+
+#if is(win32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+static uint32_t prng_next(void) {
+    #define prng_rotate(x,k) (x << k) | (x >> (32 - k))
+    #define prng_shuffle() do { \
+    uint32_t e = ctx[0] - prng_rotate(ctx[1], 27); \
+    ctx[0] = ctx[1] ^ prng_rotate(ctx[2], 17); \
+    ctx[1] = ctx[2] + ctx[3]; \
+    ctx[2] = ctx[3] + e; \
+    ctx[3] = e + ctx[0]; } while(0)
+    static __thread uint32_t ctx[4], *once = 0; if( !once ) {
+        uint32_t seed = (uint32_t)( ifdef(win32,_getpid,getpid)() + time(0) + ((uintptr_t)once) );
+        ctx[0] = 0xf1ea5eed;
+        ctx[1] = ctx[2] = ctx[3] = seed;
+        for (int i = 0; i < 31; ++i) {
+            prng_shuffle();
+        }
+        once = ctx;
+    }
+    prng_shuffle();
+    return ctx[3];
+}
+
+void entropy( void *buf, unsigned n ) {
+    for( ; n >= 4 ; n -= 4 ) {
+        uint32_t a = prng_next();
+        memcpy(buf, &a, 4);
+        buf = ((char*)buf) + 4;
+    }
+    if( n > 0 ) {
+        uint32_t a = prng_next();
+        memcpy(buf, &a, n);
+    }
+}
+
+#endif
+
+#if 0
+AUTORUN {
+    unsigned char buf[128];
+    entropy(buf, 128);
+    for( int i = 0; i < 128; ++i ) {
+        printf("%02x", buf[i]);
+    }
+    puts("");
+}
+#endif
 #line 0
 
 #line 1 "fwk_collide.c"
@@ -3300,8 +6908,8 @@ array(struct fs) zipscan_filter(int threadid, int numthreads) {
     array(struct fs) fs = 0;
     for( int i = 0, end = array_count(fs_now); i < end; ++i ) {
         // during workload distribution, we assign random files to specific thread buckets.
-        // we achieve this by hashing the basename of the file. we used to hash also the path 
-        // long time ago but that is less resilient to file relocations across the repository. 
+        // we achieve this by hashing the basename of the file. we used to hash also the path
+        // long time ago but that is less resilient to file relocations across the repository.
         // excluding the file extension from the hash also helps from external file conversions.
         char *fname = file_name(fs_now[i].fname);
         char *sign = strrchr(fname, '@'); if(sign) *sign = '\0'; // special char (multi-pass cooks)
@@ -3309,7 +6917,7 @@ array(struct fs) zipscan_filter(int threadid, int numthreads) {
 
         // skip if list item does not belong to this thread bucket
         uint64_t hash = hash_str(fname);
-        unsigned bucket = (hash >> 32) % numthreads;
+        unsigned bucket = (hash /*>> 32*/) % numthreads;
         if(bucket != threadid) continue;
 
         array_push(fs, fs_now[i]);
@@ -3343,7 +6951,7 @@ int zipscan_diff( zip* old, array(struct fs) now ) {
             uint64_t oldstamp = atoi64(zip_modt(old,found)+20); // format is "YYYY/MM/DD hh:mm:ss", then +20 chars later a hidden epoch timestamp in base10 can be found
             int64_t diffstamp = oldstamp < now[i].stamp ? now[i].stamp - oldstamp : oldstamp - now[i].stamp;
             if( oldsize != now[i].bytes || diffstamp > 1 ) { // @fixme: should use hash instead. hashof(tool) ^ hashof(args used) ^ hashof(rawsize) ^ hashof(rawdate)
-                printf("%s:\t%u vs %u, %llu vs %llu\n", now[i].fname, (unsigned)oldsize,(unsigned)now[i].bytes, oldstamp,now[i].stamp);
+                printf("%s:\t%u vs %u, %llu vs %llu\n", now[i].fname, (unsigned)oldsize,(unsigned)now[i].bytes, (long long unsigned)oldstamp, (long long unsigned)now[i].stamp);
                 array_push(changed, STRDUP(now[i].fname));
                 array_push(uncooked, STRDUP(now[i].fname));
             }
@@ -3454,11 +7062,14 @@ int cook(void *userdata) {
             cook_subscript_t cs = mcs.cs[pass];
 
             // log to batch file for forensic purposes, if explicitly requested
-            static __thread bool logging = 0; do_once logging = !!flag("--cook-debug") || cook_debug;
+            static __thread int logging = -1; if(logging < 0) logging = !!flag("--cook-debug") || cook_debug;
             if( logging ) {
-                FILE *logfile = fopen(va("cook%d.cmd",job->threadid), "a+t");
-                if( logfile ) { fprintf(logfile, "@rem %s\n%s\n", cs.outname, cs.script); fclose(logfile); }
-                fprintf(stderr, "%s\n", cs.script);
+                static __thread FILE *logfile = 0; if(!logfile) fseek(logfile = fopen(va("cook%d.cmd",job->threadid), "a+t"), 0L, SEEK_END);
+                if( logfile ) {
+                    fprintf(logfile, "@rem %s\n%s\n", cs.outname, cs.script);
+                    fprintf(logfile, "for %%%%i in (\"%s\") do md _cook\\%%%%~pi\\%%%%~ni%%%%~xi 1>nul 2>nul\n", infile);
+                    fprintf(logfile, "for %%%%i in (\"%s\") do xcopy /y %s _cook\\%%%%~pi\\%%%%~ni%%%%~xi\n\n", infile, file_normalize(cs.outfile));
+                }
             }
 
             // invoke cooking script and recap status
@@ -3553,7 +7164,7 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
         HOME[ strlen(HOME) - strlen(file_name(cook_ini)) ] = '\0'; // -> tools/ @leak
     #endif
 
-        ART_LEN = 0; //strlen(app_path()); 
+        ART_LEN = 0; //strlen(app_path());
         /* = MAX_PATH;
         for each_substring(ART, ",", art_folder) {
             ART_LEN = mini(ART_LEN, strlen(art_folder));
@@ -3639,8 +7250,8 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
     // scan disk: all subfolders in ART (comma-separated)
     static array(char *) list = 0; // @leak
     for each_substring(ART, ",", art_folder) {
-        const char **glob = file_list(art_folder, "**");
-        for( unsigned i = 0; glob[i]; ++i ) {
+        array(char *) glob = file_list(va("%s**",art_folder)); // art_folder ends with '/'
+        for( unsigned i = 0, end = array_count(glob); i < end; ++i ) {
             const char *fname = glob[i];
             if( !strmatchi(fname, masks)) continue;
 
@@ -3660,9 +7271,14 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
                 if( !memcmp(header, "\x64\x86", 2) ) continue;
                 if( !memcmp(header, "\x00\x00", 2) ) continue;
             }
-            // exclude vc/gcc files
-            if( strend(fname, ".a") || strend(fname, ".pdb") || strend(fname, ".lib") || strend(fname, ".ilk") || strend(fname, ".exp") ) {
-                continue;
+
+            char *dot = strrchr(fname, '.');
+            if( dot ) {
+                char extdot[32];
+                snprintf(extdot, 32, "%s.", dot); // .png -> .png.
+                // exclude vc/gcc/clang files
+                if( strstr(fname, ".a.o.pdb.lib.ilk.exp.dSYM.") ) // must end with dot
+                    continue;
             }
 
             // @todo: normalize path & rebase here (absolute to local)
@@ -3686,7 +7302,7 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
         fi.stamp = file_stamp10(fname); // timestamp in base10(yyyymmddhhmmss)
 
         array_push(fs_now, fi);
-    }        
+    }
 
     cook_debug = !!( flags & COOK_DEBUGLOG );
     cook_cancelable = !!( flags & COOK_CANCELABLE );
@@ -3722,8 +7338,7 @@ void cook_stop() {
         if(jobs[i].self) thread_join(jobs[i].self);
     }
     // remove all temporary outfiles
-    const char **temps = file_list("./", "temp_*");
-    for( int i = 0; temps[i]; ++i ) unlink(temps[i]);
+    for each_array(file_list("temp_*"), char*, tempfile) unlink(tempfile);
 }
 
 int cook_progress() {
@@ -3744,12 +7359,18 @@ void cook_cancel() {
 int cook_jobs() {
     int num_jobs = optioni("--cook-jobs", maxf(1.15,app_cores()) * 1.75), max_jobs = countof(jobs);
     ifdef(ems, num_jobs = 0);
+    ifdef(retail, num_jobs = 0);
     return clampi(num_jobs, 0, max_jobs);
 }
 
 void cook_config( const char *pathfile_to_cook_ini ) { // @todo: test run-from-"bin/" case on Linux.
     COOK_INI = pathfile_to_cook_ini;
     ASSERT( file_exist(COOK_INI) );
+}
+
+bool have_tools() {
+    static bool found; do_once found = file_exist(COOK_INI);
+    return ifdef(retail, false, found);
 }
 #line 0
 
@@ -3963,7 +7584,7 @@ static void *xml_path(struct xml *node, char *path, int down) {
                 // Find the first sibling with the given tag name (may be the same node)
                 struct xml *next = down ? xml_find_down(node, tag) : xml_find(node, tag);
                 return xml_path(next, &path[ sep ], 1);
-            }            
+            }
         }
         if( type == '$' ) {
             return (void*)( node->down ? xml_text( node->down ) : xml_tag( node ) );
@@ -3992,7 +7613,7 @@ unsigned (xml_count)(char *key) {
     if( !node ) return 0;
     const char *tag = xml_tag(node);
     unsigned count = 1;
-    while( (node = xml_find_next(node, tag)) != 0) ++count; 
+    while( (node = xml_find_next(node, tag)) != 0) ++count;
     return count;
 }
 array(char) (xml_blob)(char *key) { // base64 blob
@@ -4053,57 +7674,6 @@ bool data_tests() {
     }
 
     return true;
-}
-
-// compression api
-
-static struct zcompressor {
-    // id of compressor
-    unsigned enumerator;
-    // name of compressor
-    const char name1, *name4, *name;
-    // returns worst case compression estimation for selected flags
-    unsigned (*bounds)(unsigned bytes, unsigned flags);
-    // returns number of bytes written. 0 if error.
-    unsigned (*encode)(const void *in, unsigned inlen, void *out, unsigned outcap, unsigned flags);
-    // returns number of excess bytes that will be overwritten when decoding.
-    unsigned (*excess)(unsigned flags);
-    // returns number of bytes written. 0 if error.
-    unsigned (*decode)(const void *in, unsigned inlen, void *out, unsigned outcap);
-} zlist[] = {
-    { COMPRESS_RAW,     '0', "raw",  "raw",     raw_bounds, raw_encode, raw_excess, raw_decode },
-    { COMPRESS_PPP,     'p', "ppp",  "ppp",     ppp_bounds, ppp_encode, ppp_excess, ppp_decode },
-    { COMPRESS_ULZ,     'u', "ulz",  "ulz",     ulz_bounds, ulz_encode, ulz_excess, ulz_decode },
-    { COMPRESS_LZ4,     '4', "lz4x", "lz4x",    lz4x_bounds, lz4x_encode, lz4x_excess, lz4x_decode },
-    { COMPRESS_CRUSH,   'c', "crsh", "crush",   crush_bounds, crush_encode, crush_excess, crush_decode },
-    { COMPRESS_DEFLATE, 'd', "defl", "deflate", deflate_bounds, deflate_encode, deflate_excess, deflate_decode },
-    { COMPRESS_LZP1,    '1', "lzp1", "lzp1",    lzp1_bounds, lzp1_encode, lzp1_excess, lzp1_decode },
-    { COMPRESS_LZMA,    'm', "lzma", "lzma",    lzma_bounds, lzma_encode, lzma_excess, lzma_decode },
-    { COMPRESS_BALZ,    'b', "balz", "balz",    balz_bounds, balz_encode, balz_excess, balz_decode },
-    { COMPRESS_LZW3,    'w', "lzw3", "lzrw3a",  lzrw3a_bounds, lzrw3a_encode, lzrw3a_excess, lzrw3a_decode },
-    { COMPRESS_LZSS,    's', "lzss", "lzss",    lzss_bounds, lzss_encode, lzss_excess, lzss_decode },
-    { COMPRESS_BCM,     'B', "bcm",  "bcm",     bcm_bounds, bcm_encode, bcm_excess, bcm_decode },
-    { COMPRESS_ZLIB,    'z', "zlib", "zlib",    deflate_bounds, deflatez_encode, deflate_excess, deflatez_decode },
-};
-
-enum { COMPRESS_NUM = 14 };
-
-static char *znameof(unsigned flags) {
-    static __thread char buf[16];
-    snprintf(buf, 16, "%4s.%c", zlist[(flags>>4)&0x0F].name4, "0123456789ABCDEF"[flags&0xF]);
-    return buf;
-}
-unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].encode(in, inlen, (uint8_t*)out, outlen, flags & 0x0F);
-}
-unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].decode((uint8_t*)in, inlen, out, outlen);
-}
-unsigned zbounds(unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].bounds(inlen, flags & 0x0F);
-}
-unsigned zexcess(unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].excess(flags & 0x0F);
 }
 #line 0
 
@@ -4221,7 +7791,8 @@ bool file_append(const char *name, const void *ptr, int len) {
     }
     return ok;
 }
-static bool file_stat(const char *fname, struct stat *st) {
+static // not exposed
+bool file_stat(const char *fname, struct stat *st) {
     // remove ending slashes. win32+tcc does not like them.
     int l = strlen(fname), m = l;
     while( l && (fname[l-1] == '/' || fname[l-1] == '\\') ) --l;
@@ -4342,50 +7913,53 @@ char *ext = strrchr(base, '.'); //if (ext) ext[0] = '\0'; // remove all extensio
     }
     return va("%s", buffer);
 }
-const char** file_list(const char *cwd, const char *masks) {
-    ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
-
-    static __thread array(char*) list = 0;
-    const char *arg0 = cwd; // app_path();
-    int larg0 = strlen(arg0);
+array(char*) file_list(const char *pathmasks) {
+    static __thread array(char*) list = 0; // @fixme: add 16 slots
 
     for( int i = 0; i < array_count(list); ++i ) {
         FREE(list[i]);
     }
-    array_resize(list, 0);//array_free(list);
+    array_resize(list, 0);
 
-    for each_substring(masks,";",it) {
-        int recurse = !!strstr(it, "**");
-        #if is(win32)
-        char *glob = va("dir %s/b/o:n \"%s\\%s\" 2> NUL", recurse ? "/s":"", cwd, it);
-        #else // linux, osx
-        char *glob = va("find %s %s -name \"%s\" | sort", cwd, !recurse ? "-maxdepth 1":"-type f", it);
-        #endif
-        for( FILE *in = popen(glob, "r"); in; pclose(in), in = 0) {
-            char buf[1024], *line = buf;
-            while( fgets(buf, sizeof(buf), in) ) {
-                // clean up
-                if( strstr(line, arg0) ) line = buf + larg0;
-                if( !memcmp(line, "./", 2) ) line += 2;
-                int len = strlen(line); while( len > 0 && line[len-1] < 32 ) line[--len] = 0;
-                if( line[0] == '\0' ) continue;
-                // do not insert system folders/files
-                for(int i = 0; i < len; ++i ) if(line[i] == '\\') line[i] = '/';
-                if( line[0] == '.' ) if( !strcmp(line,".git") || !strcmp(line,".vs") || !strcmp(line,".") || !strcmp(line,"..") ) continue;
-                if( strstr(line, "/.") ) continue;
-                // insert copy
-                #if is(win32)
-                char *copy = STRDUP(line); // full path already provided
-                #else
-                // while(line[0] == '/') ++line;
-                char *copy = STRDUP(va("%s%s", cwd, line)); // need to prepend path
-                #endif
-                array_push(list, copy);
+    for each_substring(pathmasks,";",pathmask) {
+        char *cwd = 0, *masks = 0;
+            char *slash = strrchr(pathmask, '/');
+            if( !slash ) cwd = "./", masks = pathmask;
+            else {
+                masks = va("%s", slash+1);
+                cwd = pathmask, slash[1] = '\0';
             }
+            if( !masks[0] ) masks = "*";
+
+        ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
+
+        dir *d = dir_open(cwd, strstr(masks,"**") ? "r" : "");
+        if( d ) {
+            for( int i = 0; i < dir_count(d); ++i ) {
+                if( dir_file(d,i) ) {
+                    // dir_name() should return full normalized paths "C:/prj/fwk/demos/art/fx/fxBloom.fs". should exclude system dirs as well
+                    char *entry = dir_name(d,i);
+                    char *fname = file_name(entry);
+
+                    int allowed = 0;
+                    for each_substring(masks,";",mask) {
+                        allowed |= strmatch(fname, mask);
+                    }
+                    if( !allowed ) continue;
+
+                    // if( strstr(fname, "/.") ) continue; // @fixme: still needed? useful?
+
+                    // insert copy
+                    char *copy = STRDUP(entry);
+                    array_push(list, copy);
+                }
+            }
+            dir_close(d);
         }
     }
-    array_push(list, 0); // terminator
-    return (const char**)list;
+
+    array_sort(list, strcmp);
+    return list;
 }
 
 bool file_move(const char *src, const char *dst) {
@@ -4405,7 +7979,7 @@ bool file_delete(const char *pathfile) {
 }
 bool file_copy(const char *src, const char *dst) {
     int ok = 0, BUFSIZE = 1 << 20; // 1 MiB
-    static __thread char *buffer = 0; do_once buffer = REALLOC(0, BUFSIZE);
+    static __thread char *buffer = 0; do_once buffer = REALLOC(0, BUFSIZE); // @leak
     for( FILE *in = fopen(src, "rb"); in; fclose(in), in = 0) {
         for( FILE *out = fopen(dst, "wb"); out; fclose(out), out = 0, ok = 1) {
             for( int n; !!(n = fread( buffer, 1, BUFSIZE, in )); ){
@@ -4433,7 +8007,7 @@ char *file_counter(const char *name) {
     static __thread map(char*, int) ext_counters;
     if(!init) map_init(ext_counters, less_str, hash_str), init = '\1';
 
-    char *base = va("%s",name), *ext = file_ext(name); 
+    char *base = va("%s",name), *ext = file_ext(name);
     if(ext && ext[0]) *strstr(base, ext) = '\0';
 
     int *counter = map_find_or_add(ext_counters, ext, 0);
@@ -4513,6 +8087,76 @@ void* sha1_mem(const void *ptr, int inlen) { // 20bytes
     unsigned char *hash = va("%.*s", SHA1_HASHLEN, "");
     sha1_done(&hs, hash);
     return hash;
+}
+unsigned crc32_mem(unsigned h, const void *ptr_, unsigned len) {
+    // based on public domain code by Karl Malbrain
+    const uint8_t *ptr = (const uint8_t *)ptr_;
+    if (!ptr) return 0;
+    const unsigned tbl[16] = {
+        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c };
+    for(h = ~h; len--; ) { uint8_t b = *ptr++; h = (h >> 4) ^ tbl[(h & 15) ^ (b & 15)]; h = (h >> 4) ^ tbl[(h & 15) ^ (b >> 4)]; }
+    return ~h;
+}
+uint64_t crc64_mem(uint64_t h, const void *ptr, uint64_t len) {
+    // based on public domain code by Lasse Collin
+    // also, use poly64 0xC96C5795D7870F42 for crc64-ecma
+    static uint64_t crc64_table[256];
+    static uint64_t poly64 = UINT64_C(0x95AC9329AC4BC9B5);
+    if( poly64 ) {
+        for( int b = 0; b < 256; ++b ) {
+            uint64_t r = b;
+            for( int i = 0; i < 8; ++i ) {
+                r = r & 1 ? (r >> 1) ^ poly64 : r >> 1;
+            }
+            crc64_table[ b ] = r;
+            //printf("%016llx\n", crc64_table[b]);
+        }
+        poly64 = 0;
+    }
+    const uint8_t *buf = (const uint8_t *)ptr;
+    uint64_t crc = ~h; // ~crc;
+    while( len != 0 ) {
+        crc = crc64_table[(uint8_t)crc ^ *buf++] ^ (crc >> 8);
+        --len;
+    }
+    return ~crc;
+}
+// https://en.wikipedia.org/wiki/MurmurHash
+static inline uint32_t murmur3_scramble(uint32_t k) {
+    return k *= 0xcc9e2d51, k = (k << 15) | (k >> 17), k *= 0x1b873593;
+}
+uint32_t murmur3_mem(const uint8_t* key, size_t len, uint32_t seed) {
+    uint32_t h = seed;
+    uint32_t k;
+    /* Read in groups of 4. */
+    for (size_t i = len >> 2; i; i--) {
+        // Here is a source of differing results across endiannesses.
+        // A swap here has no effects on hash properties though.
+        k = *((uint32_t*)key);
+        key += sizeof(uint32_t);
+        h ^= murmur3_scramble(k);
+        h = (h << 13) | (h >> 19);
+        h = h * 5 + 0xe6546b64;
+    }
+    /* Read the rest. */
+    k = 0;
+    for (size_t i = len & 3; i; i--) {
+        k <<= 8;
+        k |= key[i - 1];
+    }
+    // A swap is *not* necessary here because the preceeding loop already
+    // places the low bytes in the low places according to whatever endianness
+    // we use. Swaps only apply when the memory is copied in a chunk.
+    h ^= murmur3_scramble(k);
+    /* Finalize. */
+    h ^= len;
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
 }
 #endif
 
@@ -4634,7 +8278,7 @@ typedef struct archive_dir {
 } archive_dir;
 
 static archive_dir *dir_mount;
-static archive_dir *dir_cache; 
+static archive_dir *dir_cache;
 
 #ifndef MAX_CACHED_FILES    // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
 #define MAX_CACHED_FILES 32 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
@@ -4645,8 +8289,8 @@ struct vfs_entry {
     const char *id;
     unsigned size;
 };
-array(struct vfs_entry) vfs_hints;   // mounted raw assets
-array(struct vfs_entry) vfs_entries; // mounted cooked assets
+static array(struct vfs_entry) vfs_hints;   // mounted raw assets
+static array(struct vfs_entry) vfs_entries; // mounted cooked assets
 
 static bool vfs_mount_hints(const char *path);
 static
@@ -4660,27 +8304,53 @@ void vfs_reload() {
 #if defined(EMSCRIPTEN)
     vfs_mount("index.zip");
 #else
-    /* // old way
-    for( int i = 0; i < JOBS_MAX; ++i) {
-        if( vfs_mount(va(".art[%02x].zip", i)) ) continue;
-        if( vfs_mount(va("%s[%02x].zip", app, i)) ) continue;
-        if( vfs_mount(va("%s%02x.zip", app, i)) ) continue;
-        // if( vfs_mount(va("%s.%02x", app, i)) ) continue;
-    } */
-    // faster way
-    for( const char **file = file_list("./","*.zip"); *file; ++file) vfs_mount(*file);
+    // mount fused executables
+    vfs_mount(va("%s%s%s", app_path(), app_name(), ifdef(win32, ".exe", "")));
+    // mount all zipfiles
+    for each_array( file_list("*.zip"), char*, file ) vfs_mount(file);
 #endif
 
     // vfs_resolve() will use these art_folder locations as hints when cook-on-demand is in progress.
     // cook-on-demand will not be able to resolve a virtual pathfile if there are no cooked assets on disk,
     // unless there is a record of what's actually on disk somewhere, and that's where the hints belong to.
+    if( COOK_ON_DEMAND )
     for each_substring(ART,",",art_folder) {
         vfs_mount_hints(art_folder);
     }
 }
 
+
+
+#define ARK1         0x41724B31 // 'ArK1' in le, 0x314B7241 41 72 4B 31 otherwise
+#define ARK1_PADDING (512 - 40) // 472
+#define ARK_PRINTF(f,...) 0 // printf(f,__VA_ARGS__)
+#define ARK_SWAP32(x) (x)
+#define ARK_SWAP64(x) (x)
+#define ARK_REALLOC   REALLOC
+static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 1, 8, in ); return ARK_SWAP64(v); }
+void ark_list( const char *infile, zip **z ) {
+    for( FILE *in = fopen(infile, "rb"); in; fclose(in), in = 0 )
+    while(!feof(in)) {
+        if( 0 != (ftell(in) % ARK1_PADDING) ) fseek(in, ARK1_PADDING - (ftell(in) % ARK1_PADDING), SEEK_CUR);
+        ARK_PRINTF("Reading at #%d\n", (int)ftell(in));
+        uint64_t mark = ark_fget64(in);
+        if( mark != ARK1 ) continue;
+        uint64_t stamp = ark_fget64(in);
+        uint64_t datalen = ark_fget64(in);
+        uint64_t datahash = ark_fget64(in);
+        uint64_t namelen = ark_fget64(in);
+
+        *z = zip_open_handle(in, "rb");
+        return;
+    }
+}
+
+
+
 static
 bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
+    const char *path_bak = path;
+
     zip *z = NULL; tar *t = NULL; pak *p = NULL; dir *d = NULL;
     int is_folder = ('/' == path[strlen(path)-1]);
     if( is_folder ) d = dir_open(path, "rb");
@@ -4688,6 +8358,7 @@ bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
     if( !is_folder ) z = zip_open(path, "rb");
     if( !is_folder && !z ) t = tar_open(path, "rb");
     if( !is_folder && !z && !t ) p = pak_open(path, "rb");
+    if( !is_folder && !z && !t && !p ) ark_list(path, &z); // last resort. try as .ark
     if( !is_folder && !z && !t && !p ) return 0;
 
     // normalize input -> "././" to ""
@@ -4723,6 +8394,8 @@ bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
             // append to list
             array_push(*entries, (struct vfs_entry){filename, fileid, filesize});
         }
+
+        PRINTF("Mounted VFS volume '%s' (%u entries)\n", path_bak, fn_count[dir->type](dir->archive) );
     }
 
     return 1;
@@ -4734,19 +8407,19 @@ bool vfs_mount_hints(const char *path) {
 bool vfs_mount(const char *path) {
     return vfs_mount_(path, &vfs_entries);
 }
-const char** vfs_list(const char *masks) {
-    static __thread array(char*) list = 0;
+array(char*) vfs_list(const char *masks) {
+    static __thread array(char*) list = 0; // @fixme: add 16 slots
 
     for( int i = 0; i < array_count(list); ++i ) {
         FREE(list[i]);
     }
-    array_free(list);
+    array_resize(list, 0);
 
     for each_substring(masks,";",it) {
         if( COOK_ON_DEMAND ) // edge case: any game using only vfs api + cook-on-demand flag will never find any file
-        for(const char **items = file_list("./", it); *items; items++) {
+        for each_array(file_list(it), char*, item) {
             // insert copy
-            char *copy = STRDUP(*items);
+            char *copy = STRDUP(item);
             array_push(list, copy);
         }
 
@@ -4766,12 +8439,11 @@ const char** vfs_list(const char *masks) {
     array_sort(list, strcmp);
     array_unique(list, strcmp_qsort);
 
-    array_push(list, 0); // terminator
-    return (const char**)list;
+    return list;
 }
 
 static
-char *vfs_unpack(const char *pathfile, int *size) { // must free() after use
+char *vfs_unpack(const char *pathfile, int *size) { // must FREE() after use
     // @todo: add cache here
     char *data = NULL;
     for(archive_dir *dir = dir_mount; dir && !data; dir = dir->next) {
@@ -4850,12 +8522,14 @@ if( found && *found == 0 ) {
     base = file_name(pathfile);
     if(base[0] == '\0') return 0; // it's a dir
     folder = file_path(pathfile);
-        // make folder variable easier to read in logs: /home/rlyeh/prj/fwk/art/demos/audio/coin.wav -> demos/audio/coin.wav 
-        // static int ART_LEN = 0; do_once ART_LEN = strlen(ART);
-        // if( !strncmp(folder, ART, ART_LEN) ) {
-        //     folder += ART_LEN;
-        // }
-        char* pretty_folder = folder && strlen(folder) >= ART_LEN ? folder + ART_LEN : "";
+        // ease folders reading by shortening them: /home/rlyeh/prj/fwk/art/demos/audio/coin.wav -> demos/audio/coin.wav
+        // or C:/prj/fwk/engine/art/fonts/B612-BoldItalic.ttf -> fonts/B612-BoldItalic.ttf
+        static __thread array(char*) art_paths = 0;
+        if(!art_paths) for each_substring(ART,",",stem) array_push(art_paths, STRDUP(stem));
+        char* pretty_folder = "";
+        if( folder ) for( int i = 0; i < array_count(art_paths); ++i ) {
+            if( strbeg(folder, art_paths[i]) ) { pretty_folder = folder + strlen(art_paths[i]); break; }
+        }
     //}
 
     int size = 0;
@@ -4870,9 +8544,9 @@ if( found && *found == 0 ) {
     const char *lookup_id = /*file_normalize_with_folder*/(pathfile);
 
     // search (last item)
-    static char last_item[256] = { 0 };
-    static void *last_ptr = 0;
-    static int   last_size = 0;
+    static __thread char  last_item[256] = { 0 };
+    static __thread void *last_ptr = 0;
+    static __thread int   last_size = 0;
     if( !strcmpi(lookup_id, last_item)) {
         ptr = last_ptr;
         size = last_size;
@@ -4902,7 +8576,7 @@ if( found && *found == 0 ) {
 // this block saves some boot time (editor --cook-on-demand: boot 1.50s -> 0.90s)
 #if 1 // EXPERIMENTAL_DONT_COOK_NON_EXISTING_ASSETS
             static set(char*) disk = 0;
-            if(!disk) { set_init_str(disk); for each_substring(ART,",",art_folder) for( const char **list = file_list(art_folder,"**"); *list; ++list) set_insert(disk, STRDUP(*list)); }
+            if(!disk) { set_init_str(disk); for each_substring(ART,",",art_folder) for each_array(file_list(va("%s**", art_folder)), char*, item) set_insert(disk, STRDUP(item)); } // art_folder ends with '/'
             int found = !!set_find(disk, (char*)pathfile);
             if( found )
 #endif
@@ -4950,8 +8624,7 @@ if( found && *found == 0 ) {
     // yet another last resort: redirect vfs_load() calls to file_load()
     // (for environments without tools or cooked assets)
     if(!ptr) {
-        static bool have_tools; do_once have_tools = file_exist(COOK_INI);
-        if( !have_tools ) {
+        if( !have_tools() ) {
             ptr = file_load(pathfile, size_out);
         }
     }
@@ -5015,47 +8688,60 @@ const char *vfs_extract(const char *pathfile) { // extract a vfs file into the l
 // -----------------------------------------------------------------------------
 // cache
 
+static thread_mutex_t cache_mutex; AUTORUN{ thread_mutex_init(&cache_mutex); }
+
 void* cache_lookup(const char *pathfile, int *size) { // find key->value
     if( !MAX_CACHED_FILES ) return 0;
+    void* data = 0;
+    thread_mutex_lock(&cache_mutex);
     for(archive_dir *dir = dir_cache; dir; dir = dir->next) {
         if( !strcmp(dir->path, pathfile) ) {
             if(size) *size = dir->size;
-            return dir->data;
+            data = dir->data;
+            break;
         }
     }
-    return 0;
+    thread_mutex_unlock(&cache_mutex);
+    return data;
 }
 void* cache_insert(const char *pathfile, void *ptr, int size) { // append key/value; return LRU or NULL
     if( !MAX_CACHED_FILES ) return 0;
     if( !ptr || !size ) return 0;
 
-    // append to cache
-    archive_dir zero = {0}, *old = dir_cache;
-    *(dir_cache = REALLOC(0, sizeof(archive_dir))) = zero;
-    dir_cache->next = old;
-    dir_cache->path = STRDUP(pathfile);
-    dir_cache->size = size;
-    dir_cache->data = REALLOC(0, size+1);
-    memcpy(dir_cache->data, ptr, size); size[(char*)dir_cache->data] = 0; // copy+terminator
-
     // keep cached files within limits
-    static int added = 0;
-    if( added < MAX_CACHED_FILES ) {
-        ++added;
-    } else {
-        // remove oldest cache entry
-        for( archive_dir *prev = dir_cache, *dir = prev; dir ; prev = dir, dir = dir->next ) {
-            if( !dir->next ) {
-                prev->next = 0; // break link
-                void *data = dir->data;
-                dir->path = REALLOC(dir->path, 0);
-                dir->data = REALLOC(dir->data, 0);
-                dir = REALLOC(dir, 0);
-                return data;
+    thread_mutex_lock(&cache_mutex);
+
+        // append to cache
+        archive_dir zero = {0}, *old = dir_cache;
+        *(dir_cache = REALLOC(0, sizeof(archive_dir))) = zero;
+        dir_cache->next = old;
+        dir_cache->path = STRDUP(pathfile);
+        dir_cache->size = size;
+        dir_cache->data = REALLOC(0, size+1);
+        memcpy(dir_cache->data, ptr, size); size[(char*)dir_cache->data] = 0; // copy+terminator
+
+        void *found = 0;
+
+        static int added = 0;
+        if( added < MAX_CACHED_FILES ) {
+            ++added;
+        } else {
+            // remove oldest cache entry
+            for( archive_dir *prev = dir_cache, *dir = prev; dir ; prev = dir, dir = dir->next ) {
+                if( !dir->next ) {
+                    prev->next = 0; // break link
+                    found = dir->data;
+                    dir->path = REALLOC(dir->path, 0);
+                    dir->data = REALLOC(dir->data, 0);
+                    dir = REALLOC(dir, 0);
+                    break;
+                }
             }
         }
-    }
-    return 0;
+
+    thread_mutex_unlock(&cache_mutex);
+
+    return found;
 }
 
 // ----------------------------------------------------------------------------
@@ -5152,7 +8838,7 @@ ini_t ini_from_mem(const char *data) {
 }
 
 ini_t ini(const char *filename) {
-    return ini_from_mem(file_read(filename));    
+    return ini_from_mem(file_read(filename));
 }
 
 bool ini_write(const char *filename, const char *section, const char *key, const char *value) {
@@ -6718,9 +10404,9 @@ uniform float num_colors;\n\
 out vec4 outColor;\n\
 \n\
 void main() {\
-    vec3 col = texture(sampler_colors, (color_index+0.5)/num_colors).rgb;\n\
+    vec4 col = texture(sampler_colors, (color_index+0.5)/num_colors);\n\
     float s = texture(sampler_font, uv).r;\n\
-    outColor = vec4(col, s);\n\
+    outColor = vec4(col.rgb, s*col.a);\n\
 }\n";
 
 enum { FONT_MAX_COLORS = 256};
@@ -6811,7 +10497,7 @@ void font_color(const char *tag, uint32_t color) {
             if( f->initialized ) {
                 glActiveTexture(GL_TEXTURE2);
                 glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_BGRA, GL_UNSIGNED_BYTE, font_palette);
+                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
             }
         }
     }
@@ -7008,7 +10694,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     // last chance to inspect the font atlases
-    if( flag("--debug-font-atlas") )
+    if( flag("--font-debug") )
     stbi_write_png(va("debug_font_atlas%d.png", index), f->width, f->height, 1, bitmap, 0);
 
     FREE(bitmap);
@@ -7056,7 +10742,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     glGenTextures(1, &f->texture_colors);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_BGRA, GL_UNSIGNED_BYTE, font_palette);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -7079,7 +10765,7 @@ void font_face(const char *tag, const char *filename_ttf, float font_size, unsig
     do_once font_init();
 
     const char *buffer = //file_read(filename_ttf);
-    //if(!buffer) buffer = 
+    //if(!buffer) buffer =
         vfs_read(filename_ttf);
     font_face_from_mem(tag, buffer,0, font_size, flags);
 }
@@ -7524,6 +11210,176 @@ vec2 font_rect(const char *str) {
 }
 #line 0
 
+#line 1 "fwk_id.c"
+// -----------------------------------------------------------------------------
+// factory of handle ids, based on code by randy gaul (PD/Zlib licensed)
+// - rlyeh, public domain
+//
+// [src] http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp
+// [ref] http://bitsquid.blogspot.com.es/2011/09/managing-decoupling-part-4-id-lookup.html
+// [ref] http://glampert.com/2016/05-04/dissecting-idhashindex/
+// [ref] https://github.com/nlguillemot/dof/blob/master/viewer/packed_freelist.h
+// [ref] https://gist.github.com/pervognsen/ffd89e45b5750e9ce4c6c8589fc7f253
+
+typedef union id64 {
+    uint64_t h;
+    struct {
+#if (ID_INDEX_BITS+ID_COUNT_BITS) != 64
+        uint64_t padding : 64-ID_INDEX_BITS-ID_COUNT_BITS;
+#endif
+        uint64_t index : ID_INDEX_BITS;
+        uint64_t count : ID_COUNT_BITS;
+    };
+} id64;
+
+typedef struct id_factory id_factory;
+id_factory id_factory_create(uint64_t capacity /*= 256*/);
+id64        id_factory_insert(id_factory *f, uint64_t data);
+uint64_t     id_factory_getvalue(id_factory *f, id64 handle);
+void         id_factory_setvalue(id_factory *f, id64 handle, uint64_t data);
+void        id_factory_erase(id_factory *f, id64 handle);
+bool        id_factory_isvalid(id_factory *f, id64 handle);
+void       id_factory_destroy(id_factory *f);
+
+// ---
+
+typedef struct id_factory {
+    uint64_t freelist;
+    uint64_t capacity;
+    uint64_t canary;
+    union entry* entries;
+} id_factory;
+
+typedef union entry {
+    struct {
+        uint64_t data  : ID_DATA_BITS;
+        uint64_t count : ID_COUNT_BITS;
+    };
+    uint64_t h;
+} entry;
+
+id_factory id_factory_create(uint64_t capacity) {
+    if(!capacity) capacity = 1ULL << ID_INDEX_BITS;
+
+    id_factory f = {0};
+    f.entries = CALLOC(1, sizeof(entry) * capacity);
+    f.capacity = capacity;
+
+    for (int i = 0; i < capacity - 1; ++i) {
+        f.entries[i].data = i + 1;
+        f.entries[i].count = 0;
+    }
+    f.entries[capacity - 1].h = 0;
+    f.entries[capacity - 1].data = ~0;
+    f.entries[capacity - 1].count = ~0;
+    f.canary = f.entries[capacity - 1].data;
+
+    return f;
+}
+
+void id_factory_destroy(id_factory *f) {
+    FREE(f->entries);
+}
+
+id64 id_factory_insert(id_factory *f, uint64_t data) {
+    // pop element off the free list
+    assert(f->freelist != f->canary && "max alive capacity reached");
+    uint64_t index = f->freelist;
+    f->freelist = f->entries[f->freelist].data;
+
+    // create new id64
+    f->entries[index].data = data;
+    id64 handle = {0};
+    handle.index = index;
+    handle.count = f->entries[index].count;
+    return handle;
+}
+
+void id_factory_erase(id_factory *f, id64 handle) {
+    // push id64 onto the freelist
+    uint64_t index = handle.index;
+    f->entries[index].data = f->freelist;
+    f->freelist = index;
+
+    // increment the count. this signifies a change in lifetime (this particular id64 is now dead)
+    // the next time this particular index is used in alloc, a new `count` will be used to uniquely identify
+    f->entries[index].count++;
+}
+
+uint64_t id_factory_getvalue(id_factory *f, id64 handle) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    assert(f->entries[index].count == count);
+    return f->entries[index].data;
+}
+
+void id_factory_setvalue(id_factory *f, id64 handle, uint64_t data) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    assert(f->entries[index].count == count);
+    f->entries[index].data = data;
+}
+
+bool id_factory_isvalid(id_factory *f, id64 handle) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    if (index >= f->capacity) return false;
+    return f->entries[index].count == count;
+}
+
+#if 0
+// monitor history of a single entity by running `id_factory | find " 123."`
+AUTORUN {
+    trap_install();
+
+    id_factory f = id_factory_create(optioni("--NUM",256));
+
+    array(id64) ids = 0;
+    for( int i = 0 ; ; ++i, i &= ((1ULL << ID_INDEX_BITS) - 1) ) { // infinite wrap
+        printf("count_ids(%d) ", array_count(ids));
+        bool insert = randf() < 0.49; // biased against deletion
+        if( insert ) {
+            id64 h = id_factory_insert(&f, i);
+            array_push(ids, h);
+            printf("add %llu.%llu\n", h.index, h.count);
+        } else {
+            int count = array_count(ids);
+            if( count ) {
+                int chosen = randi(0,count);
+                printf("del %d.\n", chosen);
+                id64 h = ids[chosen];
+                id_factory_erase(&f, h);
+                array_erase(ids, chosen);
+            }
+        }
+    }
+}
+#endif
+
+// ----------------------------------------------------------------------
+// public api
+
+static id_factory fid; // @fixme: threadsafe
+
+uintptr_t id_make(void *ptr) {
+    do_once fid = id_factory_create(0), id_factory_insert(&fid, 0); // init and reserve id(0)
+    id64 newid = id_factory_insert(&fid, (uint64_t)(uintptr_t)ptr ); // 48-bit effective addr
+    return newid.h;
+}
+
+void *id_handle(uintptr_t id) {
+    return (void *)(uintptr_t)id_factory_getvalue(&fid, ((id64){ (uint64_t)id }) );
+}
+
+void id_dispose(uintptr_t id) {
+    id_factory_erase(&fid, ((id64){ (uint64_t)id }) );
+}
+
+bool id_valid(uintptr_t id) {
+    return id_factory_isvalid(&fid, ((id64){ (uint64_t)id }) );
+}
+#line 0
+
 #line 1 "fwk_input.c"
 // input framework
 // - rlyeh, public domain
@@ -7781,6 +11637,10 @@ void input_update() {
         any_key |= (bits[i] = glfwGetKeys(win)[ table[i] ]);
 #endif
     }
+    // special cases: plain shift/alt/ctrl enums will also check right counterparts
+    any_key |= (bits[KEY_ALT] |= glfwGetKey(win, table[KEY_RALT] ) == GLFW_PRESS);
+    any_key |= (bits[KEY_CTRL] |= glfwGetKey(win, table[KEY_RCTRL] ) == GLFW_PRESS);
+    any_key |= (bits[KEY_SHIFT] |= glfwGetKey(win, table[KEY_RSHIFT] ) == GLFW_PRESS);
 
 #if is(ems)
     {
@@ -7987,6 +11847,35 @@ vec2 input_filter_deadzone_4way( vec2 v, float deadzone ) {
     float v0 = v.x*v.x < deadzone*deadzone ? 0 : v.x;
     float v1 = v.y*v.y < deadzone*deadzone ? 0 : v.y;
     return vec2(v0, v1);
+}
+
+int input_enum(const char *vk) {
+    static map(char*,int) m = 0;
+    do_once {
+        map_init_str(m);
+        #define k(VK) map_insert(m, STRINGIZE(KEY_##VK), KEY_##VK); map_insert(m, STRINGIZE(VK), KEY_##VK);
+        k(ESC)
+        k(TICK)  k(1) k(2) k(3) k(4) k(5) k(6) k(7) k(8) k(9) k(0)     k(BS)
+        k(TAB)    k(Q) k(W) k(E) k(R) k(T) k(Y) k(U) k(I) k(O) k(P)
+        k(CAPS)       k(A) k(S) k(D) k(F) k(G) k(H) k(J) k(K) k(L)  k(ENTER)
+        k(LSHIFT)        k(Z) k(X) k(C) k(V) k(B) k(N) k(M)        k(RSHIFT)             k(UP)
+        k(LCTRL) k(LALT)                 k(SPACE)           k(RALT) k(RCTRL)    k(LEFT) k(DOWN) k(RIGHT)
+
+        k(F1) k(F2) k(F3) k(F4) k(F5) k(F6) k(F7) k(F8) k(F9) k(F10) k(F11) k(F12)  k(PRINT) k(PAUSE)
+        k(INS) k(HOME) k(PGUP)  k(DEL) k(END)  k(PGDN)
+
+        k(ALT) k(CTRL) k(SHIFT)
+        #undef k
+    };
+    int *found = map_find(m, (char*)vk);
+    return found ? *found : -1;
+}
+
+int input_eval(const char *expression) {
+    if( expression && expression[0] ) {
+        return eval(expression) > 0;
+    }
+    return 0;
 }
 
 // converts keyboard code to its latin char (if any)
@@ -8269,54 +12158,6 @@ int ui_gamepads() {
 #include <stdint.h>
 #include <stdbool.h>
 
-vec2 atof2(const char *s) {
-    vec2 v = {0};
-    sscanf(s, "%f,%f", &v.x, &v.y);
-    return v;
-}
-vec3 atof3(const char *s) {
-    vec3 v = {0};
-    sscanf(s, "%f,%f,%f", &v.x, &v.y, &v.z);
-    return v;
-}
-vec4 atof4(const char *s) {
-    vec4 v = {0};
-    sscanf(s, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w);
-    return v;
-}
-
-char* ftoa(float f) {
-    return va("%f", f);
-}
-char* ftoa2(vec2 v) {
-    return va("%f,%f", v.x, v.y);
-}
-char* ftoa3(vec3 v) {
-    return va("%f,%f,%f", v.x, v.y, v.z);
-}
-char* ftoa4(vec4 v) {
-    return va("%f,%f,%f,%f", v.x, v.y, v.z, v.w);
-}
-
-void swapf(float *a, float *b) {
-    float t = *a; *a = *b; *b = *a;
-}
-void swapf2(vec2 *a, vec2 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-}
-void swapf3(vec3 *a, vec3 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-    float z = a->z; a->z = b->z; b->z = a->z;
-}
-void swapf4(vec4 *a, vec4 *b) {
-    float x = a->x; a->x = b->x; b->x = a->x;
-    float y = a->y; a->y = b->y; b->y = a->y;
-    float z = a->z; a->z = b->z; b->z = a->z;
-    float w = a->w; a->w = b->w; b->w = a->w;
-}
-
 static uint64_t rand_xoro256(uint64_t x256_s[4]) { // xoshiro256+ 1.0 by David Blackman and Sebastiano Vigna (PD)
     const uint64_t result = x256_s[0] + x256_s[3];
     const uint64_t t = x256_s[1] << 17;
@@ -8380,92 +12221,6 @@ float simplex1( float v ){ return snoise1(v); }
 float simplex2( vec2 v ) { return snoise2(v.x,v.y); }
 float simplex3( vec3 v ) { return snoise3(v.x,v.y,v.z); }
 float simplex4( vec4 v ) { return snoise4(v.x,v.y,v.z,v.w); }
-
-// ----------------------------------------------------------------------------
-
-float ease_linear(float t) { return t; }
-
-float ease_out_sine(float t) { return sinf(t*(C_PI*0.5f)); }
-float ease_out_quad(float t) { return -(t*(t-2)); }
-float ease_out_cubic(float t) { float f=t-1; return f*f*f+1; }
-float ease_out_quart(float t) { float f=t-1; return f*f*f*(1-t)+1; }
-float ease_out_quint(float t) { float f=(t-1); return f*f*f*f*f+1; }
-float ease_out_expo(float t) { return (t >= 1) ? t : 1-powf(2,-10*t); }
-float ease_out_circ(float t) { return sqrtf((2-t)*t); }
-float ease_out_back(float t) { float f=1-t; return 1-(f*f*f-f*sinf(f*C_PI)); }
-float ease_out_elastic(float t) { return sinf(-13*(C_PI*0.5f)*(t+1))*powf(2,-10*t)+1; }
-float ease_out_bounce(float t) { return (t < 4.f/11) ? (121.f*t*t)/16 : (t < 8.f/11) ? (363.f/40*t*t)-(99.f/10*t)+17.f/5 : (t < 9.f/10) ? (4356.f/361*t*t)-(35442.f/1805*t)+16061.f/1805 : (54.f/5*t*t)-(513.f/25*t)+268.f/25; }
-
-float ease_in_sine(float t) { return 1+sinf((t-1)*(C_PI*0.5f)); }
-float ease_in_quad(float t) { return t*t; }
-float ease_in_cubic(float t) { return t*t*t; }
-float ease_in_quart(float t) { return t*t*t*t; }
-float ease_in_quint(float t) { return t*t*t*t*t; }
-float ease_in_expo(float t) { return (t <= 0) ? t : powf(2,10*(t-1)); }
-float ease_in_circ(float t) { return 1-sqrtf(1-(t*t)); }
-float ease_in_back(float t) { return t*t*t-t*sinf(t*C_PI); }
-float ease_in_elastic(float t) { return sinf(13*(C_PI*0.5f)*t)*powf(2,10*(t-1)); }
-float ease_in_bounce(float t) { return 1-ease_out_bounce(1-t); }
-
-float ease_inout_sine(float t) { return 0.5f*(1-cosf(t*C_PI)); }
-float ease_inout_quad(float t) { return (t < 0.5f) ? 2*t*t : (-2*t*t)+(4*t)-1; }
-float ease_inout_cubic(float t) { float f; return (t < 0.5f) ? 4*t*t*t : (f=(2*t)-2,0.5f*f*f*f+1); }
-float ease_inout_quart(float t) { float f; return (t < 0.5f) ? 8*t*t*t*t : (f=(t-1),-8*f*f*f*f+1); }
-float ease_inout_quint(float t) { float f; return (t < 0.5f) ? 16*t*t*t*t*t : (f=((2*t)-2),0.5f*f*f*f*f*f+1); }
-float ease_inout_expo(float t) { return (t <= 0 || t >= 1) ? t : t < 0.5f ? 0.5f*powf(2,(20*t)-10) : -0.5f*powf(2,(-20*t)+10)+1; }
-float ease_inout_circ(float t) { return t < 0.5f ? 0.5f*(1-sqrtf(1-4*(t*t))) : 0.5f*(sqrtf(-((2*t)-3)*((2*t)-1))+1); }
-float ease_inout_back(float t) { float f; return t < 0.5f ? (f=2*t,0.5f*(f*f*f-f*sinf(f*C_PI))) : (f=(1-(2*t-1)),0.5f*(1-(f*f*f-f*sinf(f*C_PI)))+0.5f); }
-float ease_inout_elastic(float t) { return t < 0.5f ? 0.5f*sinf(13*(C_PI*0.5f)*(2*t))*powf(2,10*((2*t)-1)) : 0.5f*(sinf(-13*(C_PI*0.5f)*((2*t-1)+1))*powf(2,-10*(2*t-1))+2); }
-float ease_inout_bounce(float t) { return t < 0.5f ? 0.5f*ease_in_bounce(t*2) : 0.5f*ease_out_bounce(t*2-1)+0.5f; }
-
-float ease_inout_perlin(float t) { float t3=t*t*t,t4=t3*t,t5=t4*t; return 6*t5-15*t4+10*t3; }
-
-float ease_ping_pong(float t, float(*fn1)(float), float(*fn2)(float)) { return t < 0.5 ? fn1(t*2) : fn2(1-(t-0.5)*2); }
-float ease_pong_ping(float t, float(*fn1)(float), float(*fn2)(float)) { return 1 - ease_ping_pong(t,fn1,fn2); }
-
-float ease(float t01, unsigned mode) {
-    typedef float (*easing)(float);
-    easing modes[] = {
-        ease_linear,
-        ease_out_sine,
-        ease_out_quad,
-        ease_out_cubic,
-        ease_out_quart,
-        ease_out_quint,
-        ease_out_expo,
-        ease_out_circ,
-        ease_out_back,
-        ease_out_elastic,
-        ease_out_bounce,
-
-        ease_linear,
-        ease_in_sine,
-        ease_in_quad,
-        ease_in_cubic,
-        ease_in_quart,
-        ease_in_quint,
-        ease_in_expo,
-        ease_in_circ,
-        ease_in_back,
-        ease_in_elastic,
-        ease_in_bounce,
-
-        ease_linear,
-        ease_inout_sine,
-        ease_inout_quad,
-        ease_inout_cubic,
-        ease_inout_quart,
-        ease_inout_quint,
-        ease_inout_expo,
-        ease_inout_circ,
-        ease_inout_back,
-        ease_inout_elastic,
-        ease_inout_bounce,
-
-        ease_inout_perlin,
-    };
-    return modes[clampi(mode, 0, countof(modes))](clampf(t01,0,1));
-}
 
 // ----------------------------------------------------------------------------
 
@@ -9009,9 +12764,9 @@ void transpose44(mat44 m, const mat44 a) { // M[i][j] = A[j][i];
 // @todo: test me
 // float det33 = M[0,0]*((M[1,1]*M[2,2])-(M[2,1]*M[1,2]))-M[0,1]*(M[1,0]*M[2,2]-M[2,0]*M[1,2])+M[0,2]*(M[1,0]*M[2,1]-M[2,0]*M[1,1]);
 //
-// float det33 = 
+// float det33 =
 //   rgt.x * fwd.y * upv.z - rgt.z * fwd.y * upv.x +
-//   rgt.y * fwd.z * upv.x - rgt.y * fwd.x * upv.z + 
+//   rgt.y * fwd.z * upv.x - rgt.y * fwd.x * upv.z +
 //   rgt.z * fwd.x * upv.y - rgt.x * fwd.z * upv.y;
 //
 // void transpose33(mat33 m, const mat33 a) { // M[i][j] = A[j][i];
@@ -9081,7 +12836,7 @@ bool invert44(mat44 T, const mat44 M) { // !!! ok, i guess
 }
 
 vec4 transform444(const mat44, const vec4);
-bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp) {
+bool unproject44(vec3 *out, vec3 xyd, vec4 viewport, mat44 mvp) { // @fixme: this function is broken (verified by @zpl-zak)
     // xyd: usually x:mouse_x,y:window_height()-mouse_y,d:0=znear/1=zfar
     // src: https://www.khronos.org/opengl/wiki/GluProject_and_gluUnProject_code
     mat44 inv_mvp;
@@ -9238,7 +12993,13 @@ vec3 transform_scaling (const mat44 m, const vec3 scaling) {
 // ----------------------------------------------------------------------------
 // !!! for debugging
 
-#include <stdio.h>
+void printi_( int *m, int ii, int jj ) {
+    for( int j = 0; j < jj; ++j ) {
+        for( int i = 0; i < ii; ++i ) printf("%10d ", *m++);
+        puts("");
+    }
+//    puts("---");
+}
 void print_( float *m, int ii, int jj ) {
     for( int j = 0; j < jj; ++j ) {
         for( int i = 0; i < ii; ++i ) printf("%8.3f", *m++);
@@ -9246,6 +13007,8 @@ void print_( float *m, int ii, int jj ) {
     }
 //    puts("---");
 }
+void print2i( vec2i v ) { printi_(&v.x,2,1); }
+void print3i( vec3i v ) { printi_(&v.x,3,1); }
 void print2( vec2 v ) { print_(&v.x,2,1); }
 void print3( vec3 v ) { print_(&v.x,3,1); }
 void print4( vec4 v ) { print_(&v.x,4,1); }
@@ -9253,6 +13016,14 @@ void printq( quat q ) { print_(&q.x,4,1); }
 void print33( float *m ) { print_(m,3,3); }
 void print34( float *m ) { print_(m,3,4); }
 void print44( float *m ) { print_(m,4,4); }
+
+// -----------
+
+AUTORUN {
+    STRUCT( vec3, float, x );
+    STRUCT( vec3, float, y );
+    STRUCT( vec3, float, z, "Up" );
+}
 #line 0
 
 #line 1 "fwk_memory.c"
@@ -9273,7 +13044,7 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 
 // xrealloc --------------------------------------------------------------------
 
-static __thread uint64_t xstats_current = 0, xstats_total = 0;
+static __thread uint64_t xstats_current = 0, xstats_total = 0, xstats_allocs = 0;
 
 void* xrealloc(void* oldptr, size_t size) {
     // for stats
@@ -9292,8 +13063,10 @@ void* xrealloc(void* oldptr, size_t size) {
     // for stats
     if( oldptr ) {
         xstats_current += (int64_t)size - (int64_t)oldsize;
+        xstats_allocs -= !size;
     } else {
         xstats_current += size;
+        xstats_allocs += !!size;
     }
     if( xstats_current > xstats_total ) {
         xstats_total = xstats_current;
@@ -9306,7 +13079,8 @@ size_t xsize(void* p) {
     return 0;
 }
 char *xstats(void) {
-    return va("%03u/%03uMB", (unsigned)xstats_current / 1024 / 1024, (unsigned)xstats_total / 1024 / 1024);
+    uint64_t xtra = 0; // xstats_allocs * 65536; // assumes 64K pagesize for every alloc
+    return va("%03u/%03uMB", (unsigned)((xstats_current+xtra) / 1024 / 1024), (unsigned)((xstats_total+xtra) / 1024 / 1024));
 }
 
 // stack -----------------------------------------------------------------------
@@ -9451,19 +13225,6 @@ int portname( const char *service_name, unsigned retries ) {
     return ((hash & 0xFFF) * 677 / 100 + 5001);
 }
 
-static
-void netdump( const void *ptr, int len ) {
-    char hexbuf[256] = {0}, strbuf[256] = {0}, *data = (char*)ptr, width = 16;
-    for( int jt = 0; jt < len; jt += width ) {
-        char *hex = hexbuf, *str = strbuf;
-        for( int it = jt, next = it + width; it < len && it < next; ++it, ++data ) {
-            hex += sprintf( hex, "%02x ", (unsigned char)*data);
-            str += sprintf( str, "%c", *data >= 32 && *data != '\\' ? *data : '.');
-        }
-        printf("%06x %-*s%s\n", jt, width*3, hexbuf, strbuf);
-    }
-}
-
 // -----------------------------------------------------------------------------
 
 #define UDP_DEBUG 0
@@ -9508,7 +13269,7 @@ int udp_send( int fd, const void *buf, int len ) { // returns bytes sent, or -1 
         int rc2 = swrapAddressInfo(&sa, host, 128, serv, 128 );
         if( rc2 != 0 ) PANIC("swrapAddressInfo error");
         printf("udp_send: %d bytes to %s:%s : %.*s\n", rc, host, serv, rc, buf );
-        netdump(buf, rc);
+        hexdump(buf, rc);
     }
 #endif
     return rc;
@@ -9562,7 +13323,7 @@ int udp_recv( int fd, void *buf, int len ) { // <0 error, 0 orderly shutdown, >0
     int rc2 = swrapAddressInfo(&sa, host, 128, serv, 128 );
     if( rc2 != 0 ) PANIC("swrapAddressInfo error");
     printf("udp_recv: %d bytes from %s:%s : %.*s\n", rc, host, serv, rc, buf );
-    netdump(buf, rc);
+    hexdump(buf, rc);
 #endif
 
     return rc;
@@ -9606,7 +13367,7 @@ int tcp_send(int fd, const void *buf, int len) {
 #if TCP_DEBUG
     if( set_find(tcp_set, fd) ) {
         printf("send -> %11d (status: %d) %s:%s\n", len, rc, tcp_host(fd), tcp_port(fd));
-        if( rc > 0 ) netdump(buf, rc);
+        if( rc > 0 ) hexdump(buf, rc);
     }
 #endif
     return rc;
@@ -9616,7 +13377,7 @@ int tcp_recv(int fd, void *buf, int len) {
 #if TCP_DEBUG
     if( rc != 0 && set_find(tcp_set, fd) ) {
         printf("recv <- %11d (status: %d) %s:%s\n", len, rc, tcp_host(fd), tcp_port(fd));
-        if( rc > 0 ) netdump(buf, rc);
+        if( rc > 0 ) hexdump(buf, rc);
     }
 #endif
     return rc;
@@ -9693,7 +13454,7 @@ rpc_call rpc_new_call(const char *signature, rpc_function function) {
 #if RPC_DEBUG
             printf("%p %p %s `%s` %s(", function, (void*)hash, rettype, hash_sig, method); for(int i = 0, end = array_count(tokens); i < end; ++i) printf("%s%s", tokens[i], i == (end-1)? "":", "); puts(");");
 #endif
-            return (rpc_call) { strdup(method), function, hash }; // LEAK
+            return (rpc_call) { STRDUP(method), function, hash }; // LEAK
         }
     }
     return (rpc_call) {0};
@@ -9971,7 +13732,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
             network_put(NETWORK_RANK, -1); /* unassigned until we connect successfully */
             int64_t socket = client_join(ip, port);
             if( socket >= 0 ) {
-                PRINTF("Client connected, id %lld\n", socket);
+                PRINTF("Client connected, id %d\n", (int)socket);
                 network_put(NETWORK_LIVE, 1);
                 network_put(NETWORK_RANK, socket);
             } else {
@@ -9988,7 +13749,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
         network_put(NETWORK_RANK, -1); /* unassigned until we connect successfully */
         int64_t socket = client_join(ip, port);
         if( socket > 0 ) {
-            PRINTF("Client connected, id %lld\n", socket);
+            PRINTF("Client connected, id %d\n", (int)socket);
             network_put(NETWORK_LIVE, 1);
             network_put(NETWORK_RANK, socket);
         } else {
@@ -9999,7 +13760,7 @@ void network_create(unsigned max_clients, const char *ip, const char *port_, uns
         }
     }
 
-    PRINTF("Network rank:%lld ip:%s port:%lld\n", network_get(NETWORK_RANK), ip, network_get(NETWORK_PORT));
+    PRINTF("Network rank:%u ip:%s port:%d\n", (unsigned)network_get(NETWORK_RANK), ip, (int)network_get(NETWORK_PORT));
 }
 
 int64_t network_put(uint64_t key, int64_t value) {
@@ -10132,8 +13893,8 @@ char** server_poll(unsigned timeout_ms) {
                 *(uint32_t*)&init_msg[0] = MSG_INIT;
                 *(int64_t*)&init_msg[4] = client_id;
                 server_send_bin(client_id, init_msg, 12);
-                PRINTF("Client rank %lld for peer ::%s:%u\n", client_id, ip, event.peer->address.port);
-                msg = va( "%d new client rank:%lld from ::%s:%u", 0, client_id, ip, event.peer->address.port );
+                PRINTF("Client rank %u for peer ::%s:%u\n", (unsigned)client_id, ip, event.peer->address.port);
+                msg = va( "%d new client rank:%u from ::%s:%u", 0, (unsigned)client_id, ip, event.peer->address.port );
                 event.peer->data = (void*)client_id;
                 break;
 
@@ -10174,7 +13935,7 @@ char** server_poll(unsigned timeout_ms) {
                     }
                 } break;
                 case MSG_RPC: {
-                    event.type = NETWORK_EVENT_RPC; 
+                    event.type = NETWORK_EVENT_RPC;
                     unsigned id = *(uint32_t*)ptr; ptr += 4;
                     char *cmdline = ptr;
                     char *resp = rpc(id, cmdline);
@@ -10185,11 +13946,11 @@ char** server_poll(unsigned timeout_ms) {
                     msg = va("%d req:%s res:%s", 0, cmdline, resp);
                 } break;
                 case MSG_RPC_RESP: {
-                    event.type = NETWORK_EVENT_RPC_RESP; 
+                    event.type = NETWORK_EVENT_RPC_RESP;
                     msg = va("%d %s", 0, va("%s", ptr));
                 } break;
                 default:
-                    msg = va("%d unk msg len:%u from rank:%lld ::%s:%u", -1, sz, (uint64_t)event.peer->data, ip, event.peer->address.port); /* @TODO: hexdump? */
+                    msg = va("%d unk msg len:%u from rank:%u ::%s:%u", -1, sz, (unsigned)(uintptr_t)event.peer->data, ip, event.peer->address.port); /* @TODO: hexdump? */
                     break;
                 }
                 /* Clean up the packet now that we're done using it. */
@@ -10197,7 +13958,7 @@ char** server_poll(unsigned timeout_ms) {
             } break;
 
             case ENET_EVENT_TYPE_DISCONNECT:
-                msg = va( "%d disconnect rank:%lld", 0, (uint64_t)event.peer->data);
+                msg = va( "%d disconnect rank:%u", 0, (unsigned)(uintptr_t)event.peer->data);
                 /* Reset the peer's client information. */
                 FREE(event.peer->data);
                 event.peer->data = NULL;
@@ -10206,7 +13967,7 @@ char** server_poll(unsigned timeout_ms) {
                 break;
 
             case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
-                msg = va( "%d timeout rank:%lld", 0, (uint64_t)event.peer->data);
+                msg = va( "%d timeout rank:%u", 0, (unsigned)(uintptr_t)event.peer->data);
                 FREE(event.peer->data);
                 event.peer->data = NULL;
                 server_drop_client_peer(event.peer);
@@ -10270,7 +14031,7 @@ char** client_poll(unsigned timeout_ms) {
                     }
                 } break;
                 case MSG_RPC: {
-                    event.type = NETWORK_EVENT_RPC; 
+                    event.type = NETWORK_EVENT_RPC;
                     unsigned id = *(uint32_t*)ptr; ptr += 4;
                     char *cmdline = ptr;
                     char *resp = rpc(id, cmdline);
@@ -10281,7 +14042,7 @@ char** client_poll(unsigned timeout_ms) {
                     msg = va("%d req:%s res:%s", 0, cmdline, resp);
                 } break;
                 case MSG_RPC_RESP: {
-                    event.type = NETWORK_EVENT_RPC_RESP; 
+                    event.type = NETWORK_EVENT_RPC_RESP;
                     msg = va("%d %s", 0, ptr);
                 } break;
                 default:
@@ -10305,7 +14066,7 @@ char** client_poll(unsigned timeout_ms) {
                 msg = va( "%d timeout", 0);
                 FREE(event.peer->data);
                 event.peer->data = NULL;
-                network_put(NETWORK_RANK, -1); 
+                network_put(NETWORK_RANK, -1);
                 network_put(NETWORK_LIVE, 0);
                 break;
         }
@@ -10346,6 +14107,1798 @@ void network_rpc_send(unsigned id, const char *cmdline) {
     *(uint32_t*)&msg[0] = MSG_RPC;
     *(uint32_t*)&msg[4] = id;
     server_broadcast_bin(msg, sz);
+}
+#line 0
+
+#line 1 "fwk_pack.c"
+// -----------------------------------------------------------------------------
+// semantic versioning in a single byte (octal)
+// - rlyeh, public domain.
+//
+// - single octal byte that represents semantic versioning (major.minor.patch).
+// - allowed range [0000..0377] ( <-> [0..255] decimal )
+// - comparison checks only major.minor tuple as per convention.
+
+int semver( int major, int minor, int patch ) {
+    return SEMVER(major, minor, patch);
+}
+int semvercmp( int v1, int v2 ) {
+    return SEMVERCMP(v1, v2);
+}
+
+#if 0
+AUTORUN {
+    for( int i= 0; i <= 255; ++i) printf(SEMVERFMT ",", i);
+    puts("");
+
+    printf(SEMVERFMT "\n", semver(3,7,7));
+    printf(SEMVERFMT "\n", semver(2,7,7));
+    printf(SEMVERFMT "\n", semver(1,7,7));
+    printf(SEMVERFMT "\n", semver(0,7,7));
+
+    printf(SEMVERFMT "\n", semver(3,7,1));
+    printf(SEMVERFMT "\n", semver(2,5,3));
+    printf(SEMVERFMT "\n", semver(1,3,5));
+    printf(SEMVERFMT "\n", semver(0,1,7));
+
+    assert( semvercmp( 0357, 0300 )  > 0 );
+    assert( semvercmp( 0277, 0300 )  < 0 );
+    assert( semvercmp( 0277, 0200 )  > 0 );
+    assert( semvercmp( 0277, 0100 )  < 0 );
+    assert( semvercmp( 0076, 0070 ) == 0 );
+    assert( semvercmp( 0076, 0077 ) == 0 );
+    assert( semvercmp( 0176, 0170 ) == 0 );
+    assert( semvercmp( 0176, 0177 ) == 0 );
+    assert( semvercmp( 0276, 0270 ) == 0 );
+    assert( semvercmp( 0276, 0277 ) == 0 );
+    assert( semvercmp( 0376, 0370 ) == 0 );
+    assert( semvercmp( 0376, 0377 ) == 0 );
+}
+#endif
+
+// -----------------------------------------------------------------------------
+// compile-time fourcc, eightcc
+
+char *cc4str(unsigned x) {
+    static __thread char type[4+1] = {0};
+    type[3] = (x >> 24ULL) & 255;
+    type[2] = (x >> 16ULL) & 255;
+    type[1] = (x >>  8ULL) & 255;
+    type[0] = (x >>  0ULL) & 255;
+    return type;
+}
+char *cc8str(uint64_t x) {
+    static __thread char type[8+1] = {0};
+    type[7] = (x >> 56ULL) & 255;
+    type[6] = (x >> 48ULL) & 255;
+    type[5] = (x >> 40ULL) & 255;
+    type[4] = (x >> 32ULL) & 255;
+    type[3] = (x >> 24ULL) & 255;
+    type[2] = (x >> 16ULL) & 255;
+    type[1] = (x >>  8ULL) & 255;
+    type[0] = (x >>  0ULL) & 255;
+    return type;
+}
+
+// ----------------------------------------------------------------------------
+// float conversion (text)
+
+char* itoa1(int v) {
+    return va("%d", v);
+}
+char* itoa2(vec2i v) {
+    return va("%d,%d", v.x,v.y);
+}
+char* itoa3(vec3i v) {
+    return va("%d,%d,%d", v.x,v.y,v.z);
+}
+
+char* ftoa1(float v) {
+    return va("%f", v);
+}
+char* ftoa2(vec2 v) {
+    return va("%f,%f", v.x, v.y);
+}
+char* ftoa3(vec3 v) {
+    return va("%f,%f,%f", v.x, v.y, v.z);
+}
+char* ftoa4(vec4 v) {
+    return va("%f,%f,%f,%f", v.x, v.y, v.z, v.w);
+}
+
+float atof1(const char *s) {
+    char buf[64];
+    return sscanf(s, "%63[^]\r\n,}]", buf) == 1 ? (float)eval(buf) : (float)NAN;
+}
+vec2 atof2(const char *s) {
+    vec2 v = { 0 };
+    char buf1[64],buf2[64];
+    int num = sscanf(s, "%63[^]\r\n,}],%63[^]\r\n,}]", buf1, buf2);
+    if( num > 0 ) v.x = eval(buf1);
+    if( num > 1 ) v.y = eval(buf2);
+    return v;
+}
+vec3 atof3(const char *s) {
+    vec3 v = {0};
+    char buf1[64],buf2[64],buf3[64];
+    int num = sscanf(s, "%63[^]\r\n,}],%63[^]\r\n,}],%63[^]\r\n,}]", buf1, buf2, buf3);
+    if( num > 0 ) v.x = eval(buf1);
+    if( num > 1 ) v.y = eval(buf2);
+    if( num > 2 ) v.z = eval(buf3);
+    return v;
+}
+vec4 atof4(const char *s) {
+    vec4 v = {0};
+    char buf1[64],buf2[64],buf3[64],buf4[64];
+    int num = sscanf(s, "%63[^]\r\n,}],%63[^]\r\n,}],%63[^]\r\n,}],%63[^]\r\n,}]", buf1, buf2, buf3, buf4);
+    if( num > 0 ) v.x = eval(buf1);
+    if( num > 1 ) v.y = eval(buf2);
+    if( num > 2 ) v.z = eval(buf3);
+    if( num > 3 ) v.w = eval(buf4);
+    return v;
+}
+
+// @todo: expand this to proper int parsers
+int atoi1(const char *s) {
+    return (int)atof1(s);
+}
+vec2i atoi2(const char *s) {
+    vec2 v = atof2(s);
+    return vec2i( v.x, v.y );
+}
+vec3i atoi3(const char *s) {
+    vec3 v = atof3(s);
+    return vec3i( v.x, v.y, v.z );
+}
+
+// endianness -----------------------------------------------------------------
+// - rlyeh, public domain
+
+int is_big() { return IS_BIG; }
+int is_little() { return IS_LITTLE; }
+
+uint16_t  lil16(uint16_t n) { return IS_BIG     ? swap16(n) : n; }
+uint32_t  lil32(uint32_t n) { return IS_BIG     ? swap32(n) : n; }
+uint64_t  lil64(uint64_t n) { return IS_BIG     ? swap64(n) : n; }
+uint16_t  big16(uint16_t n) { return IS_LITTLE  ? swap16(n) : n; }
+uint32_t  big32(uint32_t n) { return IS_LITTLE  ? swap32(n) : n; }
+uint64_t  big64(uint64_t n) { return IS_LITTLE  ? swap64(n) : n; }
+
+float     lil32f(float n)  { return IS_BIG     ? swap32f(n) : n; }
+double    lil64f(double n) { return IS_BIG     ? swap64f(n) : n; }
+float     big32f(float n)  { return IS_LITTLE  ? swap32f(n) : n; }
+double    big64f(double n) { return IS_LITTLE  ? swap64f(n) : n; }
+
+uint16_t* lil16p(void *p, int sz)  { if(IS_BIG    ) { uint16_t *n = (uint16_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap16(n[i]); } return p; }
+uint16_t* big16p(void *p, int sz)  { if(IS_LITTLE ) { uint16_t *n = (uint16_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap16(n[i]); } return p; }
+uint32_t* lil32p(void *p, int sz)  { if(IS_BIG    ) { uint32_t *n = (uint32_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap32(n[i]); } return p; }
+uint32_t* big32p(void *p, int sz)  { if(IS_LITTLE ) { uint32_t *n = (uint32_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap32(n[i]); } return p; }
+uint64_t* lil64p(void *p, int sz)  { if(IS_BIG    ) { uint64_t *n = (uint64_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap64(n[i]); } return p; }
+uint64_t* big64p(void *p, int sz)  { if(IS_LITTLE ) { uint64_t *n = (uint64_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap64(n[i]); } return p; }
+
+float   * lil32pf(void *p, int sz) { if(IS_BIG    ) { float    *n = (float    *)p; for(int i = 0; i < sz; ++i) n[i] = swap32f(n[i]); } return p; }
+float   * big32pf(void *p, int sz) { if(IS_LITTLE ) { float    *n = (float    *)p; for(int i = 0; i < sz; ++i) n[i] = swap32f(n[i]); } return p; }
+double  * lil64pf(void *p, int sz) { if(IS_BIG    ) { double   *n = (double   *)p; for(int i = 0; i < sz; ++i) n[i] = swap64f(n[i]); } return p; }
+double  * big64pf(void *p, int sz) { if(IS_LITTLE ) { double   *n = (double   *)p; for(int i = 0; i < sz; ++i) n[i] = swap64f(n[i]); } return p; }
+
+#if !is(cl) && !is(gcc)
+uint16_t (swap16)( uint16_t x ) { return (x << 8) | (x >> 8); }
+uint32_t (swap32)( uint32_t x ) { x = ((x << 8) & 0xff00ff00) | ((x >> 8) & 0x00ff00ff); return (x << 16) | (x >> 16); }
+uint64_t (swap64)( uint64_t x ) { x = ((x <<  8) & 0xff00ff00ff00ff00ULL) | ((x >>  8) & 0x00ff00ff00ff00ffULL); x = ((x << 16) & 0xffff0000ffff0000ULL) | ((x >> 16) & 0x0000ffff0000ffffULL); return (x << 32) | (x >> 32); }
+#endif
+
+float    swap32f(float n)  { union { float  t; uint32_t i; } conv; conv.t = n; conv.i = swap32(conv.i); return conv.t; }
+double   swap64f(double n) { union { double t; uint64_t i; } conv; conv.t = n; conv.i = swap64(conv.i); return conv.t; }
+
+void swapf(float *a, float *b) {
+    float t = *a; *a = *b; *b = *a;
+}
+void swapf2(vec2 *a, vec2 *b) {
+    float x = a->x; a->x = b->x; b->x = a->x;
+    float y = a->y; a->y = b->y; b->y = a->y;
+}
+void swapf3(vec3 *a, vec3 *b) {
+    float x = a->x; a->x = b->x; b->x = a->x;
+    float y = a->y; a->y = b->y; b->y = a->y;
+    float z = a->z; a->z = b->z; b->z = a->z;
+}
+void swapf4(vec4 *a, vec4 *b) {
+    float x = a->x; a->x = b->x; b->x = a->x;
+    float y = a->y; a->y = b->y; b->y = a->y;
+    float z = a->z; a->z = b->z; b->z = a->z;
+    float w = a->w; a->w = b->w; b->w = a->w;
+}
+
+// half packing -----------------------------------------------------------------
+// from GingerBill's gbmath.h (public domain)
+
+float half_to_float(half value) {
+    union { unsigned int i; float f; } result;
+    int s = (value >> 15) & 0x001;
+    int e = (value >> 10) & 0x01f;
+    int m =  value        & 0x3ff;
+
+    if (e == 0) {
+        if (m == 0) {
+            /* Plus or minus zero */
+            result.i = (unsigned int)(s << 31);
+            return result.f;
+        } else {
+            /* Denormalized number */
+            while (!(m & 0x00000400)) {
+                m <<= 1;
+                e -=  1;
+            }
+            e += 1;
+            m &= ~0x00000400;
+        }
+    } else if (e == 31) {
+        if (m == 0) {
+            /* Positive or negative infinity */
+            result.i = (unsigned int)((s << 31) | 0x7f800000);
+            return result.f;
+        } else {
+            /* Nan */
+            result.i = (unsigned int)((s << 31) | 0x7f800000 | (m << 13));
+            return result.f;
+        }
+    }
+
+    e = e + (127 - 15);
+    m = m << 13;
+
+    result.i = (unsigned int)((s << 31) | (e << 23) | m);
+    return result.f;
+}
+
+half float_to_half(float value) {
+    union { unsigned int i; float f; } v;
+    int i, s, e, m;
+
+    v.f = value;
+    i = (int)v.i;
+
+    s =  (i >> 16) & 0x00008000;
+    e = ((i >> 23) & 0x000000ff) - (127 - 15);
+    m =   i        & 0x007fffff;
+
+    if (e <= 0) {
+        if (e < -10) return (half)s;
+        m = (m | 0x00800000) >> (1 - e);
+
+        if (m & 0x00001000)
+            m += 0x00002000;
+
+        return (half)(s | (m >> 13));
+    } else if (e == 0xff - (127 - 15)) {
+        if (m == 0) {
+            return (half)(s | 0x7c00); /* NOTE(bill): infinity */
+        } else {
+            /* NOTE(bill): NAN */
+            m >>= 13;
+            return (half)(s | 0x7c00 | m | (m == 0));
+        }
+    } else {
+        if (m & 0x00001000) {
+            m += 0x00002000;
+            if (m & 0x00800000) {
+                m = 0;
+                e += 1;
+            }
+        }
+        if (e > 30) {
+            float volatile f = 1e12f;
+            int j;
+            for (j = 0; j < 10; j++)
+                f *= f; /* NOTE(bill): Cause overflow */
+            return (half)(s | 0x7c00);
+        }
+        return (half)(s | (e << 10) | (m >> 13));
+    }
+}
+
+// int packing -----------------------------------------------------------------
+// - rlyeh, public domain
+
+// pack16i() -- store a 16-bit int into a char buffer (like htons())
+// pack32i() -- store a 32-bit int into a char buffer (like htonl())
+// pack64i() -- store a 64-bit int into a char buffer (like htonl())
+
+void pack16i(uint8_t *buf, uint16_t i, int swap) {
+    if( swap ) i = swap16(i);
+    memcpy( buf, &i, sizeof(i) );
+}
+
+void pack32i(uint8_t *buf, uint32_t i, int swap) {
+    if( swap ) i = swap32(i);
+    memcpy( buf, &i, sizeof(i) );
+}
+
+void pack64i(uint8_t *buf, uint64_t i, int swap) {
+    if( swap ) i = swap64(i);
+    memcpy( buf, &i, sizeof(i) );
+}
+
+// unpack16i() -- unpack a 16-bit int from a char buffer (like ntohs())
+// unpack32i() -- unpack a 32-bit int from a char buffer (like ntohl())
+// unpack64i() -- unpack a 64-bit int from a char buffer (like ntohl())
+// changes unsigned numbers to signed if needed.
+
+int16_t unpack16i(const uint8_t *buf, int swap) {
+    uint16_t i;
+    memcpy(&i, buf, sizeof(i));
+    if( swap ) i = swap16(i);
+    return i <= 0x7fffu ? (int16_t)i : -1 -(uint16_t)(0xffffu - i);
+}
+
+int32_t unpack32i(const uint8_t *buf, int swap) {
+    uint32_t i;
+    memcpy(&i, buf, sizeof(i));
+    if( swap ) i = swap32(i);
+    return i <= 0x7fffffffu ? (int32_t)i : -1 -(int32_t)(0xffffffffu - i);
+}
+
+int64_t unpack64i(const uint8_t *buf, int swap) {
+    uint64_t i;
+    memcpy(&i, buf, sizeof(i));
+    if( swap ) i = swap64(i);
+    return i <= 0x7fffffffffffffffull ? (int64_t)i : -1 -(int64_t)(0xffffffffffffffffull - i);
+}
+
+// ----------------------------------------------------------------------------
+// float un/packing: 8 (micro), 16 (half), 32 (float), 64 (double) types
+// - rlyeh, public domain. original code by Beej.us (PD).
+//
+// [src] http://beej.us/guide/bgnet/output/html/multipage/advanced.html#serialization
+// Modified to encode NaN and Infinity as well.
+//
+// [1] http://www.mrob.com/pub/math/floatformats.html#minifloat
+// [2] microfloat: [0.002 to 240] range.
+// [3] half float: can approximate any 16-bit unsigned integer or its reciprocal to 3 decimal places.
+
+uint64_t pack754(long double f, unsigned bits, unsigned expbits) {
+    long double fnorm;
+    int shift;
+    long long sign, exp, significand;
+    unsigned significandbits = bits - expbits - 1; // -1 for sign bit
+
+    if (f == 0.0) return 0; // get this special case out of the way
+//< @r-lyeh beware! works for 32/64 only
+    else if (f ==  INFINITY) return 0x7f800000ULL << (bits - 32); // 0111 1111 1000
+    else if (f == -INFINITY) return 0xff800000ULL << (bits - 32);
+    else if (f != f)         return 0x7fc00000ULL << (bits - 32); // 0111 1111 1100 NaN
+//< @r-lyeh
+
+    // check sign and begin normalization
+    if (f < 0) { sign = 1; fnorm = -f; }
+    else { sign = 0; fnorm = f; }
+
+    // get the normalized form of f and track the exponent
+    shift = 0;
+    while(fnorm >= 2.0) { fnorm /= 2.0; shift++; }
+    while(fnorm < 1.0) { fnorm *= 2.0; shift--; }
+    fnorm = fnorm - 1.0;
+
+    // calculate the binary form (non-float) of the significand data
+    significand = fnorm * ((1LL<<significandbits) + 0.5f);
+
+    // get the biased exponent
+    exp = shift + ((1<<(expbits-1)) - 1); // shift + bias
+
+    // return the final answer
+    return (sign<<(bits-1)) | (exp<<(bits-expbits-1)) | significand;
+}
+
+long double unpack754(uint64_t i, unsigned bits, unsigned expbits) {
+    long double result;
+    long long shift;
+    unsigned bias;
+    unsigned significandbits = bits - expbits - 1; // -1 for sign bit
+
+    if (i == 0) return 0.0;
+//< @r-lyeh beware! works for 32 only
+    else if (i == 0x7fc00000ULL) return  NAN;      //  NaN
+    else if (i == 0x7f800000ULL) return  INFINITY; // +Inf
+    else if (i == 0xff800000ULL) return -INFINITY; // -Inf
+//< @r-lyeh
+
+    // pull the significand
+    result = (i&((1LL<<significandbits)-1)); // mask
+    result /= (1LL<<significandbits); // convert back to float
+    result += 1.0f; // add the one back on
+
+    // deal with the exponent
+    bias = (1<<(expbits-1)) - 1;
+    shift = ((i>>significandbits)&((1LL<<expbits)-1)) - bias;
+    while(shift > 0) { result *= 2.0; shift--; }
+    while(shift < 0) { result /= 2.0; shift++; }
+
+    // sign it
+    result *= (i>>(bits-1))&1? -1.0: 1.0;
+
+    return result;
+}
+
+typedef int static_assert_flt[ sizeof(float) == 4 ];
+typedef int static_assert_dbl[ sizeof(double) == 8 ];
+
+// ----------------------------------------------------------------------------
+// variable-length integer packing
+// - rlyeh, public domain.
+//
+// 7 [0 xxxx xxx]                        7-bit value in  1 byte  (0-                127)
+// 7 [10 xxx xxx] [yyyyyyyy]            14-bit value in  2 bytes (0-             16,383)
+// 6 [110 xx xxx] [yyyyyyyy] [zzzzzzzz] 21-bit value in  3 bytes (0-          2,097,151)
+// 8 [111 00 xxx] [ 3 bytes]            27-bit value in  4 bytes (0-        134,217,727)
+// 8 [111 01 xxx] [ 4 bytes]            35-bit value in  5 bytes (0-     34,359,738,367)
+// 5 [111 10 xxx] [ 5 bytes]            43-bit value in  6 bytes (0-  8,796,093,022,207)
+// 8 [111 11 000] [ 6 bytes]            48-bit value in  7 bytes (0-281,474,976,710,655)
+// 8 [111 11 001] [ 7 bytes]            56-bit value in  8 bytes (...)
+// 8 [111 11 010] [ 8 bytes]            64-bit value in  9 bytes
+// 8 [111 11 011] [ 9 bytes]            72-bit value in 10 bytes
+// 8 [111 11 100] [10 bytes]            80-bit value in 11 bytes
+// A [111 11 101] [12 bytes]            96-bit value in 13 bytes
+// A [111 11 110] [14 bytes]           112-bit value in 15 bytes
+// A [111 11 111] [16 bytes]           128-bit value in 17 bytes
+// 1 1 2 3 = 7
+
+uint64_t pack64uv( uint8_t *buffer, uint64_t value ) {
+#if 1 // LEB128
+    /* encode unsigned : 7-bit pack. MSB terminates stream */
+    const uint8_t *buffer0 = buffer;
+    while( value > 127 ) {
+        *buffer++ = value | 0x80; // (uint8_t)(( value & 0xFF ) | 0x80 );
+        value >>= 7;
+    }
+    *buffer++ = value;
+    return buffer - buffer0;
+#else
+    #define ADD(bits) *buffer++ = (value >>= bits)
+    if( value < (1ull<< 7) ) return *buffer = value, 1;
+    if( value < (1ull<<14) ) return *buffer++ = 0x80|(value&0x3f), ADD(6), 2;
+    if( value < (1ull<<21) ) return *buffer++ = 0xc0|(value&0x1f), ADD(5), ADD(8), 3;
+    if( value < (1ull<<27) ) return *buffer++ = 0xe0|(value&0x07), ADD(3), ADD(8), ADD(8), 4;
+    if( value < (1ull<<35) ) return *buffer++ = 0xe8|(value&0x07), ADD(3), ADD(8), ADD(8), ADD(8), 5;
+    if( value < (1ull<<43) ) return *buffer++ = 0xf0|(value&0x07), ADD(3), ADD(8), ADD(8), ADD(8), ADD(8), 6;
+    if( value < (1ull<<48) ) return *buffer++ = 0xf8|(value&0x00), ADD(0), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), 7;
+    if( value < (1ull<<56) ) return *buffer++ = 0xf9|(value&0x00), ADD(0), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), 8;
+  /*if( value < (1ull<<64))*/return *buffer++ = 0xfa|(value&0x00), ADD(0), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), ADD(8), 9;
+  /*...*/
+    #undef ADD
+#endif
+}
+uint64_t unpack64uv( const uint8_t *buffer, uint64_t *value ) {
+#if 1 // LEB128
+    /* decode unsigned : 7-bit unpack. MSB terminates stream */
+    const uint8_t *buffer0 = buffer;
+    uint64_t out = 0, j = -7;
+    do {
+        out |= ( ((uint64_t)*buffer) & 0x7f) << (j += 7);
+    } while( (*buffer++) & 0x80 );
+    return buffer - buffer0;
+#else
+    uint64_t bytes, out = 0, shift = 0;
+    const int table[] = { 6,7,8,9,10,12,14,16 };
+    /**/ if( *buffer >= 0xf8 ) bytes = table[*buffer - 0xf8];
+    else if( *buffer >= 0xe0 ) bytes = 3 + ((*buffer>>3) & 3);
+    else if( *buffer >= 0xc0 ) bytes = 2;
+    else                       bytes = *buffer >= 0x80;
+
+    #define POP(bits) out = out | (uint64_t)*buffer++ << (shift += bits);
+    switch( bytes ) {
+        default:
+        break; case 0: out = *buffer++;
+        break; case 1: out = *buffer++ & 0x3f; POP(6);
+        break; case 2: out = *buffer++ & 0x1f; POP(5); POP(8);
+        break; case 3: out = *buffer++ & 0x07; POP(3); POP(8); POP(8);
+        break; case 4: out = *buffer++ & 0x07; POP(3); POP(8); POP(8); POP(8);
+        break; case 5: out = *buffer++ & 0x07; POP(3); POP(8); POP(8); POP(8); POP(8);
+        break; case 6: ++buffer; shift = -8;   POP(8); POP(8); POP(8); POP(8); POP(8); POP(8);
+        break; case 7: ++buffer; shift = -8;   POP(8); POP(8); POP(8); POP(8); POP(8); POP(8); POP(8);
+        break; case 8: ++buffer; shift = -8;   POP(8); POP(8); POP(8); POP(8); POP(8); POP(8); POP(8); POP(8);
+    }
+    #undef POP
+
+    return *value = out, bytes+1;
+#endif
+}
+
+// vbyte, varint (signed)
+
+uint64_t pack64iv( uint8_t *buffer, int64_t value_ ) {
+    uint64_t value = (uint64_t)((value_ >> 63) ^ (value_ << 1));
+    return pack64uv(buffer, value); /* convert sign|magnitude to magnitude|sign */
+}
+
+uint64_t unpack64iv( const uint8_t *buffer, int64_t *value ) {
+    uint64_t out = 0, ret = unpack64uv( buffer, &out );
+    *value = ((out >> 1) ^ -(out & 1)); /* convert magnitude|sign to sign|magnitude */
+    return ret;
+}
+
+
+#if 0
+AUTORUN {
+    int tests = 0, passes = 0;
+
+    #define testi(v) do { \
+        int64_t val = v; \
+        char out[16]; \
+        int len = pack64iv(out, val); \
+        int64_t in = ~val; \
+        unpack64iv(out, &in); \
+        int ok = val == in; ++tests; passes += ok; \
+        printf("%c %02d/%02d (-) %#llx (%llu) <-> %d bytes <-> %#llx (%llu)\n", "NY"[ok], passes, tests, val, val, len, in, in); \
+    } while(0)
+
+    #define testu(v) do { \
+        uint64_t val = (v); \
+        char out[16]; \
+        int len = pack64uv(out, val); \
+        uint64_t in = ~val; \
+        unpack64uv(out, &in); \
+        int ok = val == in; ++tests; passes += ok; \
+        printf("%c %02d/%02d (+) %#llx (%llu) <-> %d bytes <-> %#llx (%llu)\n", "NY"[ok], passes, tests, val, val, len, in, in); \
+    } while(0)
+
+    #define TEST(v) do { testi(v); testu(v); } while(0)
+
+    TEST(0);
+    TEST((1ull<<7)-1);
+    TEST( 1ull<<7);
+    TEST((1ull<<14)-1);
+    TEST( 1ull<<14);
+    TEST((1ull<<21)-1);
+    TEST( 1ull<<21);
+    TEST((1ull<<27)-1);
+    TEST( 1ull<<27);
+    TEST((1ull<<35)-1);
+    TEST( 1ull<<35);
+    TEST((1ull<<48)-1);
+    TEST( 1ull<<48);
+    TEST(~0ull-1);
+    TEST(~0ull);
+
+    #undef TEST
+
+    printf("%d tests, %d errors\n", tests, tests - passes);
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// msgpack v5, schema based struct/buffer bitpacking
+// - rlyeh, public domain.
+//
+// [ref] https://github.com/msgpack/msgpack/blob/master/spec.md
+//
+// @todo: finish msgunpack()
+// @todo: alt api v3
+// int msgpack( uint8_t *buf, const char *fmt, ... );
+//   if !buf, bulk size; else pack.
+//   returns number of bytes written; 0 if not space enough.
+// int msgunpack( const uint8_t *buf, const char *fmt, ... );
+//   if !buf, test message; else unpack.
+//   returns number of processed bytes; 0 if parse error.
+
+
+// private alt unpack api v1 {
+enum {
+    ERR,NIL,BOL,UNS,SIG,STR,BIN,FLT,EXT,ARR,MAP
+};
+typedef struct variant {
+    union {
+    uint8_t     chr;
+    uint64_t    uns;
+    int64_t     sig;
+    char       *str;
+    void       *bin;
+    double      flt;
+    uint32_t    u32;
+    };
+    uint64_t sz;
+    uint16_t ext;
+    uint16_t type; //[0..10]={err,nil,bol,uns,sig,str,bin,flt,ext,arr,map}
+} variant;
+bool msgunpack_var(struct variant *var);
+// } private alt unpack api v1
+
+struct writer {
+    uint8_t *w; // Write pointer into buffer
+    size_t len; // Written bytes up to date
+    size_t cap; // Buffer capacity
+};
+
+struct reader {
+    FILE *fp;
+    const void *membuf;
+    size_t memsize, offset;
+    struct variant v; // tmp
+};
+
+static __thread struct writer out;
+static __thread struct reader in;
+
+static void wrbe(uint64_t n, uint8_t *b) {
+#ifndef BIG
+    n = ntoh64(n);
+#endif
+    memcpy(b, &n, sizeof(uint64_t));
+}
+static int wr(int len, uint8_t opcode, uint64_t value) {
+    uint8_t b[8];
+    assert((out.len + (len+1) < out.cap) && "buffer overflow!");
+    *out.w++ = (opcode);
+    /**/ if(len == 1) *out.w++ = (uint8_t)(value);
+    else if(len == 2) wrbe(value, b), memcpy(out.w, &b[6], 2), out.w += 2;
+    else if(len == 4) wrbe(value, b), memcpy(out.w, &b[4], 4), out.w += 4;
+    else if(len == 8) wrbe(value, b), memcpy(out.w, &b[0], 8), out.w += 8;
+    out.len += len+1;
+    return len+1;
+}
+static bool rd(void *buf, size_t len, size_t swap) { // return false any error and/or eof
+    bool ret;
+    if( in.fp ) {
+        assert( !ferror(in.fp) && "invalid file handle (reader)" );
+        ret = len == fread((char*)buf, 1, len, in.fp);
+    } else {
+        assert( in.membuf && "invalid memory buffer (reader)");
+        assert( (in.offset + len <= in.memsize) && "memory overflow! (reader)");
+        ret = !!memcpy(buf, (char*)in.membuf + in.offset, len);
+    }
+#ifndef BIG
+    /**/ if( swap && len == 2 ) *((uint16_t*)buf) = ntoh16(*((uint16_t*)buf));
+    else if( swap && len == 4 ) *((uint32_t*)buf) = ntoh32(*((uint32_t*)buf));
+    else if( swap && len == 8 ) *((uint64_t*)buf) = ntoh64(*((uint64_t*)buf));
+#endif
+    return in.offset += len, ret;
+}
+static bool rdbuf(char **buf, size_t len) { // return false on error or out of memory
+    char *ptr = REALLOC(*buf, len+1);
+    if( ptr && rd(ptr, len, 0) ) {
+        (*buf = ptr)[len] = 0;
+    } else {
+        FREE(ptr), ptr = 0;
+    }
+    return !!ptr;
+}
+
+int msgpack_new(uint8_t *w, size_t l) {
+    out.w = w;
+    out.len = 0;
+    out.cap = l;
+    return w != 0 && l != 0;
+}
+int msgpack_nil() {
+    return wr(0, 0xC0, 0);
+}
+int msgpack_chr(bool c) {
+    return wr(0, c ? 0xC3 : 0xC2, 0);
+}
+int msgpack_uns(uint64_t n) {
+    /**/ if (n < 0x80)           return wr(0, n, 0);
+    else if (n < 0x100)          return wr(1, 0xCC, n);
+    else if (n < 0x10000)        return wr(2, 0xCD, n);
+    else if (n < 0x100000000)    return wr(4, 0xCE, n);
+    else                         return wr(8, 0xCF, n);
+}
+int msgpack_int(int64_t n) {
+    /**/ if (n >= 0)             return msgpack_uns(n);
+    else if (n >= -32)           return wr(0, n, 0); //wr(0, 0xE0 | n, 0);
+    else if (n >= -128)          return wr(1, 0xD0, n + 0xff + 1);
+    else if (n >= -32768)        return wr(2, 0xD1, n + 0xffff + 1);
+    else if (n >= -2147483648LL) return wr(4, 0xD2, n + 0xffffffffull + 1);
+    else                         return wr(8, 0xD3, n + 0xffffffffffffffffull + 1);
+}
+int msgpack_flt(double g) {
+    float f = (float)g;
+    double h = f;
+    /**/ if(g == h) return wr(4, 0xCA, pack754_32(f));
+    else            return wr(8, 0xCB, pack754_64(g));
+}
+int msgpack_str(const char *s) {
+    size_t n = strlen(s), c = n;
+
+    /**/ if (n < 0x20)     c += wr(0, 0xA0 | n, 0);
+    else if (n < 0x100)    c += wr(1, 0xD9, n);
+    else if (n < 0x10000)  c += wr(2, 0xDA, n);
+    else                   c += wr(4, 0xDB, n);
+
+    memcpy(out.w, s, n);
+    out.w += n;
+    out.len += n;
+    return c;
+}
+int msgpack_bin(const char *s, size_t n) {
+    size_t c = n;
+    /**/ if (n < 0x100)    c += wr(1, 0xC4, n);
+    else if (n < 0x10000)  c += wr(2, 0xC5, n);
+    else                   c += wr(4, 0xC6, n);
+
+    memcpy(out.w, s, n);
+    out.w += n;
+    out.len += n;
+    return c;
+}
+int msgpack_arr(uint32_t numitems) {
+    uint32_t n = numitems;
+    /**/ if (n < 0x10)    return wr(0, 0x90 | n, 0);
+    else if (n < 0x10000) return wr(2, 0xDC, n);
+    else                  return wr(4, 0xDD, n);
+}
+int msgpack_map(uint32_t numpairs) {
+    uint32_t n = numpairs;
+    /**/ if (n < 0x10)    return wr(0, 0x80 | n, 0);
+    else if (n < 0x10000) return wr(2, 0xDE, n);
+    else                  return wr(4, 0xDF, n);
+}
+int msgpack_ext(uint8_t key, void *val, size_t n) {
+    uint32_t c = n;
+    /**/ if (n == 1)        c += wr(1, 0xD4, key);
+    else if (n == 2)        c += wr(1, 0xD5, key);
+    else if (n == 4)        c += wr(1, 0xD6, key);
+    else if (n == 8)        c += wr(1, 0xD7, key);
+    else if (n == 16)       c += wr(1, 0xD8, key);
+    else if (n < 0x100)     c += wr(1, 0xC7, n), c += wr(0, key, 0);
+    else if (n < 0x10000)   c += wr(2, 0xC8, n), c += wr(0, key, 0);
+    else                    c += wr(4, 0xC9, n), c += wr(0, key, 0);
+
+    memcpy(out.w, val, n);
+    out.w += n;
+    out.len += n;
+    return c;
+}
+
+bool msgunpack_new( const void *opaque_or_FILE, size_t bytes ) {
+    return !!((memset(&in, 0, sizeof(in)), in.memsize = bytes) ? (in.membuf = opaque_or_FILE) : (in.fp = (FILE*)opaque_or_FILE));
+}
+bool msgunpack_eof() {
+    return in.fp ? !!feof(in.fp) : (in.offset > in.memsize);
+}
+bool msgunpack_err() {
+    return in.fp ? !!ferror(in.fp) : !in.memsize;
+}
+bool msgunpack_var(struct variant *w) {
+    uint8_t tag;
+    struct variant v = {0};
+    if( rd(&tag, 1, 0) )
+    switch(tag) {
+        default:
+        /**/ if((tag & 0x80) == 0x00) { v.type = UNS; v.sz = 1; v.uns =         tag; }
+        else if((tag & 0xe0) == 0xe0) { v.type = SIG; v.sz = 1; v.sig = (int8_t)tag; }
+        else if((tag & 0xe0) == 0xa0) { v.type = rdbuf(&v.str, v.sz = tag & 0x1f) ? STR : ERR; }
+        else if((tag & 0xf0) == 0x90) { v.type = ARR; v.sz = tag & 0x0f; }
+        else if((tag & 0xf0) == 0x80) { v.type = MAP; v.sz = tag & 0x0f; }
+
+        break; case 0xc0: v.type = NIL; v.sz = 0;
+        break; case 0xc2: v.type = BOL; v.sz = 1; v.chr = 0;
+        break; case 0xc3: v.type = BOL; v.sz = 1; v.chr = 1;
+
+        break; case 0xcc: v.type = rd(&v.uns, v.sz = 1, 0) ? UNS : ERR;
+        break; case 0xcd: v.type = rd(&v.uns, v.sz = 2, 1) ? UNS : ERR;
+        break; case 0xce: v.type = rd(&v.uns, v.sz = 4, 1) ? UNS : ERR;
+        break; case 0xcf: v.type = rd(&v.uns, v.sz = 8, 1) ? UNS : ERR;
+
+        break; case 0xd0: v.type = rd(&v.uns, v.sz = 1, 0) ? (v.sig -= 0xff + 1, SIG) : ERR;
+        break; case 0xd1: v.type = rd(&v.uns, v.sz = 2, 1) ? (v.sig -= 0xffff + 1, SIG) : ERR;
+        break; case 0xd2: v.type = rd(&v.uns, v.sz = 4, 1) ? (v.sig -= 0xffffffffull + 1, SIG) : ERR;
+        break; case 0xd3: v.type = rd(&v.uns, v.sz = 8, 1) ? (v.sig -= 0xffffffffffffffffull + 1, SIG) : ERR;
+
+        break; case 0xca: v.type = rd(&v.u32, v.sz = 4, 1) ? (v.flt = unpack754_32(v.u32), FLT) : ERR;
+        break; case 0xcb: v.type = rd(&v.uns, v.sz = 8, 1) ? (v.flt = unpack754_64(v.uns), FLT) : ERR;
+
+        break; case 0xd9: v.type = rd(&v.sz, 1, 0) && rdbuf(&v.str, v.sz) ? STR : ERR;
+        break; case 0xda: v.type = rd(&v.sz, 2, 1) && rdbuf(&v.str, v.sz) ? STR : ERR;
+        break; case 0xdb: v.type = rd(&v.sz, 4, 1) && rdbuf(&v.str, v.sz) ? STR : ERR;
+
+        break; case 0xc4: v.type = rd(&v.sz, 1, 0) && rdbuf(&v.str, v.sz) ? BIN : ERR;
+        break; case 0xc5: v.type = rd(&v.sz, 2, 1) && rdbuf(&v.str, v.sz) ? BIN : ERR;
+        break; case 0xc6: v.type = rd(&v.sz, 4, 1) && rdbuf(&v.str, v.sz) ? BIN : ERR;
+
+        break; case 0xdc: v.type = rd(&v.sz, 2, 1) ? ARR : ERR;
+        break; case 0xdd: v.type = rd(&v.sz, 4, 1) ? ARR : ERR;
+
+        break; case 0xde: v.type = rd(&v.sz, 2, 1) ? MAP : ERR;
+        break; case 0xdf: v.type = rd(&v.sz, 4, 1) ? MAP : ERR;
+
+        break; case 0xd4: v.type = rd(&v.ext, 1, 0) && rd(&v.uns, 1, 0) && rdbuf(&v.str, v.sz = v.uns) ? EXT : ERR;
+        break; case 0xd5: v.type = rd(&v.ext, 1, 0) && rd(&v.uns, 2, 1) && rdbuf(&v.str, v.sz = v.uns) ? EXT : ERR;
+        break; case 0xd6: v.type = rd(&v.ext, 1, 0) && rd(&v.uns, 4, 1) && rdbuf(&v.str, v.sz = v.uns) ? EXT : ERR;
+        break; case 0xd7: v.type = rd(&v.ext, 1, 0) && rd(&v.uns, 8, 1) && rdbuf(&v.str, v.sz = v.uns) ? EXT : ERR;
+        break; case 0xd8: v.type = rd(&v.ext, 1, 0) && rd(&v.uns,16, 1) && rdbuf(&v.str, v.sz = v.uns) ? EXT : ERR;
+
+        break; case 0xc7: v.type = rd(&v.sz, 1, 0) && rd(&v.ext, 1, 0) && rdbuf(&v.str,v.sz) ? EXT : ERR;
+        break; case 0xc8: v.type = rd(&v.sz, 2, 1) && rd(&v.ext, 1, 1) && rdbuf(&v.str,v.sz) ? EXT : ERR;
+        break; case 0xc9: v.type = rd(&v.sz, 4, 1) && rd(&v.ext, 1, 1) && rdbuf(&v.str,v.sz) ? EXT : ERR;
+    }
+    return *w = v, v.type != ERR;
+}
+bool msgunpack_nil() {
+    return msgunpack_var(&in.v) && (in.v.type == NIL);
+}
+bool msgunpack_chr(bool *chr) {
+    return msgunpack_var(&in.v) && (*chr = in.v.chr, in.v.type == BOL);
+}
+bool msgunpack_uns(uint64_t *uns) {
+    return msgunpack_var(&in.v) && (*uns = in.v.uns, in.v.type == UNS);
+}
+bool msgunpack_int(int64_t *sig) {
+    return msgunpack_var(&in.v) && (*sig = in.v.sig, in.v.type == SIG);
+}
+bool msgunpack_flt(float *flt) {
+    return msgunpack_var(&in.v) && (*flt = in.v.flt, in.v.type == FLT);
+}
+bool msgunpack_dbl(double *dbl) {
+    return msgunpack_var(&in.v) && (*dbl = in.v.flt, in.v.type == FLT);
+}
+bool msgunpack_bin(void **bin, uint64_t *len) {
+    return msgunpack_var(&in.v) && (*bin = in.v.bin, *len = in.v.sz, in.v.type == BIN);
+}
+bool msgunpack_str(char **str) {
+    return msgunpack_var(&in.v) && (str ? *str = in.v.str, in.v.type == STR : in.v.type == STR);
+}
+bool msgunpack_ext(uint8_t *key, void **val, uint64_t *len) {
+    return msgunpack_var(&in.v) && (*key = in.v.ext, *val = in.v.bin, *len = in.v.sz, in.v.type == EXT);
+}
+bool msgunpack_arr(uint64_t *len) {
+    return msgunpack_var(&in.v) && (*len = in.v.sz, in.v.type == ARR);
+}
+bool msgunpack_map(uint64_t *len) {
+    return msgunpack_var(&in.v) && (*len = in.v.sz, in.v.type == MAP);
+}
+
+
+int msgpack(const char *fmt, ... ) {
+    int count = 0;
+    va_list vl;
+    va_start(vl, fmt);
+    while( *fmt ) {
+        char f = *fmt++;
+        switch( f ) {
+            break; case '{': { int i = va_arg(vl, int64_t); count += msgpack_map( i ); }
+            break; case '[': { int i = va_arg(vl, int64_t); count += msgpack_arr( i ); }
+            break; case 'b': { bool v = !!va_arg(vl, int64_t); count += msgpack_chr(v); }
+            break; case 'e': { uint8_t k = va_arg(vl, uint64_t); void *v = va_arg(vl, void*); size_t l = va_arg(vl, uint64_t); count += msgpack_ext( k, v, l ); }
+            break; case 'n': { count += msgpack_nil(); }
+            break; case 'p': { void *p = va_arg(vl, void*); size_t l = va_arg(vl, uint64_t); count += msgpack_bin( p, l ); }
+            break; case 's': { const char *v = va_arg(vl, const char *); count += msgpack_str(v); }
+            break; case 'u': { uint64_t v = va_arg(vl, uint64_t); count += msgpack_uns(v); }
+            break; case 'd': case 'i': { int64_t v = va_arg(vl, int64_t); count += msgpack_int(v); }
+            break; case 'f': case 'g': { double v = va_arg(vl, double); count += msgpack_flt(v); }
+            default: /*count = 0;*/ break;
+        }
+    }
+    va_end(vl);
+    return count;
+}
+int msgunpack(const char *fmt, ... ) {
+    int count = 0;
+    va_list vl;
+    va_start(vl, fmt);
+    while( *fmt ) {
+        char f = *fmt++;
+        switch( f ) {
+            break; case '{': { int64_t *i = va_arg(vl, int64_t*); count += msgunpack_map( i ); }
+            break; case '[': { int64_t *i = va_arg(vl, int64_t*); count += msgunpack_arr( i ); }
+            break; case 'f': { float *v = va_arg(vl, float*); count += msgunpack_flt(v); }
+            break; case 'g': { double *v = va_arg(vl, double*); count += msgunpack_dbl(v); }
+            break; case 's': { char **v = va_arg(vl, char **); count += msgunpack_str(v); }
+//          break; case 'b': { bool *v = !!va_arg(vl, bool*); count += msgunpack_chr(v); }
+//          break; case 'e': { uint8_t k = va_arg(vl, uint64_t); void *v = va_arg(vl, void*); size_t l = va_arg(vl, uint64_t); count += msgunpack_ext( k, v, l ); }
+//          break; case 'n': { count += msgunpack_nil(); }
+            break; case 'p': { void *p = va_arg(vl, void*); uint64_t l = va_arg(vl, uint64_t); count += msgunpack_bin( p, &l ); }
+//          break; case 'u': { uint64_t v = va_arg(vl, uint64_t); count += msgunpack_uns(v); }
+//          break; case 'd': case 'i': { int64_t v = va_arg(vl, int64_t); count += msgunpack_int(v); }
+            default: /*count = 0;*/ break;
+        }
+    }
+    va_end(vl);
+    return count;
+}
+
+#if 0
+AUTORUN {
+#   define unit(title)
+#   define data(data) msgunpack_new(data, sizeof(data) -1 )
+#   define TEST(expr) test(msgunpack_var(&obj) && !!(expr))
+
+    int test_len;
+    const char *test_data = 0;
+    struct variant obj = {0};
+
+    /*
+     * Test vectors are derived from
+     * `https://github.com/ludocode/mpack/blob/v0.8.2/test/test-write.c`.
+     */
+
+    unit("(minposfixint)");
+    data("\x00");
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 0);
+
+    unit("(maxposfixint)");
+    data("\x7f");
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 127);
+
+    unit("(maxnegfixint)");
+    data("\xe0");
+    TEST(obj.type == SIG && obj.sz == 1 && obj.uns == -32);
+
+    unit("(minnegfixint)");
+    data("\xff");
+    TEST(obj.type == SIG && obj.sz == 1 && obj.uns == -1);
+
+    unit("(uint8)");
+    data("\xcc\0");
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 0);
+
+    unit("(uint16)");
+    data("\xcd\0\0");
+    TEST(obj.type == UNS && obj.sz == 2 && obj.uns == 0);
+
+    unit("(uint32)");
+    data("\xce\0\0\0\0");
+    TEST(obj.type == UNS && obj.sz == 4 && obj.uns == 0);
+
+    unit("(uint64)");
+    data("\xcf\0\0\0\0\0\0\0\0");
+    TEST(obj.type == UNS && obj.sz == 8 && obj.uns == 0);
+
+    unit("(float32)");
+    data("\xca\0\0\0\0");
+    TEST(obj.type == FLT && obj.sz == 4 && obj.uns == 0);
+
+    unit("(float64)");
+    data("\xcb\0\0\0\0\0\0\0\0");
+    TEST(obj.type == FLT && obj.sz == 8 && obj.uns == 0);
+
+    unit("(string)");
+    data("\xa5Hello");
+    TEST(obj.type == STR && obj.sz == 5 && !strcmp(obj.str, "Hello"));
+
+    unit("(str8)");
+    data("\xd9\x05Hello");
+    TEST(obj.type == STR && obj.sz == 5 && !strcmp(obj.str, "Hello"));
+
+    unit("(str16)");
+    data("\xda\0\x05Hello");
+    TEST(obj.type == STR && obj.sz == 5 && !strcmp(obj.str, "Hello"));
+
+    unit("(str32)");
+    data("\xdb\0\0\0\x05Hello");
+    TEST(obj.type == STR && obj.sz == 5 && !strcmp(obj.str, "Hello"));
+
+    unit("(array)");
+    data("\x91\x01");
+    TEST(obj.type == ARR && obj.sz == 1);
+
+    unit("(array8)");
+    data("\x91\x01");
+    TEST(obj.type == ARR && obj.sz == 1);
+
+    unit("(array16)");
+    data("\xdc\0\x01\x01");
+    TEST(obj.type == ARR && obj.sz == 1);
+
+    unit("(map8)");
+    data("\x81\x01\x01");
+    TEST(obj.type == MAP && obj.sz == 1);
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 1);
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 1);
+
+    unit("(map32)");
+    data("\xdf\0\0\0\x01\xa5Hello\x01");
+    TEST(obj.type == MAP && obj.sz == 1);
+    TEST(obj.type == STR && obj.sz == 5 && !strcmp(obj.str, "Hello"));
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 1);
+
+    unit("(+fixnum)");
+    data("\x00"); TEST(obj.type == UNS && obj.uns == 0);
+    data("\x01"); TEST(obj.type == UNS && obj.uns == 1);
+    data("\x02"); TEST(obj.type == UNS && obj.uns == 2);
+    data("\x0f"); TEST(obj.type == UNS && obj.uns == 0x0f);
+    data("\x10"); TEST(obj.type == UNS && obj.uns == 0x10);
+    data("\x7f"); TEST(obj.type == UNS && obj.uns == 0x7f);
+
+    unit("(-fixnum)");
+    data("\xff"); TEST(obj.type == SIG && obj.sig == -1);
+    data("\xfe"); TEST(obj.type == SIG && obj.sig == -2);
+    data("\xf0"); TEST(obj.type == SIG && obj.sig == -16);
+    data("\xe0"); TEST(obj.type == SIG && obj.sig == -32);
+
+    unit("(+int)");
+    data("\xcc\x80"); TEST(obj.type == UNS && obj.uns == 0x80);
+    data("\xcc\xff"); TEST(obj.type == UNS && obj.uns == 0xff);
+    data("\xcd\x01\x00"); TEST(obj.type == UNS && obj.uns == 0x100);
+    data("\xcd\xff\xff"); TEST(obj.type == UNS && obj.uns == 0xffff);
+    data("\xce\x00\x01\x00\x00"); TEST(obj.type == UNS && obj.uns == 0x10000);
+    data("\xce\xff\xff\xff\xff"); TEST(obj.type == UNS && obj.uns == 0xffffffffull);
+    data("\xcf\x00\x00\x00\x01\x00\x00\x00\x00"); TEST(obj.type == UNS && obj.uns == 0x100000000ull);
+    data("\xcf\xff\xff\xff\xff\xff\xff\xff\xff"); TEST(obj.type == UNS && obj.uns == 0xffffffffffffffffull);
+
+    unit("(-int)");
+    data("\xd0\xdf"); TEST(obj.type == SIG && obj.sig == -33);
+    data("\xd0\x80"); TEST(obj.type == SIG && obj.sig == -128);
+    data("\xd1\xff\x7f"); TEST(obj.type == SIG && obj.sig == -129);
+    data("\xd1\x80\x00"); TEST(obj.type == SIG && obj.sig == -32768);
+    data("\xd2\xff\xff\x7f\xff"); TEST(obj.type == SIG && obj.sig == -32769);
+    data("\xd2\x80\x00\x00\x00"); TEST(obj.type == SIG && obj.sig == -2147483648ll);
+    data("\xd3\xff\xff\xff\xff\x7f\xff\xff\xff"); TEST(obj.type == SIG && obj.sig == -2147483649ll);
+    data("\xd3\x80\x00\x00\x00\x00\x00\x00\x00"); TEST(obj.type == SIG && obj.sig == INT64_MIN);
+
+    unit("(misc)");
+    data("\xc0"); TEST(obj.type == NIL && obj.chr == 0);
+    data("\xc2"); TEST(obj.type == BOL && obj.chr == 0);
+    data("\xc3"); TEST(obj.type == BOL && obj.chr == 1);
+
+    data("\x90"); TEST(obj.type == ARR && obj.sz == 0);
+
+    data("\x91\xc0");
+    TEST(obj.type==ARR && obj.sz==1);
+    TEST(obj.type==NIL);
+
+    data("\x9f\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e");
+    TEST(obj.type==ARR && obj.sz==15);
+    for(int i = 0; i < 15; ++i) {
+        TEST(obj.type==UNS && obj.sig==i);
+    }
+
+    data("\xdc\x00\x10\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+         "\x0d\x0e\x0f");
+    TEST(obj.type==ARR && obj.sz==16);
+    for(unsigned i = 0; i < 16; ++i) {
+        TEST(obj.type == UNS && obj.uns == i);
+    }
+
+    data("\x80");
+    TEST(obj.type == MAP && obj.sz == 0);
+
+    data("\x81\xc0\xc0");
+    TEST(obj.type == MAP && obj.sz == 1);
+    TEST(obj.type == NIL);
+    TEST(obj.type == NIL);
+
+    data("\x82\x00\x00\x01\x01");
+    TEST(obj.type == MAP && obj.sz == 2);
+    TEST(obj.type == UNS && obj.sig == 0);
+    TEST(obj.type == UNS && obj.sig == 0);
+    TEST(obj.type == UNS && obj.sig == 1);
+    TEST(obj.type == UNS && obj.sig == 1);
+
+    data("\x8f\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e"
+         "\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d");
+    TEST(obj.type == MAP && obj.sz == 15);
+    for(unsigned i = 0; i < 15; ++i) {
+        TEST(obj.type == UNS && obj.uns == i*2+0);
+        TEST(obj.type == UNS && obj.uns == i*2+1);
+    }
+
+    data("\xde\x00\x10\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+         "\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c"
+         "\x1d\x1e\x1f");
+    TEST(obj.type == MAP && obj.sz == 16);
+    for(unsigned i = 0; i < 16; ++i) {
+        TEST(obj.type == UNS && obj.uns == i*2+0);
+        TEST(obj.type == UNS && obj.uns == i*2+1);
+    }
+
+    data("\x91\x90");
+    test( obj.type == ARR && obj.sz == 1 );
+    test( obj.type == ARR && obj.sz == 0 );
+
+    data("\x93\x90\x91\x00\x92\x01\x02");
+    test( obj.type == ARR && obj.sz == 3 );
+        test( obj.type == ARR && obj.sz == 0 );
+        test( obj.type == ARR && obj.sz == 1 );
+            test( obj.type == UNS && obj.uns == 0 );
+        test( obj.type == ARR && obj.sz == 2 );
+            test( obj.type == UNS && obj.uns == 1 );
+            test( obj.type == UNS && obj.uns == 2 );
+
+    data("\x95\x90\x91\xc0\x92\x90\x91\xc0\x9f\x00\x01\x02\x03\x04\x05\x06"
+         "\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\xdc\x00\x10\x00\x01\x02\x03\x04"
+         "\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f");
+    test( obj.type == ARR && obj.sz == 5 );
+        test( obj.type == ARR && obj.sz == 0 );
+        test( obj.type == ARR && obj.sz == 1 );
+            test( obj.type == NIL );
+        test( obj.type == ARR && obj.sz == 2 );
+            test( obj.type == ARR && obj.sz == 0 );
+            test( obj.type == ARR && obj.sz == 1 );
+                test( obj.type == NIL );
+        test( obj.type == ARR && obj.sz == 15 );
+            for( unsigned i = 0; i < 15; ++i ) {
+                test( obj.type == UNS && obj.uns == i );
+            }
+        test( obj.type == ARR && obj.sz == 16 );
+            for( unsigned i = 0; i < 15; ++i ) {
+                test( obj.type == UNS && obj.uns == i );
+            }
+
+    data("\x85\x00\x80\x01\x81\x00\xc0\x02\x82\x00\x80\x01\x81\xc0\xc0\x03"
+         "\x8f\x00\x00\x01\x01\x02\x02\x03\x03\x04\x04\x05\x05\x06\x06\x07"
+         "\x07\x08\x08\x09\x09\x0a\x0a\x0b\x0b\x0c\x0c\x0d\x0d\x0e\x0e\x04"
+         "\xde\x00\x10\x00\x00\x01\x01\x02\x02\x03\x03\x04\x04\x05\x05\x06"
+         "\x06\x07\x07\x08\x08\x09\x09\x0a\x0a\x0b\x0b\x0c\x0c\x0d\x0d\x0e"
+         "\x0e\x0f\x0f");
+    TEST(obj.type == MAP && obj.sz == 5);
+        TEST(obj.type == UNS && obj.uns == 0);
+        TEST(obj.type == MAP && obj.sz == 0);
+        TEST(obj.type == UNS && obj.uns == 1);
+        TEST(obj.type == MAP && obj.sz == 1);
+            TEST(obj.type == UNS && obj.uns == 0);
+            TEST(obj.type == NIL);
+        TEST(obj.type == UNS && obj.uns == 2);
+        TEST(obj.type == MAP && obj.sz == 2);
+            TEST(obj.type == UNS && obj.uns == 0);
+            TEST(obj.type == MAP && obj.sz == 0);
+            TEST(obj.type == UNS && obj.uns == 1);
+            TEST(obj.type == MAP && obj.sz == 1);
+                TEST(obj.type == NIL);
+                TEST(obj.type == NIL);
+        TEST(obj.type == UNS && obj.uns == 3);
+        TEST(obj.type == MAP && obj.sz == 15);
+            for( unsigned i = 0; i < 15; ++i ) {
+                TEST(obj.type == UNS && obj.uns == i);
+                TEST(obj.type == UNS && obj.uns == i);
+            }
+        TEST(obj.type == UNS && obj.uns == 4);
+        TEST(obj.type == MAP && obj.sz == 16);
+            for( unsigned i = 0; i < 16; ++i ) {
+                TEST(obj.type == UNS && obj.uns == i);
+                TEST(obj.type == UNS && obj.uns == i);
+            }
+
+    data("\x85\xd0\xd1\x91\xc0\x90\x81\xc0\x00\xc0\x82\xc0\x90\x04\x05\xa5"
+         "\x68\x65\x6c\x6c\x6f\x93\xa7\x62\x6f\x6e\x6a\x6f\x75\x72\xc0\xff"
+         "\x91\x5c\xcd\x01\x5e");
+    TEST(obj.type == MAP && obj.sz == 5);
+        TEST(obj.type == SIG && obj.sig == -47);
+        TEST(obj.type == ARR && obj.sz == 1);
+            TEST(obj.type == NIL);
+        TEST(obj.type == ARR && obj.sz == 0);
+        TEST(obj.type == MAP && obj.sz == 1);
+            TEST(obj.type == NIL);
+            TEST(obj.type == UNS && obj.uns == 0);
+        TEST(obj.type == NIL);
+        TEST(obj.type == MAP && obj.sz == 2);
+            TEST(obj.type == NIL);
+            TEST(obj.type == ARR && obj.sz == 0);
+            TEST(obj.type == UNS && obj.uns == 4);
+            TEST(obj.type == UNS && obj.uns == 5);
+        TEST(obj.type == STR && !strcmp(obj.str, "hello"));
+        TEST(obj.type == ARR && obj.sz == 3);
+            TEST(obj.type == STR && !strcmp(obj.str, "bonjour"));
+            TEST(obj.type == NIL);
+            TEST(obj.type == SIG && obj.sig == -1);
+        TEST(obj.type == ARR && obj.sz == 1);
+            TEST(obj.type == UNS && obj.uns == 92);
+        TEST(obj.type == UNS && obj.uns == 350);
+
+    data("\x82\xa7" "compact" "\xc3\xa6" "schema" "\x00");
+    TEST(obj.type == MAP && obj.sz == 2);
+    TEST(obj.type == STR && obj.sz == 7 && !strcmp(obj.str, "compact"));
+    TEST(obj.type == BOL && obj.chr == 1);
+    TEST(obj.type == STR && obj.sz == 6 && !strcmp(obj.str, "schema"));
+    TEST(obj.type == UNS && obj.sz == 1 && obj.uns == 0);
+
+#   undef TEST
+#   undef data
+#   undef unit
+}
+
+bool vardump( struct variant *w ) {
+    static int tabs = 0;
+    struct variant v = *w;
+    printf("%.*s", tabs, "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t");
+    switch( v.type ) {
+    default: case ERR:
+         if( !msgunpack_eof() ) printf("ERROR: unknown tag type (%02X)\n", (int)v.type);
+         return false;
+    break; case NIL: printf("(%s)\n", "null");
+    break; case BOL: printf("bool: %d\n", v.chr);
+    break; case SIG: printf("int: %lld\n", v.sig);
+    break; case UNS: printf("uint: %llu\n", v.uns);
+    break; case FLT: printf("float: %g\n", v.flt);
+    break; case STR: printf("string: '%s'\n", v.str);
+    break; case BIN: { for( size_t n = 0; n < v.sz; n++ ) printf("%s%02x(%c)", n > 0 ? " ":"binary: ", v.str[n], v.str[n] >= 32 ? v.str[n] : '.'); puts(""); }
+    break; case EXT: { printf("ext: [%02X (%d)] ", v.ext, v.ext); for( size_t n = 0; n < v.sz; n++ ) printf("%s%02x(%c)", n > 0 ? " ":"", v.str[n], v.str[n] >= 32 ? v.str[n] : '.'); puts(""); }
+    break; case ARR: {
+        ++tabs; puts("[");
+        for( size_t n = v.sz; n-- > 0; ) {
+            if( !msgunpack_var(&v) || !vardump(&v) ) return false;
+        }
+        --tabs; puts("]");
+    }
+    break; case MAP: {
+        ++tabs; puts("{");
+        for( size_t n = v.sz; n-- > 0; ) {
+            if( !msgunpack_var(&v) || !vardump(&v) ) return false;
+            if( !msgunpack_var(&v) || !vardump(&v) ) return false;
+        }
+        --tabs; puts("}");
+    }}
+    return true;
+}
+
+void testdump( const char *fname ) {
+    FILE *fp = fopen(fname, "rb");
+    if( !fp ) {
+        fputs("Cannot read input stream", stderr);
+    } else {
+        if( msgunpack_new(fp, 0) ) {
+            struct variant v;
+            while( msgunpack_var(&v) ) {
+                vardump(&v);
+            }
+            if( msgunpack_err() ) {
+                fputs("Error while unpacking", stderr);
+            }
+        }
+        fclose(fp);
+    }
+}
+
+void testwrite(const char *outfile) {
+    char buf[256];
+    msgpack_new(buf, 256);
+    int len = msgpack("ddufs [dddddddd-dddddddd {sisi bne"/*bp0*/,
+        -123LL, 123LL, 123456ULL, 3.14159f, "hello world",
+        16ULL,
+         -31LL, -32LL, -127LL, -128LL, -255LL, -256LL, -511LL, -512LL,  // ,121, 3, "hi",
+         +31LL, +32LL, +127LL, +128LL, +255LL, +256LL, +511LL, +512LL,  // ,121, 3, "hi",
+        2ULL,
+          "hello", -123LL,
+          "world", -456LL,
+        1ULL,
+        0xeeULL, "this is an EXT type", sizeof("this is an EXT type")-1
+    );
+    hexdump(buf, len);
+
+    FILE *fp = fopen(outfile, "wb");
+    if( fp ) {
+        fwrite( buf, len, 1, fp );
+        fclose(fp);
+    }
+}
+
+AUTORUN {
+    testwrite("out.mp");
+    testdump("out.mp");
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// STRUCT PACKING
+// Based on code by Brian "Beej Jorgensen" Hall (public domain) [1].
+// Based on code by Ginger Bill's half<->float (public domain) [2].
+// - rlyeh, public domain.
+//
+// pack.c  -- perl/python-ish pack/unpack functions
+// like printf and scanf, but for binary data.
+//
+// format flags:
+//  (<) little endian       (>) big endian (! also)     (=) native endian
+//  (c) 8-bit  char         (b) 8-bit  byte
+//  (h) 16-bit half         (w) 16-bit word
+//  (i) 32-bit integer      (u) 32-bit unsigned         (f) 32-bit float
+//  (l) 64-bit long         (q) 64-bit quad             (d) 64-bit double
+//  (v) varint
+//  (s) string   (64-bit varint length prepended)
+//  (S) string   (32-bit fixed  length prepended)
+//  (m) memblock (64-bit varint length prepended)
+//  (M) memblock (32-bit fixed  length prepended)
+//  (z) memblock (zeroed)
+//  (#) number of arguments processed (only when unpacking)
+//
+// @todo:
+// - (x) document & test flag
+// @totest:
+// - (s) string   (64-bit variable length automatically prepended)
+// - (S) string   (32-bit fixed    length automatically prepended)
+// - (m) memblock (64-bit variable length automatically prepended)
+// - (M) memblock (32-bit fixed    length automatically prepended)
+// - (z) memblock (zeroed)
+// - (#) number of arguments processed (only when unpacking)
+//
+// @refs:
+// [1] http://beej.us/guide/bgnet/output/html/multipage/advanced.html#serialization (Modified to encode NaN and Infinity as well.)
+// [2] https://github.com/gingerBill/gb
+// [3] http://www.mrob.com/pub/math/floatformats.html#minifloat
+// [4] microfloat: [0.002 to 240] range.
+// [5] half float: can approximate any 16-bit unsigned integer or its reciprocal to 3 decimal places.
+
+// b/f packing -----------------------------------------------------------------
+
+int loadb_(const uint8_t *buf, const char *fmt, va_list ap) {
+    uint64_t args = 0;
+    const uint8_t *buf0 = buf;
+    char tmp[16+1];
+    //uint64_t size = 0, len;
+    int32_t len, count, maxstrlen=0;
+    int le = 0;
+
+    if(!buf) // buffer estimation
+    for(; *fmt != '\0'; fmt++) {
+        switch(*fmt) {
+        default: if (!isdigit(*fmt)) return 0;
+        break; case '!': case '>': case '<': case '=': case ' ':                                                      //  0-bit endianness
+        break; case 'c': case 'b': { int8_t c = (int8_t)va_arg(ap, int); buf += 1; }                                  //  8-bit promoted
+        break; case 'h': case 'w': { int16_t h = (int16_t)va_arg(ap, int); buf += 2; }                                // 16-bit promoted
+        break; case 'i': case 'u': { int32_t l = va_arg(ap, int32_t); buf += 4; }                                     // 32-bit
+        break; case 'l': case 'q': { int64_t L = va_arg(ap, int64_t); buf += 8; }                                     // 64-bit
+        break; case 'f': { float f = (float)va_arg(ap, double); buf += 4; }                                           // 32-bit float promoted
+        break; case 'd': { double F = (double)va_arg(ap, double); buf += 8; }                                         // 64-bit float (double)
+        break; case 'v': { int64_t L = va_arg(ap, int64_t); buf += pack64iv(tmp, L); }                                // varint (8,16,32,64 ...)
+        break; case 's': { char* s = va_arg(ap, char*); len = strlen(s); buf += pack64iv(tmp, len) + len; }           // string, 64-bit variable length prepended
+        break; case 'S': { char* s = va_arg(ap, char*); len = strlen(s); buf += 4 + len; }                            // string, 32-bit fixed    length prepended
+        break; case 'm': { int len = va_arg(ap, int); char *s = va_arg(ap, char*); buf += pack64iv(tmp, len) + len; } // memblock, 64-bit variable length prepended
+        break; case 'M': { int len = va_arg(ap, int); char *s = va_arg(ap, char*); buf += 4 + len; }                  // memblock, 32-bit fixed    length prepended
+        break; case 'z': { int len = va_arg(ap, int); buf += len; }                                                   // memblock (zeroed)
+        }
+    }
+
+    if(buf) // buffer unpacking
+    for(; *fmt != '\0'; fmt++) {
+        switch(*fmt) {
+        default:
+            if (isdigit(*fmt)) { // track max str len
+                maxstrlen = maxstrlen * 10 + (*fmt-'0');
+            } else {
+                return 0;
+            }
+        break; case ' ':
+        break; case '!': le = 0;
+        break; case '>': le = 0;
+        break; case '<': le = 1;
+        break; case '=': le = is_little() ? 1 : 0;
+        break; case 'c': case 'b': ++args; { // 8-bit
+            int8_t *v = va_arg(ap, int8_t*);
+            *v = *buf <= 0x7f ? (int8_t)*buf : -1 -(uint8_t)(0xffu - *buf);
+            buf += 1;
+        }
+        break; case 'h': case 'w': ++args; { // 16-bit
+            int16_t *v = va_arg(ap, int16_t*);
+            *v = unpack16i(buf, le);
+            buf += 2;
+        }
+        break; case 'i': case 'u': ++args; { // 32-bit
+            int32_t *v = va_arg(ap, int32_t*);
+            *v = unpack32i(buf, le);
+            buf += 4;
+        }
+        break; case 'l': case 'q': ++args; { // 64-bit
+            int64_t *v = va_arg(ap, int64_t*);
+            *v = unpack64i(buf, le);
+            buf += 8;
+        }
+        break; case 'v': ++args; { // varint (8,16,32,64 ...)
+            int64_t *L = va_arg(ap, int64_t*);
+            buf += unpack64iv(buf, L);
+        }
+        break; case 'f': ++args; { // 32-bit float
+            float *v = va_arg(ap, float*);
+            int32_t i = unpack32i(buf, le);
+            *v = unpack754_32(i);
+            buf += 4;
+        }
+        break; case 'd': ++args; { // 64-bit float (double)
+            double *v = va_arg(ap, double*);
+            int64_t i = unpack64i(buf, le);
+            *v = unpack754_64(i);
+            buf += 8;
+        }
+        break; case 'S': ++args; { // string, 32-bit fixed length prepended
+            char *s = va_arg(ap, char*);
+            int64_t vlen = unpack32i(buf, le), read = 4;
+            count = (maxstrlen > 0 && vlen >= maxstrlen ? maxstrlen - 1 : vlen);
+            memcpy(s, buf + read, count);
+            s[count] = '\0';
+            buf += read + vlen;
+        }
+        break; case 's': ++args; { // string, 64-bit variable length prepended
+            char *s = va_arg(ap, char*);
+            int64_t vlen, read = unpack64iv(buf, &vlen);
+            count = (maxstrlen > 0 && vlen >= maxstrlen ? maxstrlen - 1 : vlen);
+            memcpy(s, buf + read, count);
+            s[count] = '\0';
+            buf += read + vlen;
+        }
+        break; case 'M': ++args; { // memblock, 32-bit fixed length prepended
+            char *s = va_arg(ap, char*);
+            int64_t vlen = unpack64iv(buf, &vlen), read = 4;
+            count = vlen; //(maxstrlen > 0 && vlen >= maxstrlen ? maxstrlen - 1 : vlen);
+            memcpy(s, buf + read, count);
+            //s[count] = '\0';
+            buf += read + vlen;
+        }
+        break; case 'm': ++args; { // memblock, 64-bit variable length prepended
+            char *s = va_arg(ap, char*);
+            int64_t vlen, read = unpack64iv(buf, &vlen);
+            count = vlen; //(maxstrlen > 0 && vlen >= maxstrlen ? maxstrlen - 1 : vlen);
+            memcpy(s, buf + read, count);
+            //s[count] = '\0';
+            buf += read + vlen;
+        }
+        break; case 'z': ++args; { // zero-init mem block
+            int *l = va_arg(ap, int*);
+            const uint8_t *prev = buf;
+            while( *buf == 0 ) ++buf;
+            *l = buf - prev;
+        }
+        break; case '#': {
+            int *l = va_arg(ap, int*);
+            *l = args;
+        }
+        }
+
+        if (!isdigit(*fmt)) {
+            maxstrlen = 0;
+        }
+    }
+
+    return (int)( buf - buf0 );
+}
+
+int saveb_(uint8_t *buf, const char *fmt, va_list ap) {
+    uint64_t size = 0, len;
+    int le = 0;
+
+    // buffer estimation
+    if( !buf ) {
+        return loadb_(buf, fmt, ap); // + strlen(buf) * 17; // worse (v)arint estimation for 128-bit ints (17 bytes each)
+    }
+
+    // buffer packing
+    for(; *fmt != '\0'; fmt++) {
+        switch(*fmt) {
+        default: size = 0; // error
+        break; case '!': le = 0;
+        break; case '>': le = 0;
+        break; case '<': le = 1;
+        break; case ' ': le = le;
+        break; case '=': le = is_little() ? 1 : 0;
+        break; case 'c': case 'b': { // 8-bit
+            int v = (int8_t)va_arg(ap, int /*promoted*/ );
+            *buf++ = (v>>0)&0xff;
+            size += 1;
+        }
+        break; case 'h': case 'w': { // 16-bit
+            int v = (int16_t)va_arg(ap, int /*promoted*/ );
+            pack16i(buf, v, le);
+            buf += 2;
+            size += 2;
+        }
+        break; case 'i': case 'u': { // 32-bit
+            int32_t v = va_arg(ap, int32_t);
+            pack32i(buf, v, le);
+            buf += 4;
+            size += 4;
+        }
+        break; case 'l': case 'q': { // 64-bit
+            int64_t v = va_arg(ap, int64_t);
+            pack64i(buf, v, le);
+            buf += 8;
+            size += 8;
+        }
+        break; case 'v': { // varint (8,16,32,64 ...)
+            int64_t v = va_arg(ap, int64_t);
+            int64_t L = pack64iv(buf, v);
+            buf += L;
+            size += L;
+        }
+        break; case 'f': { // 32-bit float
+            double v = (float)va_arg(ap, double /*promoted*/ );
+            int32_t i = pack754_32(v); // convert to IEEE 754
+            pack32i(buf, i, le);
+            buf += 4;
+            size += 4;
+        }
+        break; case 'd': { // 64-bit float (double)
+            double v = (double)va_arg(ap, double);
+            int64_t i = pack754_64(v); // convert to IEEE 754
+            pack64i(buf, i, le);
+            buf += 8;
+            size += 8;
+        }
+        break; case 'S': { // string, 32-bit fixed length prepended
+            char* s = va_arg(ap, char*);
+            int len = strlen(s);
+            pack32i(buf, len, le);
+            memcpy(buf + 4, s, len);
+            buf += 4 + len;
+            size += 4 + len;
+        }
+        break; case 's': { // string, 64-bit variable length prepended
+            char* s = va_arg(ap, char*);
+            int len = strlen(s);
+            int64_t L = pack64iv(buf, len);
+            memcpy(buf + L, s, len);
+            buf += L + len;
+            size += L + len;
+        }
+        break; case 'M': { // memblock, 32-bit fixed length prepended
+            int len = va_arg(ap, int);
+            char* s = va_arg(ap, char*);
+            pack32i(buf, len, le);
+            memcpy(buf + 4, s, len);
+            buf += 4 + len;
+            size += 4 + len;
+        }
+        break; case 'm': { // memblock, 64-bit variable length prepended
+            int len = va_arg(ap, int);
+            char* s = va_arg(ap, char*);
+            int64_t L = pack64iv(buf, len);
+            memcpy(buf + L, s, len);
+            buf += L + len;
+            size += L + len;
+        }
+        break; case 'z': { // memblock (zeroed)
+            int len = va_arg(ap, int);
+            memset(buf, 0, len);
+            buf += len;
+            size += len;
+        }
+        }
+    }
+
+    return (int)size;
+}
+
+
+int saveb(uint8_t *buf, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int rc = saveb_( buf, fmt, ap);
+    va_end(ap);
+    return rc;
+}
+int loadb(const uint8_t *buf, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int rc = loadb_( buf, fmt, ap);
+    va_end(ap);
+    return rc;
+}
+
+int savef(FILE *fp, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+
+    // estimate bytes
+    int req = saveb_( 0, fmt, ap);
+
+    char stack[4096];
+    char *buf = req < 4096 ? stack : (char*)calloc(1, req + 1 );
+        int rc = saveb_(buf, fmt, ap);
+        fwrite(buf, req,1, fp);
+    if( !(req < 4096) ) free(buf);
+
+    va_end(ap);
+    return rc;
+}
+int loadf(FILE *fp, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+
+    // estimate bytes
+    int req = loadb_( 0, fmt, ap) * 2; // *2 in case it is underestimated
+
+    char stack[4096];
+    char *buf = req < 4096 ? stack : (char*)calloc(1, req + 1 );
+        fread(buf, req,1, fp);
+        int rc = loadb_(buf, fmt, ap);
+    if( !(req < 4096) ) free(buf);
+
+    va_end(ap);
+    return rc;
+}
+
+#if 0
+AUTORUN {
+    const char *dna = "3b8bhbhbbhhbhhhuu"; // "1c1h212122122233"; "i3c8chchchhchhhdd"
+
+    struct bootsector {
+        uint8_t jump_instruction[3];
+        uint8_t oem_name[8];
+        uint16_t bytes_per_sector;
+        uint8_t sectors_per_cluster;
+        uint16_t reserved_sectors;
+        uint8_t fat_copies;
+        uint16_t max_dirs;
+        uint16_t sector_count;
+        uint8_t media_descriptor;
+        uint16_t sectors_per_fat;
+        uint16_t sectors_per_head;
+        uint16_t heads;
+        uint32_t hidden_sectors;
+        uint32_t sector_countz;
+    } fat = { {0,1,2},{3,4,5,6,7,8,9,10},11,12,13,14,15,16,17,18,19,20,21,22 };
+    hexdump(&fat, sizeof(struct bootsector));
+
+    FILE *fp = fopen("test.mbr", "wb");
+    savef(fp, dna, &fat); //
+    fclose(fp);
+
+    memset(&fat, 0, sizeof(struct bootsector));
+
+    fp = fopen("test.mbr", "rb");
+    loadf(fp, dna, &fat);
+    fclose(fp);
+
+    hexdump(&fat, sizeof(struct bootsector));
+}
+#endif
+#line 0
+
+#line 1 "fwk_reflect.c"
+// C reflection: enums, functions, structs, members and anotations.
+// - rlyeh, public domain
+//
+// @todo: nested structs? pointers in members?
+// @todo: declare TYPEDEF(vec3, float[3]), TYPEDEF(mat4, vec4[4]/*float[16]*/)
+
+static map(unsigned, reflect_t) reflects;
+static map(unsigned, array(reflect_t)) members;
+
+void reflect_init() {
+    if(!reflects) map_init_int(reflects);
+    if(!members)  map_init_int(members);
+}
+AUTORUN {
+    reflect_init();
+}
+
+static
+const char* symbol(const char *s) {
+    if( strbeg(s, "const ") ) s += 6;
+    if( strbeg(s, "union ") ) s += 6;
+    if( strbeg(s, "struct ") ) s += 7;
+    if(!strstr(s, " *") ) return s;
+    char *copy = va("%s", s);
+    do strswap(copy," *","*"); while( strstr(copy, " *") ); // char  * -> char*
+    return (const char *)copy;
+}
+
+void type_inscribe(const char *TY,unsigned TYsz,const char *infos) {
+    reflect_init();
+    unsigned TYid = intern(TY = symbol(TY));
+    map_find_or_add(reflects, TYid, ((reflect_t){TYid, 0, TYsz, TY, infos}));
+}
+void enum_inscribe(const char *E,unsigned Eval,const char *infos) {
+    reflect_init();
+    unsigned Eid = intern(E = symbol(E));
+    map_find_or_add(reflects, Eid, ((reflect_t){Eid,0, Eval, E,infos}));
+}
+unsigned enum_find(const char *E) {
+    reflect_init();
+    E = symbol(E);
+    return map_find(reflects, intern(E))->sz;
+}
+void function_inscribe(const char *F,void *func,const char *infos) {
+    reflect_init();
+    unsigned Fid = intern(F = symbol(F));
+    map_find_or_add(reflects, Fid, ((reflect_t){Fid,0, 0, F,infos, func}));
+    reflect_t *found = map_find(reflects,Fid);
+}
+void *function_find(const char *F) {
+    reflect_init();
+    F = symbol(F);
+    return map_find(reflects, intern(F))->addr;
+}
+void struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos) {
+    reflect_init();
+    unsigned Tid = intern(T = symbol(T));
+    map_find_or_add(reflects, Tid, ((reflect_t){Tid, OBJTYPEid, Tsz, T, infos}));
+}
+void member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes) {
+    reflect_init();
+    unsigned Tid = intern(T = symbol(T));
+    unsigned Mid = intern(M = symbol(M));
+    type = symbol(type);
+    map_find_or_add(reflects, (Mid<<16)|Tid, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type }));
+    // add member separately as well
+    if(!members) map_init_int(members);
+    array(reflect_t) *found = map_find_or_add(members, Tid, 0);
+    array_push(*found, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type, bytes }));
+}
+reflect_t member_find(const char *T, const char *M) {
+    reflect_init();
+    T = symbol(T);
+    M = symbol(M);
+    return *map_find(reflects, (intern(M)<<16)|intern(T));
+}
+void *member_findptr(void *obj, const char *T, const char *M) {
+    reflect_init();
+    T = symbol(T);
+    M = symbol(M);
+    return (char*)obj + member_find(T,M).sz;
+}
+array(reflect_t)* members_find(const char *T) {
+    reflect_init();
+    T = symbol(T);
+    return map_find(members, intern(T));
+}
+
+static
+void ui_reflect_(const reflect_t *R, const char *filter, int mask) {
+    // debug:
+    // ui_label(va("name:%s info:'%s' id:%u objtype:%u sz:%u addr:%p parent:%u type:%s\n",
+    //     R->name ? R->name : "", R->info ? R->info : "", R->id, R->objtype, R->sz, R->addr, R->parent, R->type ? R->type : ""));
+
+    if( mask == *R->info ) {
+        static __thread char *buf = 0;
+        if( buf ) *buf = '\0';
+
+        struct nk_context *ui_ctx = (struct nk_context *)ui_handle();
+        /*for ui_push_hspace(16)*/ {
+            array(reflect_t) *T = map_find(members, intern(R->name));
+            /**/ if( T )         {ui_label(strcatf(&buf,"S struct %s@%s", R->name, R->info+1)); for each_array_ptr(*T, reflect_t, it) if(strmatchi(it->name,filter)) ui_reflect_(it,filter,'M'); }
+            else if( R->addr )    ui_label(strcatf(&buf,"F func %s()@%s", R->name, R->info+1));
+            else if( !R->parent ) ui_label(strcatf(&buf,"E enum %s = %d@%s", R->name, R->sz, R->info+1));
+            else                  ui_label(strcatf(&buf,"M %s %s@%s", R->type, R->name, R->info+1));
+        }
+    }
+}
+
+API void *ui_handle();
+int ui_reflect(const char *filter) {
+    if( !filter ) filter = "*";
+
+    int enabled = ui_enabled();
+    ui_disable();
+
+        // ENUMS, then FUNCTIONS, then STRUCTS
+        unsigned masks[] = { 'E', 'F', 'S' };
+        for( int i = 0; i < countof(masks); ++i )
+        for each_map_ptr(reflects, unsigned, k, reflect_t, R) {
+            if( strmatchi(R->name, filter)) {
+                ui_reflect_(R, filter, masks[i]);
+            }
+        }
+
+    if( enabled ) ui_enable();
+    return 0;
+}
+
+// -- tests
+
+// type0 is reserved (no type)
+// type1 reserved for objs
+// type2 reserved for entities
+// @todo: type3 and 4 likely reserved for components and systems??
+// enum { OBJTYPE_vec3 = 0x03 };
+
+AUTOTEST {
+    // register structs, enums and functions. with and without comments+tags
+
+    STRUCT( vec3, float, x );
+    STRUCT( vec3, float, y );
+    STRUCT( vec3, float, z, "Up" );
+
+    ENUM( IMAGE_RGB );
+    ENUM( TEXTURE_RGB, "3-channel Red+Green+Blue texture flag" );
+    ENUM( TEXTURE_RGBA, "4-channel Red+Green+Blue+Alpha texture flag" );
+
+    FUNCTION( puts );
+    FUNCTION( printf, "function that prints formatted text to stdout" );
+
+    // verify some reflected infos
+
+    test( function_find("puts") == puts );
+    test( function_find("printf") == printf );
+
+    test( enum_find("TEXTURE_RGB") == TEXTURE_RGB );
+    test( enum_find("TEXTURE_RGBA") == TEXTURE_RGBA );
+
+    // iterate reflected struct
+    for each_member("vec3", R) {
+        //printf("+%s vec3.%s (+%x) // %s\n", R->type, R->name, R->member_offset, R->info);
+    }
+
+    //reflect_print("puts");
+    //reflect_print("TEXTURE_RGBA");
+    //reflect_print("vec3");
+
+    //reflect_dump("*");
 }
 #line 0
 
@@ -10433,7 +15986,7 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
         // dump log with line numbers
         shader_print( source );
-        PANIC("ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
+        PRINTF("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
         return 0;
     }
 
@@ -10456,9 +16009,10 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
 
     const char *glsl_version = ifdef(ems, "300 es", "150");
 
-    vs = vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
-    fs = fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
-    if (gs) gs = gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
+    if(gs)
+    gs = gs && gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
+    vs = vs && vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
+    fs = fs && fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
 
 #if is(ems)
     {
@@ -10581,22 +16135,31 @@ char** shader_property(unsigned shader, unsigned property) {
 void shader_apply_param(unsigned shader, unsigned param_no) {
     unsigned num_properties = shader_properties(shader);
     if( param_no < num_properties ) {
-        char *line = *shader_property(shader, param_no);
+        char *buf = *shader_property(shader, param_no);
 
-        char type[32], name[32];
+        char type[32], name[32], line[128]; snprintf(line, 127, "%s", buf);
         if( sscanf(line, "%*s %s %[^ =;/]", type, name) != 2 ) return;
 
+        char *mins = strstr(line, "min:");
+        char *sets = strstr(line, "set:");
+        char *maxs = strstr(line, "max:");
+        char *tips = strstr(line, "tip:");
+        if( mins ) *mins = 0, mins += 4;
+        if( sets ) *sets = 0, sets += 4;
+        if( maxs ) *maxs = 0, maxs += 4;
+        if( tips ) *tips = 0, tips += 4;
+
         int is_color = !!strstri(name, "color"), top = is_color ? 1 : 10;
-        vec4 minv = strstr(line, "min:") ? atof4(strstr(line, "min:") + 4) : vec4(0,0,0,0);
-        vec4 setv = strstr(line, "set:") ? atof4(strstr(line, "set:") + 4) : vec4(0,0,0,0);
-        vec4 maxv = strstr(line, "max:") ? atof4(strstr(line, "max:") + 4) : vec4(top,top,top,top);
+        vec4 minv = mins ? atof4(mins) : vec4(0,0,0,0);
+        vec4 setv = sets ? atof4(sets) : vec4(0,0,0,0);
+        vec4 maxv = maxs ? atof4(maxs) : vec4(top,top,top,top);
 
         if(minv.x > maxv.x) swapf(&minv.x, &maxv.x);
         if(minv.y > maxv.y) swapf(&minv.y, &maxv.y);
         if(minv.z > maxv.z) swapf(&minv.z, &maxv.z);
         if(minv.w > maxv.w) swapf(&minv.w, &maxv.w);
 
-        if( !strstr(line, "max:") ) {
+        if( !maxs ) {
         if(setv.x > maxv.x) maxv.x = setv.x;
         if(setv.y > maxv.y) maxv.y = setv.y;
         if(setv.z > maxv.z) maxv.z = setv.z;
@@ -10638,26 +16201,35 @@ int ui_shader(unsigned shader) {
     for( unsigned i = 0; i < num_properties; ++i ) {
         char **ptr = shader_property(shader,i);
 
-        const char *line = *ptr; // debug: ui_label(line);
-        char* tip = strstr(line, "tip:"); tip = tip && tip[4] ? tip + 4 : 0;
+        char line[128]; snprintf(line, 127, "%s", *ptr); // debug: ui_label(line);
 
         char uniform[32], type[32], name[32], early_exit = '\0';
         if( sscanf(line, "%s %s %[^ =;/]", uniform, type, name) != 3 ) continue; // @todo optimize: move to shader()
-        if( strcmp(uniform, "uniform") && strcmp(uniform, "}uniform") ) { if(tip) ui_label(va(ICON_MD_INFO "%s", tip)); continue; } // @todo optimize: move to shader()
+
+        char *mins = strstr(line, "min:");
+        char *sets = strstr(line, "set:");
+        char *maxs = strstr(line, "max:");
+        char *tips = strstr(line, "tip:");
+        if( mins ) *mins = 0, mins += 4;
+        if( sets ) *sets = 0, sets += 4;
+        if( maxs ) *maxs = 0, maxs += 4;
+        if( tips ) *tips = 0, tips += 4;
+
+        if( strcmp(uniform, "uniform") && strcmp(uniform, "}uniform") ) { if(tips) ui_label(va(ICON_MD_INFO "%s", tips)); continue; } // @todo optimize: move to shader()
 
         int is_color = !!strstri(name, "color"), top = is_color ? 1 : 10;
-        vec4 minv = strstr(line, "min:") ? atof4(strstr(line, "min:") + 4) : vec4(0,0,0,0);
-        vec4 setv = strstr(line, "set:") ? atof4(strstr(line, "set:") + 4) : vec4(0,0,0,0);
-        vec4 maxv = strstr(line, "max:") ? atof4(strstr(line, "max:") + 4) : vec4(top,top,top,top);
-        char *label = !tip ? va("%c%s", name[0] - 32 * !!(name[0] >= 'a'), name+1) :
-            va("%c%s  " ICON_MD_INFO  "@%s", name[0] - 32 * !!(name[0] >= 'a'), name+1, tip);
+        vec4 minv = mins ? atof4(mins) : vec4(0,0,0,0);
+        vec4 setv = sets ? atof4(sets) : vec4(0,0,0,0);
+        vec4 maxv = maxs ? atof4(maxs) : vec4(top,top,top,top);
+        char *label = !tips ? va("%c%s", name[0] - 32 * !!(name[0] >= 'a'), name+1) :
+            va("%c%s  " ICON_MD_INFO  "@%s", name[0] - 32 * !!(name[0] >= 'a'), name+1, tips);
 
         if(minv.x > maxv.x) swapf(&minv.x, &maxv.x); // @optimize: move to shader()
         if(minv.y > maxv.y) swapf(&minv.y, &maxv.y); // @optimize: move to shader()
         if(minv.z > maxv.z) swapf(&minv.z, &maxv.z); // @optimize: move to shader()
         if(minv.w > maxv.w) swapf(&minv.w, &maxv.w); // @optimize: move to shader()
 
-        if( !strstr(line, "max:") ) {
+        if( !maxs ) {
         if(setv.x > maxv.x) maxv.x = setv.x;
         if(setv.y > maxv.y) maxv.y = setv.y;
         if(setv.z > maxv.z) maxv.z = setv.z;
@@ -10684,7 +16256,7 @@ int ui_shader(unsigned shader) {
         }
         else if( type[0] == 'f' ) {
             setv.x = clampf(setv.x, minv.x, maxv.x);
-            char *caption = va("%5.2f", setv.x);
+            char *caption = va("%5.3f", setv.x);
             setv.x = (setv.x - minv.x) / (maxv.x - minv.x);
 
             if( (touched = ui_slider2(label, &setv.x, caption)) != 0 ) {
@@ -10712,12 +16284,12 @@ int ui_shader(unsigned shader) {
                 setv = clamp4(setv,minv,maxv);
             }
         }
-        else if( tip ) ui_label( tip );
+        else if( tips ) ui_label( tips );
 
         if( touched ) {
             // upgrade value
             *ptr = FREE(*ptr);
-            *ptr = stringf("%s %s %s ///set:%s min:%s max:%s tip:%s", uniform,type,name,ftoa4(setv),ftoa4(minv),ftoa4(maxv),tip?tip:"");
+            *ptr = stringf("%s %s %s ///set:%s min:%s max:%s tip:%s", uniform,type,name,ftoa4(setv),ftoa4(minv),ftoa4(maxv),tips?tips:"");
 
             // apply
             shader_apply_param(shader, i);
@@ -10884,13 +16456,13 @@ void shader_colormap(const char *name, colormap_t c ) {
 // colors
 
 unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a ) {
-    return (unsigned)a << 24 | r << 16 | g << 8 | b;
+    return (unsigned)a << 24 | b << 16 | g << 8 | r;
 }
 unsigned bgra( uint8_t b, uint8_t g, uint8_t r, uint8_t a ) {
     return rgba(r,g,b,a);
 }
-float alpha( unsigned rgba ) {
-    return ( rgba >> 24 ) / 255.f;
+unsigned alpha( unsigned rgba ) {
+    return rgba >> 24;
 }
 
 unsigned rgbaf(float r, float g, float b, float a) {
@@ -12144,7 +17716,7 @@ tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols
 int tileset_ui( tileset_t t ) {
     ui_subimage(va("Selection #%d (%d,%d)", t.selected, t.selected % t.cols, t.selected / t.cols), t.tex.id, t.tex.w, t.tex.h, (t.selected % t.cols) * t.tile_w, (t.selected / t.cols) * t.tile_h, t.tile_w, t.tile_h);
     int choice;
-    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) { 
+    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) {
         int px = ((choice / 100) / 100.f) * t.tex.w / t.tile_w;
         int py = ((choice % 100) / 100.f) * t.tex.h / t.tile_h;
         t.selected = px + py * t.cols;
@@ -12540,7 +18112,7 @@ bool spine_(spine_t *t, const char *file_json, const char *file_atlas, unsigned 
                 array_push(t->skins[i].rects, t->skins[0].rects[j]);
             }
         }
-        // @leak @fixme: free(t->skins[0])
+        // @leak @fixme: FREE(t->skins[0])
         for( int i = 0; i < array_count(t->skins)-1; ++i ) {
             t->skins[i] = t->skins[i+1];
         }
@@ -13016,7 +18588,7 @@ skybox_t skybox(const char *asset, int flags) {
     // sky cubemap & SH
     if( asset ) {
         int is_panorama = vfs_size( asset );
-        if( is_panorama ) {
+        if( is_panorama ) { // is file
             stbi_hdr_to_ldr_gamma(1.2f);
             image_t panorama = image( asset, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
@@ -13033,7 +18605,7 @@ skybox_t skybox(const char *asset, int flags) {
             for( int i = 0; i < countof(images); ++i ) image_destroy(&images[i]);
         }
     } else {
-        // set up mie defaults
+        // set up mie defaults // @fixme: use shader params instead
         shader_bind(sky.program);
         shader_vec3("uSunPos", vec3( 0, 0.1, -1 ));
         shader_vec3("uRayOrigin", vec3(0.0, 6372000.0, 0.0));
@@ -13069,7 +18641,7 @@ void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
         for(int i = 0; i < 6; ++i) {
             glGenFramebuffers(1, &sky->framebuffers[i]);
             glBindFramebuffer(GL_FRAMEBUFFER, sky->framebuffers[i]);
-            
+
             glGenTextures(1, &sky->textures[i]);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sky->textures[i]);
@@ -13140,7 +18712,7 @@ void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
 void skybox_sh_reset(skybox_t *sky) {
     for (int s = 0; s < 9; s++) {
         sky->cubemap.sh[s] = vec3(0,0,0);
-    }    
+    }
 }
 
 void skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength) {
@@ -13579,21 +19151,21 @@ int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
     passfx *p = &fx->pass[ slot & 63 ];
     p->name = STRDUP(name);
 
-    const char *vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
-
-    // patch fragment
-    char *fs2 = (char*)CALLOC(1, 128*1024);
-    strcat(fs2, vfs_read("shaders/fs_2_4_preamble.glsl"));
-
-    if( strstr(fs, "mainImage") ) {
-        strcat(fs2, vfs_read("shaders/fs_main_shadertoy.glsl") );
+    // preload stuff
+    static const char *vs = 0;
+    static const char *preamble = 0;
+    static const char *shadertoy = 0;
+    static char *fs2 = 0;
+    do_once {
+        vs = STRDUP(vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl"));
+        preamble = STRDUP(vfs_read("shaders/fs_2_4_preamble.glsl"));
+        shadertoy = STRDUP(vfs_read("shaders/fs_main_shadertoy.glsl"));
+        fs2 = (char*)CALLOC(1, 128*1024);
     }
-
-    strcat(fs2, fs);
+    // patch fragment
+    snprintf(fs2, 128*1024, "%s%s%s", preamble, strstr(fs, "mainImage") ? shadertoy : "", fs );
 
     p->program = shader(vs, fs2, "vtexcoord", "fragColor" , NULL);
-
-    FREE(fs2);
 
     glUseProgram(p->program); // needed?
 
@@ -13797,9 +19369,9 @@ int fx_load_from_mem(const char *nameid, const char *content) {
 }
 int fx_load(const char *filemask) {
     static set(char*) added = 0; do_once set_init_str(added);
-    for(const char **list = vfs_list(filemask); *list; list++) {
-        if( set_find(added, (char*)*list) ) continue;
-        char *name = STRDUP(*list); // @leak
+    for each_array( vfs_list(filemask), char*, list ) {
+        if( set_find(added, list) ) continue;
+        char *name = STRDUP(list); // @leak
         set_insert(added, name);
         (void)postfx_load_from_mem(&fx, file_name(name), vfs_read(name));
     }
@@ -13859,7 +19431,8 @@ static void brdf_load() {
     brdf = texture_compressed( filename,
         TEXTURE_CLAMP | TEXTURE_NEAREST | TEXTURE_RG | TEXTURE_FLOAT | TEXTURE_SRGB
     );
-    ASSERT(brdf.id != texture_checker().id, "!Couldn't load BRDF lookup table '%s'!", filename );
+    unsigned texchecker = texture_checker().id;
+    ASSERT(brdf.id != texchecker, "!Couldn't load BRDF lookup table '%s'!", filename );
 }
 
 texture_t brdf_lut() {
@@ -14027,8 +19600,9 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
             return s;
         }
 
-        float mx = input(MOUSE_X), my = input(MOUSE_Y);
-        if(input(MOUSE_L)) s->clickx = mx, s->clicky = my;
+        if(input_down(MOUSE_L) || input_down(MOUSE_R) ) s->mouse.z = input(MOUSE_X), s->mouse.w = -(window_height() - input(MOUSE_Y));
+        if(input(MOUSE_L) || input(MOUSE_R)) s->mouse.x = input(MOUSE_X), s->mouse.y = (window_height() - input(MOUSE_Y));
+        vec4 m = mul4(s->mouse, vec4(1,1,1-2*(!input(MOUSE_L) && !input(MOUSE_R)),1-2*(input_down(MOUSE_L) || input_down(MOUSE_R))));
 
         time_t tmsec = time(0);
         struct tm *tm = localtime(&tmsec);
@@ -14039,7 +19613,7 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
         glUniform1f(s->uniforms[iGlobalFrame], s->frame++);
         glUniform1f(s->uniforms[iGlobalDelta], delta / 1000.f );
         glUniform2f(s->uniforms[iResolution], s->dims.x ? s->dims.x : window_width(), s->dims.y ? s->dims.y : window_height());
-        if (!(s->flags&SHADERTOY_IGNORE_MOUSE)) glUniform4f(s->uniforms[iMouse], mx, my, s->clickx, s->clicky );
+        if (!(s->flags&SHADERTOY_IGNORE_MOUSE)) glUniform4f(s->uniforms[iMouse], m.x,m.y,m.z,m.w );
 
         glUniform1i(s->uniforms[iFrame], (int)window_frame());
         glUniform1f(s->uniforms[iTime], time_ss());
@@ -14180,7 +19754,6 @@ typedef struct iqm_vertex {
 
 typedef struct iqm_t {
     int nummeshes, numtris, numverts, numjoints, numframes, numanims;
-    GLuint program;
     GLuint vao, ibo, vbo;
     GLuint *textures;
     uint8_t *buf, *meshdata, *animdata;
@@ -14194,7 +19767,6 @@ typedef struct iqm_t {
     vec4 *colormaps;
 } iqm_t;
 
-#define program (q->program)
 #define meshdata (q->meshdata)
 #define animdata (q->animdata)
 #define nummeshes (q->nummeshes)
@@ -14726,7 +20298,7 @@ model_t model_from_mem(const void *mem, int len, int flags) {
     // }
 
     iqm_t *q = CALLOC(1, sizeof(iqm_t));
-    program = shaderprog;
+    m.program = shaderprog;
 
     int error = 1;
     if( ptr && len ) {
@@ -14769,9 +20341,6 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         m.num_frames = numframes;
         m.iqm = q;
         m.curframe = model_animate(m, 0);
-        #undef program
-        m.program = (q->program);
-        #define program (q->program)
 
         //m.num_textures = nummeshes; // assume 1 texture only per mesh
         #undef textures
@@ -14977,13 +20546,13 @@ void model_draw_call(model_t m) {
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(program, "fsDiffTex"), 0 /*<-- unit!*/ );
+        glUniform1i(glGetUniformLocation(m.program, "fsDiffTex"), 0 /*<-- unit!*/ );
 
         int loc;
-        if ((loc = glGetUniformLocation(program, "u_textured")) >= 0) {
+        if ((loc = glGetUniformLocation(m.program, "u_textured")) >= 0) {
             bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
             glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(program, "u_diffuse")) >= 0) {
+            if ((loc = glGetUniformLocation(m.program, "u_diffuse")) >= 0) {
                 glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
             }
         }
@@ -15015,7 +20584,7 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
         model_set_state(m);
     }
 
-    model_set_uniforms(m, shader > 0 ? shader : program, mv, proj, view, models[0]);
+    model_set_uniforms(m, shader > 0 ? shader : m.program, mv, proj, view, models[0]);
     model_draw_call(m);
 }
 
@@ -15234,7 +20803,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         // queue
         for(int i = 0; i < array_count(dd_text2d); ++i) {
             ddraw_color(dd_text2d[i].col);
-            ddraw_text(dd_text2d[i].pos, dd_text2d[i].sca, dd_text2d[i].str); 
+            ddraw_text(dd_text2d[i].pos, dd_text2d[i].sca, dd_text2d[i].str);
         }
 
         // flush
@@ -15265,7 +20834,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         // clear
         array_resize(dd_text2d, 0);
     }
-    
+
     glDisable(GL_LINE_SMOOTH);
     glDisable(GL_PROGRAM_POINT_SIZE);
 
@@ -15482,7 +21051,7 @@ void ddraw_cube(vec3 center, float radius) { // draw_prism(center, 1, -1, vec3(0
 
 #if 0 // @fixme: broken
 void ddraw_cube44(vec3 radius, mat44 M) {
-    float m33[9]; extract33(m33, M); // = { M[0,1,2], M[4,5,6], M[8,9,10] }    
+    float m33[9]; extract33(m33, M); // = { M[0,1,2], M[4,5,6], M[8,9,10] }
     ddraw_cube33( vec3(M[12], M[13], M[14]), radius, m33 );
 }
 #endif
@@ -15639,7 +21208,7 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, height, vec3(0,1,0), segments);
 }
 void ddraw_cylinder(vec3 center, float height, int segments) {
-    ddraw_prism(center, 1, -height, vec3(0,1,0), segments);    
+    ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
 }
 void ddraw_diamond(vec3 from, vec3 to, float size) {
     poly p = diamond(from, to, size);
@@ -16082,7 +21651,7 @@ void camera_fov(camera_t *cam, float fov) {
 
     float DIMETRIC = 30.000f;
     float ISOMETRIC = 35.264f;
-    float aspect = window_width() / ((float)window_height()+!!window_height());
+    float aspect = window_width() / ((float)window_height()+!window_height());
     orthogonal(cam->proj, 45, aspect, -1000, 1000); // why -1000?
     // cam->yaw = 45;
     cam->pitch = -ISOMETRIC;
@@ -16155,23 +21724,26 @@ void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
 
 int ui_camera( camera_t *cam ) {
     int changed = 0;
-    changed |= ui_float("Speed", &cam->speed);
-    ui_separator();
     changed |= ui_bool("Damping", &cam->damping);
     if( !cam->damping ) ui_disable();
-    changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.2f", cam->move_friction));
-    changed |= ui_slider2("Move damping", &cam->move_damping, va("%5.2f", cam->move_damping));
-    changed |= ui_slider2("View driction", &cam->look_friction, va("%5.2f", cam->look_friction));
-    changed |= ui_slider2("View damping", &cam->look_damping, va("%5.2f", cam->look_damping));
+    changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.3f", cam->move_friction));
+    changed |= ui_slider2("Move damping", &cam->move_damping, va("%5.3f", cam->move_damping));
+    changed |= ui_slider2("View friction", &cam->look_friction, va("%5.3f", cam->look_friction));
+    changed |= ui_slider2("View damping", &cam->look_damping, va("%5.3f", cam->look_damping));
     if( !cam->damping ) ui_enable();
     ui_separator();
-    changed |= ui_float3("Position", &cam->position.x);
-    changed |= ui_float3("LookDir", &cam->lookdir.x);
-    changed |= ui_float3("UpDir", &cam->updir.x);
+    changed |= ui_float("Speed", &cam->speed);
+    changed |= ui_float3("Position", cam->position.v3);
+    changed |= ui_float3("LookDir", cam->lookdir.v3);
+    changed |= ui_float3("UpDir", cam->updir.v3);
+    ui_disable();
     changed |= ui_mat44("View matrix", cam->view);
+    ui_enable();
     ui_separator();
     changed |= ui_float("FOV (degrees)", &cam->fov);
+    ui_disable();
     changed |= ui_mat44("Projection matrix", cam->proj);
+    ui_enable();
     return changed;
 }
 
@@ -16713,7 +22285,7 @@ void script_init() {
 
 bool script_tests() {
     // script test (lua)
-    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );    
+    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );
     return true;
 }
 
@@ -16741,9 +22313,10 @@ const char *app_path() { // @fixme: should return absolute path always. see tcc 
         strcat(buffer, "..\\..\\");
     }
 #else // #elif is(linux)
-    char path[21] = {0};
+    char path[32] = {0};
     sprintf(path, "/proc/%d/exe", getpid());
     readlink(path, buffer, sizeof(buffer));
+    if(strrchr(buffer,'/')) 1[strrchr(buffer,'/')] = '\0';
 #endif
     return buffer;
 }
@@ -16937,7 +22510,7 @@ char *callstack( int traces ) {
         // should concat addresses into a multi-address line
 
         char *binary = symbols[i];
-        char *address = strchr( symbols[i], '(' ) + 1; 
+        char *address = strchr( symbols[i], '(' ) + 1;
         *strrchr( address, ')') = '\0'; *(address - 1) = '\0';
 
         for( FILE *fp = popen(va("addr2line -e %s %s", binary, address), "r" ); fp ; pclose(fp), fp = 0 ) { //addr2line -e binary -f -C address
@@ -16975,9 +22548,9 @@ int callstackf( FILE *fp, int traces ) {
     return 0;
 }
 
-// signals --------------------------------------------------------------------
+// trap signals ---------------------------------------------------------------
 
-const char *signal_name(int signal) {
+const char *trap_name(int signal) {
     if(signal == SIGABRT) return "SIGABRT - \"abort\", abnormal termination";
     if(signal == SIGFPE) return "SIGFPE - floating point exception";
     if(signal == SIGILL) return "SIGILL - \"illegal\", invalid instruction";
@@ -16989,97 +22562,53 @@ const char *signal_name(int signal) {
     ifndef(win32, if(signal == SIGQUIT) return "SIGQUIT");
     return "??";
 }
-void signal_handler_ignore(int signal_) {
-    signal(signal_, signal_handler_ignore);
+void trap_on_ignore(int sgn) {
+    signal(sgn, trap_on_ignore);
 }
-void signal_handler_quit(int signal) {
-    // fprintf(stderr, "Ok: caught signal %s (%d)\n", signal_name(signal), signal);
+void trap_on_quit(int sgn) {
+    signal(sgn, trap_on_quit);
     exit(0);
 }
-void signal_handler_abort(int signal) {
-    fprintf(stderr, "Error: unexpected signal %s (%d)\n%s\n", signal_name(signal), signal, callstack(16));
-    exit(-1);
+void trap_on_abort(int sgn) {
+    char *cs = va("Error: unexpected signal %s (%d)\n%s", trap_name(sgn), sgn, callstack(+16));
+    fprintf(stderr, "%s\n", cs), alert(cs), breakpoint();
+    signal(sgn, trap_on_abort);
+    exit(-sgn);
 }
-void signal_handler_debug(int signal) {
-    breakpoint("Error: unexpected signal");
-    fprintf(stderr, "Error: unexpected signal %s (%d)\n%s\n", signal_name(signal), signal, callstack(16));
-    exit(-1);
+void trap_on_debug(int sgn) { // @todo: rename to trap_on_choice() and ask the developer what to do next? abort, continue, debug
+    char *cs = va("Error: unexpected signal %s (%d)\n%s", trap_name(sgn), sgn, callstack(+16));
+    fprintf(stderr, "%s\n", cs), alert(cs), breakpoint();
+    signal(sgn, trap_on_debug);
 }
-void signal_hooks(void) {
+#if is(win32)
+LONG WINAPI trap_on_SEH(PEXCEPTION_POINTERS pExceptionPtrs) {
+    char *cs = va("Error: unexpected SEH exception\n%s", callstack(+16));
+    fprintf(stderr, "%s\n", cs), alert(cs), breakpoint();
+    return EXCEPTION_EXECUTE_HANDLER; // Execute default exception handler next
+}
+#endif
+void trap_install(void) {
     // expected signals
-    signal(SIGINT, signal_handler_quit);
-    signal(SIGTERM, signal_handler_quit);
-    ifndef(win32, signal(SIGQUIT, signal_handler_quit));
+    signal(SIGINT, trap_on_quit);
+    signal(SIGTERM, trap_on_quit);
+    ifndef(win32, signal(SIGQUIT, trap_on_quit));
     // unexpected signals
-    signal(SIGABRT, signal_handler_abort);
-    signal(SIGFPE, signal_handler_abort);
-    signal(SIGILL, signal_handler_abort);
-    signal(SIGSEGV, signal_handler_abort);
-    ifndef(win32, signal(SIGBUS, signal_handler_abort));
-    ifdef(linux, signal(SIGSTKFLT, signal_handler_abort));
+    signal(SIGABRT, trap_on_abort);
+    signal(SIGFPE, trap_on_abort);
+    signal(SIGILL, trap_on_abort);
+    signal(SIGSEGV, trap_on_abort);
+    ifndef(win32, signal(SIGBUS, trap_on_abort));
+    ifdef(linux, signal(SIGSTKFLT, trap_on_abort));
+    // others
+    ifdef(win32,SetUnhandledExceptionFilter(trap_on_SEH));
 }
 
-#ifdef SIGNAL_DEMO
-void crash() {
-    char *ptr = 0;
-    *ptr = 1;
+#ifdef TRAP_DEMO
+AUTORUN {
+    trap_install();
+    app_crash(); // app_hang();
 }
-void hang() {
-    for(;;);
-}
-int main(int argc, char **argv) {
-    signal_hooks();
-    crash(); // hang();
-}
-#define main main__
 #endif
-
-// endian ----------------------------------------------------------------------
-
-#if is(cl)
-#include <stdlib.h>
-#define swap16 _byteswap_ushort
-#define swap32 _byteswap_ulong
-#define swap64 _byteswap_uint64
-#elif is(gcc)
-#define swap16 __builtin_bswap16
-#define swap32 __builtin_bswap32
-#define swap64 __builtin_bswap64
-#else
-uint16_t swap16( uint16_t x ) { return (x << 8) | (x >> 8); }
-uint32_t swap32( uint32_t x ) { x = ((x << 8) & 0xff00ff00) | ((x >> 8) & 0x00ff00ff); return (x << 16) | (x >> 16); }
-uint64_t swap64( uint64_t x ) { x = ((x <<  8) & 0xff00ff00ff00ff00ULL) | ((x >>  8) & 0x00ff00ff00ff00ffULL); x = ((x << 16) & 0xffff0000ffff0000ULL) | ((x >> 16) & 0x0000ffff0000ffffULL); return (x << 32) | (x >> 32); }
-#endif
-
-float    swap32f(float n)  { union { float  t; uint32_t i; } conv; conv.t = n; conv.i = swap32(conv.i); return conv.t; }
-double   swap64f(double n) { union { double t; uint64_t i; } conv; conv.t = n; conv.i = swap64(conv.i); return conv.t; }
-
-#define is_big()    ((*(uint16_t *)"\0\1") == 1)
-#define is_little() ((*(uint16_t *)"\0\1") != 1)
-
-uint16_t  lil16(uint16_t n) { return is_big()    ? swap16(n) : n; }
-uint32_t  lil32(uint32_t n) { return is_big()    ? swap32(n) : n; }
-uint64_t  lil64(uint64_t n) { return is_big()    ? swap64(n) : n; }
-uint16_t  big16(uint16_t n) { return is_little() ? swap16(n) : n; }
-uint32_t  big32(uint32_t n) { return is_little() ? swap32(n) : n; }
-uint64_t  big64(uint64_t n) { return is_little() ? swap64(n) : n; }
-
-float     lil32f(float n)  { return is_big()    ? swap32f(n) : n; }
-double    lil64f(double n) { return is_big()    ? swap64f(n) : n; }
-float     big32f(float n)  { return is_little() ? swap32f(n) : n; }
-double    big64f(double n) { return is_little() ? swap64f(n) : n; }
-
-uint16_t* lil16p(void *p, int sz)  { if(is_big()   ) { uint16_t *n = (uint16_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap16(n[i]); } return p; }
-uint16_t* big16p(void *p, int sz)  { if(is_little()) { uint16_t *n = (uint16_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap16(n[i]); } return p; }
-uint32_t* lil32p(void *p, int sz)  { if(is_big()   ) { uint32_t *n = (uint32_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap32(n[i]); } return p; }
-uint32_t* big32p(void *p, int sz)  { if(is_little()) { uint32_t *n = (uint32_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap32(n[i]); } return p; }
-uint64_t* lil64p(void *p, int sz)  { if(is_big()   ) { uint64_t *n = (uint64_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap64(n[i]); } return p; }
-uint64_t* big64p(void *p, int sz)  { if(is_little()) { uint64_t *n = (uint64_t *)p; for(int i = 0; i < sz; ++i) n[i] = swap64(n[i]); } return p; }
-
-float   * lil32pf(void *p, int sz) { if(is_big()   ) { float    *n = (float    *)p; for(int i = 0; i < sz; ++i) n[i] = swap32f(n[i]); } return p; }
-float   * big32pf(void *p, int sz) { if(is_little()) { float    *n = (float    *)p; for(int i = 0; i < sz; ++i) n[i] = swap32f(n[i]); } return p; }
-double  * lil64pf(void *p, int sz) { if(is_big()   ) { double   *n = (double   *)p; for(int i = 0; i < sz; ++i) n[i] = swap64f(n[i]); } return p; }
-double  * big64pf(void *p, int sz) { if(is_little()) { double   *n = (double   *)p; for(int i = 0; i < sz; ++i) n[i] = swap64f(n[i]); } return p; }
 
 // cpu -------------------------------------------------------------------------
 
@@ -17221,6 +22750,477 @@ int app_battery() {
 
 #endif
 
+// ----------------------------------------------------------------------------
+// argc/v
+
+static void argc_init() {
+#if is(tcc) && is(linux)
+    do_once {
+        char buffer[128], arg0[128] = {0};
+        for( FILE *fp = fopen("/proc/self/status", "rb"); fp; fclose(fp), fp = 0) {
+            while( fgets(buffer, 128, fp) ) {
+                if( strbeg(buffer, "Name:") ) {
+                    sscanf(buffer + 5, "%s", arg0 );
+                    break;
+                }
+            }
+        }
+        extern char **environ;
+        __argv = environ - 2; // last argv, as stack is [argc][argv0][argv1][...][NULL][envp]
+        while( !strend(*__argv,arg0) ) --__argv;
+        __argc = *(int*)(__argv-1);
+    }
+#endif
+}
+
+int argc() {
+    do_once argc_init();
+    return __argc;
+}
+char* argv(int arg) {
+    do_once argc_init();
+    static __thread char empty[1];
+    return (unsigned)arg < __argc ? __argv[arg] : (empty[0] = '\0', empty);
+}
+
+// ----------------------------------------------------------------------------
+// options
+
+int flag(const char *commalist) {
+    while( commalist[0] ) {
+        const char *begin = commalist;
+        while(*commalist != ',' && *commalist != '\0') ++commalist;
+        const char *end = commalist;
+
+        char token[128];
+        snprintf(token,   128, "%.*s",  (int)(end - begin), begin);
+
+        for( int i = 1; i < argc(); ++i ) {
+            char *arg = argv(i);
+
+            if( !strcmpi( arg, token ) ) {  // --arg
+                return 1;
+            }
+        }
+
+        commalist = end + !!end[0];
+    }
+    return 0;
+}
+
+const char *option(const char *commalist, const char *defaults) {
+    while( commalist[0] ) {
+        const char *begin = commalist;
+        while(*commalist != ',' && *commalist != '\0') ++commalist;
+        const char *end = commalist;
+
+        char token[128], tokeneq[128];
+        snprintf(token,   128, "%.*s",  (int)(end - begin), begin);
+        snprintf(tokeneq, 128, "%.*s=", (int)(end - begin), begin);
+
+        for( int i = 1; i < argc(); ++i ) {
+            char *arg = argv(i);
+
+            if( strbegi( arg, tokeneq ) ) { // --arg=value
+                return argv(i) + strlen(tokeneq);
+            }
+            if( !strcmpi( arg, token ) ) {  // --arg value
+                if( (i+1) < argc() ) {
+                    return argv(i+1);
+                }
+            }
+        }
+
+        commalist = end + !!end[0];
+    }
+    return defaults;
+}
+
+int optioni(const char *commalist, int defaults) {
+    const char *rc = option(commalist, 0);
+    return rc ? atoi(rc) : defaults;
+}
+float optionf(const char *commalist, float defaults) {
+    const char *rc = option(commalist, 0);
+    return rc ? atof(rc) : defaults;
+}
+
+// ----------------------------------------------------------------------------
+// tty
+
+void tty_color(unsigned color) {
+    #if is(win32)
+    do_once {
+        DWORD mode = 0; SetConsoleMode(GetStdHandle(-11), (GetConsoleMode(GetStdHandle(-11), &mode), mode|4));
+    }
+    #endif
+    if( color ) {
+        // if( color == RED ) alert("break on error message (RED)"), breakpoint(); // debug
+        unsigned r = (color >> 16) & 255;
+        unsigned g = (color >>  8) & 255;
+        unsigned b = (color >>  0) & 255;
+        // 24-bit console ESC[ … 38;2;<r>;<g>;<b> … m Select RGB foreground color
+        // 256-color console ESC[38;5;<fgcode>m
+        // 0x00-0x07:  standard colors (as in ESC [ 30..37 m)
+        // 0x08-0x0F:  high intensity colors (as in ESC [ 90..97 m)
+        // 0x10-0xE7:  6*6*6=216 colors: 16 + 36*r + 6*g + b (0≤r,g,b≤5)
+        // 0xE8-0xFF:  grayscale from black to white in 24 steps
+        r /= 51, g /= 51, b /= 51; // [0..5]
+        printf("\033[38;5;%dm", r*36+g*6+b+16); // "\033[0;3%sm", color_code);
+    } else {
+        printf("%s", "\x1B[39;49m"); // reset
+    }
+}
+void tty_puts(unsigned color, const char *text) {
+    tty_color(color); puts(text);
+}
+void tty_init() {
+    tty_color(0);
+}
+int tty_cols() {
+#if is(win32)
+    CONSOLE_SCREEN_BUFFER_INFO c;
+    if( GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &c) ) {
+        int w = c.srWindow.Right-c.srWindow.Left-c.dwCursorPosition.X;
+        return w > 2 ? w - 1 : w; // w-1 to allow window resizing to a larger dimension (already printed text would break otherwise)
+    }
+#endif
+#ifdef TIOCGWINSZ
+    struct winsize ws;
+    ioctl(STDIN_FILENO, TIOCGWINSZ, &ws);
+    return ws.ws_col - 1;
+#endif
+#ifdef TIOCGSIZE
+    struct ttysize ts;
+    ioctl(STDIN_FILENO, TIOCGSIZE, &ts);
+    return ts.ts_cols - 1;
+#endif
+    return 80;
+}
+void tty_detach() {
+    ifdef(win32, FreeConsole());
+}
+void tty_attach() {
+#if is(win32)
+    // in order to have a Windows gui application with console:
+    // - use WinMain() then AllocConsole(), but that may require supporintg different entry points for different platforms.
+    // - /link /SUBSYSTEM:CONSOLE and then call FreeConsole() if no console is needed, but feels naive to flash the terminal for a second.
+    // - /link /SUBSYSTEM:WINDOWS /entry:mainCRTStartup, then AllocConsole() as follows. Quoting @pmttavara:
+    //   "following calls are the closest i'm aware you can get to /SUBSYSTEM:CONSOLE in a gui program
+    //   while cleanly handling existing consoles (cmd.exe), pipes (ninja) and no console (VS/RemedyBG; double-clicking the game)"
+    do_once {
+        if( !AttachConsole(ATTACH_PARENT_PROCESS) && GetLastError() != ERROR_ACCESS_DENIED ) { bool ok = !!AllocConsole(); ASSERT( ok ); }
+        printf("\n"); // print >= 1 byte to distinguish empty stdout from a redirected stdout (fgetpos() position <= 0)
+        fpos_t pos = 0;
+        if( fgetpos(stdout, &pos) != 0 || pos <= 0 ) {
+            bool ok1 = !!freopen("CONIN$" , "r", stdin ); ASSERT( ok1 );
+            bool ok2 = !!freopen("CONOUT$", "w", stderr); ASSERT( ok2 );
+            bool ok3 = !!freopen("CONOUT$", "w", stdout); ASSERT( ok3 );
+        }
+    }
+#endif
+}
+
+// -----------------------------------------------------------------------------
+// debugger
+
+#include <stdio.h>
+void hexdumpf( FILE *fp, const void *ptr, unsigned len, int width ) {
+    unsigned char *data = (unsigned char*)ptr;
+    for( unsigned jt = 0; jt <= len; jt += width ) {
+        fprintf( fp, "; %05d%s", jt, jt == len ? "\n" : " " );
+        for( unsigned it = jt, next = it + width; it < len && it < next; ++it ) {
+            fprintf( fp, "%02x %s", (unsigned char)data[it], &" \n\0...\n"[ (1+it) < len ? 2 * !!((1+it) % width) : 3 ] );
+        }
+        fprintf( fp, "; %05d%s", jt, jt == len ? "\n" : " " );
+        for( unsigned it = jt, next = it + width; it < len && it < next; ++it ) {
+            fprintf( fp, " %c %s", (signed char)data[it] >= 32 ? (signed char)data[it] : (signed char)'.', &" \n\0..."[ (1+it) < len ? 2 * !!((1+it) % width) : 3 ] );
+        }
+    }
+    fprintf(fp, " %d bytes\n", len);
+}
+void hexdump( const void *ptr, unsigned len ) {
+    hexdumpf( stdout, ptr, len, 16 );
+}
+
+#if 0 // is(cl) only
+static void debugbreak(void) {
+    do { \
+        __try { DebugBreak(); } \
+        __except (GetExceptionCode() == EXCEPTION_BREAKPOINT ? \
+            EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {} \
+    } while(0);
+}
+#endif
+
+#if is(win32)
+static void debugbreak(void) { if(IsDebuggerPresent()) DebugBreak(); }
+#else // is(unix)
+static int is_debugger_present = -1;
+static void _sigtrap_handler(int signum) {
+    is_debugger_present = 0;
+    signal(SIGTRAP, SIG_DFL);
+}
+static void debugbreak(void) { // break if debugger present
+    // __builtin_trap(); //
+    //raise(SIGABRT); // SIGTRAP);
+    //__asm__ volatile("int $0x03");
+    if( is_debugger_present < 0 ) {
+        is_debugger_present = 1;
+        signal(SIGTRAP, _sigtrap_handler);
+        raise(SIGTRAP);
+    }
+}
+#endif
+
+void alert(const char *message) { // @todo: move to app_, besides die()
+    window_visible(false);
+    message = message[0] == '!' ? (const char*)va("%s\n%s", message+1, callstack(+48)) : message;
+
+#if is(win32)
+    MessageBoxA(0, message, 0,0);
+#elif is(ems)
+    emscripten_run_script(va("alert('%s')", message));
+#elif is(linux)
+    for(FILE *fp = fopen("/tmp/fwk.warning","wb");fp;fp=0)
+    fputs(message,fp), fclose(fp), system("xmessage -center -file /tmp/fwk.warning");
+#elif is(osx)
+    system(va("osascript -e 'display alert \"Alert\" message \"%s\"'", message));
+#endif
+
+    window_visible(true);
+}
+
+void breakpoint() {
+    debugbreak();
+}
+
+bool has_debugger() {
+#if is(win32)
+    return IsDebuggerPresent(); // SetLastError(123); OutputDebugStringA("\1"); enabled = GetLastError() != 123;
+#else
+    return false;
+#endif
+}
+
+void die(const char *message) {
+   fprintf(stderr, "%s\n", message);
+   fflush(stderr);
+   alert(message);
+   exit(-1);
+}
+
+// ----------------------------------------------------------------------------
+// logger
+
+//static int __thread _thread_id;
+//#define PRINTF(...)      (printf("%03d %07.3fs|%-16s|", (((unsigned)(uintptr_t)&_thread_id)>>8) % 1000, time_ss(), __FUNCTION__), printf(__VA_ARGS__), printf("%s", 1[#__VA_ARGS__] == '!' ? callstack(+48) : "")) // verbose logger
+
+int (PRINTF)(const char *text, const char *stack, const char *file, int line, const char *function) {
+    double secs = time_ss();
+    uint32_t color = 0;
+    /**/ if( strstri(text, "fail") || strstri(text, "error") ) color = RED;
+    else if( strstri(text, "warn") || strstri(text, "not found") ) color = YELLOW;
+    #if is(cl)
+    char *slash = strrchr(file, '\\'); if(slash) file = slash + 1;
+    #endif
+    char *location = va("|%s|%s:%d", /*errno?strerror(errno):*/function, file, line);
+    int cols = tty_cols() + 1 - (int)strlen(location);
+
+    flockfile(stdout);
+
+    tty_color(color);
+    printf("\r%*.s%s", cols, "", location);
+    printf("\r%07.3fs|%s%s", secs, text, stack);
+    tty_color(0);
+
+    funlockfile(stdout);
+
+    return 1;
+}
+
+// ----------------------------------------------------------------------------
+// panic
+
+static void *panic_oom_reserve; // for out-of-memory recovery
+int (PANIC)(const char *error, const char *file, int line) {
+    panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 0);
+
+    tty_color(RED);
+
+    error += error[0] == '!';
+    fprintf(stderr, "Error: %s (%s:%d) (errno:%s)\n", error, file, line, strerror(errno));
+    fprintf(stderr, "%s", callstack(+16)); // no \n
+    fflush(0); // fflush(stderr);
+
+    tty_color(0);
+
+    alert(error);
+    breakpoint();
+
+    exit(-line);
+    return 1;
+}
+
+// ----------------------------------------------------------------------------
+// threads
+
+struct thread_wrapper {
+    int (*func)(void *user_data);
+    void *user_data;
+};
+
+static
+int thread_proc( void* user_data ) {
+    struct thread_wrapper *w = (struct thread_wrapper*)user_data;
+    int return_code = w->func( w->user_data );
+    thread_exit( return_code );
+    FREE(w);
+    return 0;
+}
+
+void* thread( int (*thread_func)(void* user_data), void* user_data ) {
+    struct thread_wrapper *w = MALLOC(sizeof(struct thread_wrapper));
+    w->func = thread_func;
+    w->user_data = user_data;
+
+    int thread_stack_size = 0;
+    const char *thread_name = "";
+    thread_ptr_t thd = thread_init( thread_proc, w, thread_name, thread_stack_size );
+    return thd;
+}
+void thread_destroy( void *thd ) {
+    int rc = thread_join(thd);
+    thread_term(thd);
+}
+
+void app_hang() {
+    for(;;);
+}
+void app_crash() {
+    volatile int *p = 0;
+    *p = 42;
+}
+void app_beep() {
+    ifdef(win32, system("rundll32 user32.dll,MessageBeep"); return; );
+    ifdef(linux, system("paplay /usr/share/sounds/freedesktop/stereo/message.oga"); return; );
+    ifdef(osx,   system("tput bel"); return; );
+
+    //fallback:
+    fputc('\x7', stdout);
+
+    // win32:
+    // rundll32 user32.dll,MessageBeep ; ok
+    // rundll32 cmdext.dll,MessageBeepStub ; ok
+
+    // osx:
+    // tput bel
+    // say "beep"
+    // osascript -e 'beep'
+    // osascript -e "beep 1"
+    // afplay /System/Library/Sounds/Ping.aiff
+    // /usr/bin/printf "\a"
+
+    // linux:
+    // paplay /usr/share/sounds/freedesktop/stereo/message.oga ; ok
+    // paplay /usr/share/sounds/freedesktop/stereo/complete.oga ; ok
+    // paplay /usr/share/sounds/freedesktop/stereo/bell.oga ; ok
+    // beep ; apt-get
+    // echo -e '\007' ; mute
+    // echo -e "\007" >/dev/tty10 ; sudo
+    // tput bel ; mute
+}
+
+void app_singleton(const char *guid) {
+    #ifdef _WIN32
+    do_once {
+        char buffer[128];
+        snprintf(buffer, 128, "Global\\{%s}", guid);
+        static HANDLE app_mutex = 0;
+        app_mutex = CreateMutexA(NULL, FALSE, buffer);
+        if( ERROR_ALREADY_EXISTS == GetLastError() ) {
+            exit(-1);
+        }
+    }
+    #endif
+}
+
+#ifdef APP_SINGLETON_GUID
+AUTORUN { app_singleton(APP_SINGLETON_GUID); }
+#endif
+
+static
+bool app_open_folder(const char *file) {
+    char buf[1024];
+#ifdef _WIN32
+    snprintf(buf, sizeof(buf), "start \"\" \"%s\"", file);
+#elif __APPLE__
+    snprintf(buf, sizeof(buf), "%s \"%s\"", file_directory(file) ? "open" : "open --reveal", file);
+#else
+    snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
+#endif
+    return system(buf) == 0;
+}
+
+static
+bool app_open_file(const char *file) {
+    char buf[1024];
+#ifdef _WIN32
+    snprintf(buf, sizeof(buf), "start \"\" \"%s\"", file);
+#elif __APPLE__
+    snprintf(buf, sizeof(buf), "open \"%s\"", file);
+#else
+    snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
+#endif
+    return system(buf) == 0;
+}
+
+static
+bool app_open_url(const char *url) {
+    return app_open_file(url);
+}
+
+bool app_open(const char *link) {
+    if( file_directory(link) ) return app_open_folder(link);
+    if( file_exist(link) ) return app_open_file(link);
+    return app_open_url(link);
+}
+
+const char* app_loadfile() {
+    const char *windowTitle = NULL;
+    const char *defaultPathFile = NULL;
+    const char *filterHints = NULL; // "image files"
+    const char *filters[] = { "*.*" };
+    int allowMultipleSelections = 0;
+
+    tinyfd_assumeGraphicDisplay = 1;
+    return tinyfd_openFileDialog( windowTitle, defaultPathFile, countof(filters), filters, filterHints, allowMultipleSelections );
+}
+const char* app_savefile() {
+    const char *windowTitle = NULL;
+    const char *defaultPathFile = NULL;
+    const char *filterHints = NULL; // "image files"
+    const char *filters[] = { "*.*" };
+
+    tinyfd_assumeGraphicDisplay = 1;
+    return tinyfd_saveFileDialog( windowTitle, defaultPathFile, countof(filters), filters, filterHints );
+}
+
+// ----------------------------------------------------------------------------
+// tests
+
+static __thread int test_oks, test_errors, test_once;
+static void test_exit(void) { fprintf(stderr, "%d/%d tests passed\n", test_oks, test_oks+test_errors); }
+int (test)(const char *file, int line, const char *expr, bool result) {
+    static int breakon = -1; if(breakon<0) breakon = optioni("--test-break", 0);
+    if( breakon == (test_oks+test_errors+1) ) alert("user requested to break on this test"), breakpoint();
+    test_once = test_once || !(atexit)(test_exit);
+    test_oks += result, test_errors += !result;
+    return (result || (tty_color(RED), fprintf(stderr, "(Test `%s` failed %s:%d)\n", expr, file, line), tty_color(0), 0) );
+}
+#line 0
+
+#line 1 "fwk_time.c"
 // ----------------------------------------------------------------------------
 // time
 
@@ -17444,2801 +23444,270 @@ void timer_destroy(unsigned i) {
     }
 }
 
-
 // ----------------------------------------------------------------------------
-// argc/v
+// guid
 
-static void argc_init() {
-#if is(tcc) && is(linux)
-    do_once {
-        char buffer[128], arg0[128] = {0};
-        for( FILE *fp = fopen("/proc/self/status", "rb"); fp; fclose(fp), fp = 0) {
-            while( fgets(buffer, 128, fp) ) {
-                if( strbeg(buffer, "Name:") ) {
-                    sscanf(buffer + 5, "%s", arg0 );
-                    break;
-                }
-            }
-        }
-        extern char **environ;
-        __argv = environ - 2; // last argv, as stack is [argc][argv0][argv1][...][NULL][envp]
-        while( !strend(*__argv,arg0) ) --__argv;
-        __argc = *(int*)(__argv-1);
-    }
-#endif
+//typedef vec3i guid;
+
+guid guid_create() {
+    static __thread unsigned counter = 0;
+    static uint64_t appid = 0; do_once appid = hash_str(app_name());
+
+    union conv {
+        struct {
+            unsigned timestamp : 32;
+            unsigned threadid  : 16; // inverted order in LE
+            unsigned appid     : 16; //
+            unsigned counter   : 32;
+        };
+        vec3i v3;
+    } c;
+    c.timestamp = date_epoch() - 0x65000000;
+    c.appid = (unsigned)appid;
+    c.threadid = (unsigned)(uintptr_t)thread_current_thread_id();
+    c.counter = ++counter;
+
+    return c.v3;
 }
-
-int argc() {
-    do_once argc_init();
-    return __argc;
-}
-char* argv(int arg) {
-    do_once argc_init();
-    static __thread char empty[1];
-    return (unsigned)arg < __argc ? __argv[arg] : (empty[0] = '\0', empty);
-}
-
-// ----------------------------------------------------------------------------
-// options
-
-int flag(const char *commalist) {
-    while( commalist[0] ) {
-        const char *begin = commalist;
-        while(*commalist != ',' && *commalist != '\0') ++commalist;
-        const char *end = commalist;
-
-        char token[128];
-        snprintf(token,   128, "%.*s",  (int)(end - begin), begin);
-
-        for( int i = 1; i < argc(); ++i ) {
-            char *arg = argv(i);
-
-            if( !strcmpi( arg, token ) ) {  // --arg
-                return 1;
-            }
-        }
-
-        commalist = end + !!end[0];
-    }
-    return 0;
-}
-
-const char *option(const char *commalist, const char *defaults) {
-    while( commalist[0] ) {
-        const char *begin = commalist;
-        while(*commalist != ',' && *commalist != '\0') ++commalist;
-        const char *end = commalist;
-
-        char token[128], tokeneq[128];
-        snprintf(token,   128, "%.*s",  (int)(end - begin), begin);
-        snprintf(tokeneq, 128, "%.*s=", (int)(end - begin), begin);
-
-        for( int i = 1; i < argc(); ++i ) {
-            char *arg = argv(i);
-
-            if( strbegi( arg, tokeneq ) ) { // --arg=value
-                return argv(i) + strlen(tokeneq);
-            }
-            if( !strcmpi( arg, token ) ) {  // --arg value
-                if( (i+1) < argc() ) {
-                    return argv(i+1);
-                }
-            }
-        }
-
-        commalist = end + !!end[0];
-    }
-    return defaults;
-}
-
-int optioni(const char *commalist, int defaults) {
-    const char *rc = option(commalist, 0);
-    return rc ? atoi(rc) : defaults;
-}
-float optionf(const char *commalist, float defaults) {
-    const char *rc = option(commalist, 0);
-    return rc ? atof(rc) : defaults;
-}
-
-// ----------------------------------------------------------------------------
-// tty
-
-void tty_color(unsigned color) {
-    #if is(win32)
-    do_once {
-        DWORD mode = 0; SetConsoleMode(GetStdHandle(-11), (GetConsoleMode(GetStdHandle(-11), &mode), mode|4));
-    }
-    #endif
-    if( color ) {
-        // if( color == RED ) breakpoint("break on RED"); // debug
-        unsigned r = (color >> 16) & 255;
-        unsigned g = (color >>  8) & 255;
-        unsigned b = (color >>  0) & 255;
-        // 24-bit console ESC[ … 38;2;<r>;<g>;<b> … m Select RGB foreground color
-        // 256-color console ESC[38;5;<fgcode>m
-        // 0x00-0x07:  standard colors (as in ESC [ 30..37 m)
-        // 0x08-0x0F:  high intensity colors (as in ESC [ 90..97 m)
-        // 0x10-0xE7:  6*6*6=216 colors: 16 + 36*r + 6*g + b (0≤r,g,b≤5)
-        // 0xE8-0xFF:  grayscale from black to white in 24 steps
-        r /= 51, g /= 51, b /= 51; // [0..5]
-        printf("\033[38;5;%dm", r*36+g*6+b+16); // "\033[0;3%sm", color_code);
-    } else {
-        printf("%s", "\x1B[39;49m"); // reset
-    }
-}
-void tty_puts(unsigned color, const char *text) {
-    tty_color(color); puts(text);
-}
-void tty_init() {
-    tty_color(0);
-}
-int tty_cols() {
-#if is(win32)
-    CONSOLE_SCREEN_BUFFER_INFO c;
-    if( GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &c) ) {
-        int w = c.srWindow.Right-c.srWindow.Left-c.dwCursorPosition.X;
-        return w > 2 ? w - 1 : w; // w-1 to allow window resizing to a larger dimension (already printed text would break otherwise)
-    }
-#endif
-#ifdef TIOCGWINSZ
-    struct winsize ws;
-    ioctl(STDIN_FILENO, TIOCGWINSZ, &ws);
-    return ws.ws_col - 1;
-#endif
-#ifdef TIOCGSIZE
-    struct ttysize ts;
-    ioctl(STDIN_FILENO, TIOCGSIZE, &ts);
-    return ts.ts_cols - 1;
-#endif
-    return 80;
-}
-void tty_detach() {
-    ifdef(win32, FreeConsole());
-}
-void tty_attach() {
-#if is(win32)
-    // in order to have a Windows gui application with console:
-    // - use WinMain() then AllocConsole(), but that may require supporintg different entry points for different platforms.
-    // - /link /SUBSYSTEM:CONSOLE and then call FreeConsole() if no console is needed, but feels naive to flash the terminal for a second.
-    // - /link /SUBSYSTEM:WINDOWS /entry:mainCRTStartup, then AllocConsole() as follows. Quoting @pmttavara: 
-    //   "following calls are the closest i'm aware you can get to /SUBSYSTEM:CONSOLE in a gui program 
-    //   while cleanly handling existing consoles (cmd.exe), pipes (ninja) and no console (VS/RemedyBG; double-clicking the game)"
-    do_once {
-        if( !AttachConsole(ATTACH_PARENT_PROCESS) && GetLastError() != ERROR_ACCESS_DENIED ) ASSERT( AllocConsole() );
-        printf("\n"); // print >= 1 byte to distinguish empty stdout from a redirected stdout (fgetpos() position <= 0)
-        fpos_t pos = 0;
-        if( fgetpos(stdout, &pos) != 0 || pos <= 0 ) {
-            ASSERT(freopen("CONIN$" , "r", stdin ));
-            ASSERT(freopen("CONOUT$", "w", stderr));
-            ASSERT(freopen("CONOUT$", "w", stdout));
-        }
-    }
-#endif
-}
-
-// -----------------------------------------------------------------------------
-// debugger
-
-#include <stdio.h>
-void hexdumpf( FILE *fp, const void *ptr, unsigned len, int width ) {
-    unsigned char *data = (unsigned char*)ptr;
-    for( unsigned jt = 0; jt <= len; jt += width ) {
-        fprintf( fp, "; %05d%s", jt, jt == len ? "\n" : " " );
-        for( unsigned it = jt, next = it + width; it < len && it < next; ++it ) {
-            fprintf( fp, "%02x %s", (unsigned char)data[it], &" \n\0...\n"[ (1+it) < len ? 2 * !!((1+it) % width) : 3 ] );
-        }
-        fprintf( fp, "; %05d%s", jt, jt == len ? "\n" : " " );
-        for( unsigned it = jt, next = it + width; it < len && it < next; ++it ) {
-            fprintf( fp, " %c %s", (signed char)data[it] >= 32 ? (signed char)data[it] : (signed char)'.', &" \n\0..."[ (1+it) < len ? 2 * !!((1+it) % width) : 3 ] );
-        }
-    }
-    fprintf(fp, " %d bytes\n", len);
-}
-void hexdump( const void *ptr, unsigned len ) {
-    hexdumpf( stdout, ptr, len, 16 );
-}
-
-#if 0 // is(cl) only
-static void debugbreak(void) {
-    do { \
-        __try { DebugBreak(); } \
-        __except (GetExceptionCode() == EXCEPTION_BREAKPOINT ? \
-            EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {} \
-    } while(0);
-}
-#endif
-
-#if is(win32)
-static void debugbreak(void) { if(IsDebuggerPresent()) DebugBreak(); }
-#else // is(unix)
-static int is_debugger_present = -1;
-static void _sigtrap_handler(int signum) {
-    is_debugger_present = 0;
-    signal(SIGTRAP, SIG_DFL);
-}
-static void debugbreak(void) { // break if debugger present
-    // __builtin_trap(); //
-    //raise(SIGABRT); // SIGTRAP);
-    //__asm__ volatile("int $0x03");
-    if( is_debugger_present < 0 ) {
-        is_debugger_present = 1;
-        signal(SIGTRAP, _sigtrap_handler);
-        raise(SIGTRAP);
-    }
-}
-#endif
-
-void alert(const char *message) { // @todo: move to app_, besides die()
-#if is(win32)
-    MessageBoxA(0, message, 0,0);
-#elif is(ems)
-    emscripten_run_script(va("alert('%s')", message));
-#elif is(linux)
-    for(FILE *fp = fopen("/tmp/fwk.warning","wb");fp;fp=0)
-    fputs(message,fp), fclose(fp), system("xmessage -center -file /tmp/fwk.warning");
-#elif is(osx)
-    system(va("osascript -e 'display alert \"Alert\" message \"%s\"'", message));
-#endif
-}
-
-void breakpoint(const char *reason) {
-    window_visible(false);
-    if( reason ) {
-        const char *fulltext = reason[0] == '!' ? va("%s\n%s", reason+1, callstack(+48)) : reason;
-        PRINTF("%s", fulltext);
-
-        (alert)(fulltext);
-    }
-    debugbreak();
-    window_visible(true);
-}
-
-bool has_debugger() {
-#if is(win32)
-    return IsDebuggerPresent(); // SetLastError(123); OutputDebugStringA("\1"); enabled = GetLastError() != 123;
-#else
-    return false;
-#endif
-}
-
-void die(const char *message) {
-   fprintf(stderr, "%s\n", message);
-   fflush(stderr);
-   alert(message);
-   exit(-1);
-}
-
-// ----------------------------------------------------------------------------
-// logger
-
-unsigned determine_color_from_text(const char *text) {
-    /**/ if( strstri(text, "fail") || strstri(text, "error") ) return RED;
-    else if( strstri(text, "warn") || strstri(text, "not found") ) return YELLOW;
-    return 0;
-}
-
-//static int __thread _thread_id;
-//#define PRINTF(...)      (printf("%03d %07.3fs|%-16s|", (((unsigned)(uintptr_t)&_thread_id)>>8) % 1000, time_ss(), __FUNCTION__), printf(__VA_ARGS__), printf("%s", 1[#__VA_ARGS__] == '!' ? callstack(+48) : "")) // verbose logger
-
-int (PRINTF)(const char *text, const char *stack, const char *file, int line, const char *function) {
-    double secs = time_ss();
-    uint32_t color = /*errno ? RED :*/ determine_color_from_text(text); // errno = 0;
-    #if is(cl)
-    char *slash = strrchr(file, '\\'); if(slash) file = slash + 1;
-    #endif
-    char *location = va("|%s|%s:%d", /*errno?strerror(errno):*/function, file, line);
-    int cols = tty_cols() + 1 - (int)strlen(location);
-
-static thread_mutex_t lock, *init = 0; if(!init) thread_mutex_init(init = &lock);
-thread_mutex_lock( &lock );
-
-    tty_color(color);
-    printf("\r%*.s%s", cols, "", location);
-    printf("\r%07.3fs|%s%s", secs, text, stack);
-    tty_color(0);
-
-thread_mutex_unlock( &lock );
-    return 1;
-}
-
-// ----------------------------------------------------------------------------
-// panic
-
-static void *panic_oom_reserve; // for out-of-memory recovery
-int (PANIC)(const char *error, const char *file, int line) {
-    panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 0);
-
-    tty_color(RED);
-
-    error += error[0] == '!';
-    fprintf(stderr, "Error: %s (%s:%d) (errno:%s)\n", error, file, line, strerror(errno));
-    fprintf(stderr, "%s", callstack(+16)); // no \n
-    fflush(0); // fflush(stderr);
-
-    tty_color(0);
-
-    breakpoint(error);
-    exit(-line);
-    return 1;
-}
-
-// ----------------------------------------------------------------------------
-// threads
-
-struct thread_wrapper {
-    int (*func)(void *user_data);
-    void *user_data;
-};
-
-static
-int thread_proc( void* user_data ) {
-    struct thread_wrapper *w = (struct thread_wrapper*)user_data;
-    int return_code = w->func( w->user_data );
-    thread_exit( return_code );
-    FREE(w);
-    return 0;
-}
-
-void* thread( int (*thread_func)(void* user_data), void* user_data ) {
-    struct thread_wrapper *w = MALLOC(sizeof(struct thread_wrapper));
-    w->func = thread_func;
-    w->user_data = user_data;
-
-    int thread_stack_size = 0;
-    const char *thread_name = "";
-    thread_ptr_t thd = thread_init( thread_proc, w, thread_name, thread_stack_size );
-    return thd;
-}
-void thread_destroy( void *thd ) {
-    int rc = thread_join(thd);
-    thread_term(thd);
-}
-
 #line 0
 
-#line 1 "fwk_ui.c"
-
-#ifndef UI_ICONS_SMALL
-//#define UI_ICONS_SMALL 1
-#endif
-
-#define UI_FONT_ENUM(carlito,b612) b612 // carlito
-
-#define UI_FONT_ICONS    "MaterialIconsSharp-Regular.otf" // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf" //
-#define UI_FONT_REGULAR  UI_FONT_ENUM("Carlito",     "B612")     "-Regular.ttf"
-#define UI_FONT_HEADING  UI_FONT_ENUM("Carlito",     "B612")     "-BoldItalic.ttf"
-#define UI_FONT_TERMINAL UI_FONT_ENUM("Inconsolata", "B612Mono") "-Regular.ttf"
-
-#if UI_LESSER_SPACING
-    enum { UI_SEPARATOR_HEIGHT = 5, UI_MENUBAR_ICON_HEIGHT = 20, UI_ROW_HEIGHT = 22, UI_MENUROW_HEIGHT = 32 };
-#else
-    enum { UI_SEPARATOR_HEIGHT = 10, UI_MENUBAR_ICON_HEIGHT = 25, UI_ROW_HEIGHT = 32, UI_MENUROW_HEIGHT = 32 };
-#endif
-
-#if UI_FONT_LARGE
-    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(18,17)
-    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(20,19)
-    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
-#elif UI_FONT_SMALL
-    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(13,14)
-    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(14.5,15)
-    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
-#else
-    #define UI_FONT_REGULAR_SIZE    UI_FONT_ENUM(14.5,16)
-    #define UI_FONT_HEADING_SIZE    UI_FONT_ENUM(16,17.5)
-    #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
-#endif
-
-#if UI_ICONS_SMALL
-    #define UI_ICON_FONTSIZE        UI_FONT_ENUM(16.5f,16.5f)
-    #define UI_ICON_SPACING_X       UI_FONT_ENUM(-2,-2)
-    #define UI_ICON_SPACING_Y       UI_FONT_ENUM(4.5f,3.5f)
-#else
-    #define UI_ICON_FONTSIZE        UI_FONT_ENUM(20,20)
-    #define UI_ICON_SPACING_X       UI_FONT_ENUM(0,0)
-    #define UI_ICON_SPACING_Y       UI_FONT_ENUM(6.5f,5.0f)
-#endif
-
-#define MAX_VERTEX_MEMORY 512 * 1024
-#define MAX_ELEMENT_MEMORY 128 * 1024
-
-static struct nk_context *ui_ctx;
-static struct nk_glfw nk_glfw = {0};
-
-void* ui_handle() {
-    return ui_ctx;
-}
-
-static void nk_config_custom_fonts() {
-    #define UI_ICON_MIN ICON_MIN_MD
-    #define UI_ICON_MED ICON_MAX_16_MD
-    #define UI_ICON_MAX ICON_MAX_MD
-
-    #define ICON_BARS        ICON_MD_MENU
-    #define ICON_FILE        ICON_MD_INSERT_DRIVE_FILE
-    #define ICON_TRASH       ICON_MD_DELETE
-
-    struct nk_font *font = NULL;
-    struct nk_font_atlas *atlas = NULL;
-    nk_glfw3_font_stash_begin(&nk_glfw, &atlas); // nk_sdl_font_stash_begin(&atlas);
-
-        // Default font(#1)...
-
-        for( char *data = vfs_read(UI_FONT_REGULAR); data; data = 0 ) {
-            float font_size = UI_FONT_REGULAR_SIZE;
-                struct nk_font_config cfg = nk_font_config(font_size);
-                cfg.oversample_v = 2;
-                cfg.pixel_snap = 0;
-            // win32: struct nk_font *arial = nk_font_atlas_add_from_file(atlas, va("%s/fonts/arial.ttf",getenv("windir")), font_size, &cfg); font = arial ? arial : font;
-            // struct nk_font *droid = nk_font_atlas_add_from_file(atlas, "nuklear/extra_font/DroidSans.ttf", font_size, &cfg); font = droid ? droid : font;
-            struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_REGULAR), font_size, &cfg); font = regular ? regular : font;
-        }
-
-        // ...with icons embedded on it.
-
-        for( char *data = vfs_read(UI_FONT_ICONS); data; data = 0 ) {
-            static const nk_rune icon_range[] = {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0};
-
-            struct nk_font_config cfg = nk_font_config(UI_ICON_FONTSIZE);
-            cfg.range = icon_range; // nk_font_default_glyph_ranges();
-            cfg.merge_mode = 1;
-
-            cfg.spacing.x += UI_ICON_SPACING_X;
-            cfg.spacing.y += UI_ICON_SPACING_Y;
-         // cfg.font->ascent += ICON_ASCENT;
-         // cfg.font->height += ICON_HEIGHT;
-
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
-
-            struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_ICONS), UI_ICON_FONTSIZE, &cfg);
-        }
-
-        // Monospaced font. Used in terminals or consoles.
-
-        for( char *data = vfs_read(UI_FONT_TERMINAL); data; data = 0 ) {
-            const float font_size = UI_FONT_REGULAR_SIZE; 
-            static const nk_rune icon_range[] = {32, 127, 0};
-
-            struct nk_font_config cfg = nk_font_config(font_size);
-            cfg.range = icon_range;
-
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
-
-            // struct nk_font *proggy = nk_font_atlas_add_default(atlas, font_size, &cfg);
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_TERMINAL), font_size, &cfg);
-        }
-
-        // Extra optional fonts from here...
-
-        for( char *data = vfs_read(UI_FONT_HEADING); data; data = 0 ) {
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_HEADING), UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
-        }
-
-    nk_glfw3_font_stash_end(&nk_glfw); // nk_sdl_font_stash_end();
-//  ASSERT(font);
-    if(font) nk_style_set_font(ui_ctx, &font->handle);
-
-    // Load Cursor: if you uncomment cursor loading please hide the cursor
-    // nk_style_load_all_cursors(ctx, atlas->cursors); glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-}
-
-static void nk_config_custom_theme() {
-    #ifdef UI_HUE
-    float default_hue = UI_HUE;
-    #else
-    // 0.09 orange, 0.14 yellow, 0.40 green, 0.45 turquoise, 0.50 cyan, 0.52 default, 0.55 blue, 0.80 purple, 0.92 cherry, 0.96 red
-    float hues[] = { 0.40,0.45,0.50,0.52,0.55,0.80,0.92 };
-    float default_hue = hues[ (int)((((date() / 10000) % 100) / 24.f) * countof(hues)) ]; // YYYYMMDDhhmmss -> hh as 0..1
-default_hue = 0.52;
-    #endif
-    float hue = clampf( optionf("--ui-hue", default_hue /*= 0.52*/), 0, 1 );
-    struct nk_color main_hue   = nk_hsv_f(hue+0.025, 0.80, 0.400); // washed
-    struct nk_color hover_hue  = nk_hsv_f(hue+0.025, 1.00, 0.600); // vivid
-    struct nk_color active_hue = nk_hsv_f(hue-0.010, 1.00, 0.600); // bright; same /S/V than vivid, but H/ slighty biased towards a different luma on spectrum
-    struct nk_color main       = nk_hsv_f(    0.600, 0.00, 0.125); // washed b/w
-    struct nk_color hover      = nk_hsv_f(    0.900, 0.00, 0.000); // vivid  b/w
-    struct nk_color active     = nk_hsv_f(    0.600, 0.00, 0.150); // bright b/w
-    struct nk_color table[NK_COLOR_COUNT] = {0};
-    table[NK_COLOR_TEXT] = nk_rgba(210, 210, 210, 255);
-    table[NK_COLOR_WINDOW] = nk_rgba(42, 42, 42, 245);
-    table[NK_COLOR_HEADER] = nk_rgba(51, 51, 56, 245);
-    table[NK_COLOR_BORDER] = nk_rgba(46, 46, 46, 255);
-    table[NK_COLOR_BUTTON] = main;
-    table[NK_COLOR_BUTTON_HOVER] = hover;
-    table[NK_COLOR_BUTTON_ACTIVE] = active;
-    // ok
-    table[NK_COLOR_TOGGLE] = nk_rgba(45*1.2, 53*1.2, 56*1.2, 255); // table[NK_COLOR_WINDOW]; // nk_rgba(45/1.2, 53/1.2, 56/1.2, 255);
-    table[NK_COLOR_TOGGLE_HOVER] = active;
-    table[NK_COLOR_TOGGLE_CURSOR] = main; // vivid_blue;
-    table[NK_COLOR_SCROLLBAR] = nk_rgba(50, 58, 61, 255);
-    table[NK_COLOR_SCROLLBAR_CURSOR] = main_hue;
-    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = hover_hue;
-    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = active_hue;
-    table[NK_COLOR_SLIDER] = nk_rgba(50, 58, 61, 255);
-    table[NK_COLOR_SLIDER_CURSOR] = main_hue;
-    table[NK_COLOR_SLIDER_CURSOR_HOVER] = hover_hue;
-    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = active_hue;
-    table[NK_COLOR_EDIT] = nk_rgba(50, 58, 61, 225);
-    table[NK_COLOR_EDIT_CURSOR] = nk_rgba(210, 210, 210, 255);
-
-    // table[NK_COLOR_COMBO] = nk_rgba(50, 58, 61, 255);
-
-    // table[NK_COLOR_PROPERTY] = nk_rgba(50, 58, 61, 255);
-table[NK_COLOR_CHART] = nk_rgba(50, 58, 61, 255);
-table[NK_COLOR_CHART_COLOR] = main_hue;
-table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = hover_hue; // nk_rgba(255, 0, 0, 255);
-    // table[NK_COLOR_TAB_HEADER] = main;
-    // table[NK_COLOR_SELECT] = nk_rgba(57, 67, 61, 255);
-    // table[NK_COLOR_SELECT_ACTIVE] = main;
-
-    // @transparent
-    #if !is(ems)
-    if( glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE ) {
-        table[NK_COLOR_WINDOW].a =
-        table[NK_COLOR_HEADER].a = 255;
-    }
-    #endif
-    // @transparent
-
-    nk_style_default(ui_ctx);
-    nk_style_from_table(ui_ctx, table);
-
-    struct nk_style *s = &ui_ctx->style;
-    s->window.spacing = nk_vec2(4,0);
-    s->window.combo_border = 0.f;
-    s->window.scrollbar_size = nk_vec2(5,5);
-    s->property.rounding = 0;
-    s->combo.border = 0;
-    s->button.border = 1;
-    s->edit.border = 0;
-
-    if( UI_ROW_HEIGHT < 32 ) { // UI_LESSER_SPACING
-    s->window.header.label_padding.y /= 2; // 2
-    s->window.header.padding.y /= 2; // /= 4 -> 1
-    }
-}
-
-static float ui_alpha = 1;
-static array(float) ui_alphas;
-static void ui_alpha_push(float alpha) {
-    array_push(ui_alphas, ui_alpha);
-    ui_alpha = alpha;
-
-    struct nk_color c;
-    struct nk_style *s = &ui_ctx->style;
-    c = s->window.background;                  c.a = alpha * 255; nk_style_push_color(ui_ctx, &s->window.background, c);
-    c = s->text.color;                         c.a = alpha * 255; nk_style_push_color(ui_ctx, &s->text.color, c);
-    c = s->window.fixed_background.data.color; c.a = alpha * 255; nk_style_push_style_item(ui_ctx, &s->window.fixed_background, nk_style_item_color(c));
-}
-static void ui_alpha_pop() {
-    if( array_count(ui_alphas) ) {
-        nk_style_pop_style_item(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-
-        ui_alpha = *array_back(ui_alphas);
-        array_pop(ui_alphas);
-    }
-}
-
-// -----------------------------------------------------------------------------
-// ui menu
-
-typedef struct ui_item_t {
-    char *buf;
-    int bufcap;
-    int type; // 0xED17 'edit' for a writeable inputbox buffer, else read-only label
-} ui_item_t;
-
-static array(ui_item_t) ui_items; // queued menu names. to be evaluated during next frame
-static vec2 ui_results = {0}; // clicked menu items from last frame
-
-int ui_item() {
-    return ui_items ? (ui_results.x == array_count(ui_items) ? ui_results.y : 0) : 0;
-}
-
-int ui_menu(const char *items) { // semicolon- or comma-separated items
-    array_push(ui_items, ((ui_item_t){STRDUP(items),0,0}));
-    return ui_item();
-}
-int ui_menu_editbox(char *buf, int bufcap) {
-    array_push(ui_items, ((ui_item_t){buf,bufcap,0xED17}));
-    return ui_item();
-}
-
-int ui_has_menubar() {
-    return !!ui_items; // array_count(ui_items) > 0;
-}
-
-static
-void ui_separator_line() {
-    struct nk_rect space; nk_layout_peek(&space, ui_ctx); // bounds.w *= 0.95f;
-    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
-    nk_stroke_line(canvas, space.x+0,space.y+0,space.x+space.w,space.y+0, 3.0, nk_rgb(128,128,128));
-}
-
-NK_API nk_bool
-nk_menu_begin_text_styled(struct nk_context *ctx, const char *title, int len,
-    nk_flags align, struct nk_vec2 size, struct nk_style_button *style_button) //< @r-lyeh: added style_button param
-{
-    struct nk_window *win;
-    const struct nk_input *in;
-    struct nk_rect header;
-    int is_clicked = nk_false;
-    nk_flags state;
-
-    NK_ASSERT(ctx);
-    NK_ASSERT(ctx->current);
-    NK_ASSERT(ctx->current->layout);
-    if (!ctx || !ctx->current || !ctx->current->layout)
-        return 0;
-
-    win = ctx->current;
-    state = nk_widget(&header, ctx);
-    if (!state) return 0;
-    in = (state == NK_WIDGET_ROM || win->flags & NK_WINDOW_ROM) ? 0 : &ctx->input;
-    if (nk_do_button_text(&ctx->last_widget_state, &win->buffer, header,
-        title, len, align, NK_BUTTON_DEFAULT, style_button, in, ctx->style.font))
-        is_clicked = nk_true;
-    return nk_menu_begin(ctx, win, title, is_clicked, header, size);
-}
-
-static
-vec2 ui_toolbar_(array(ui_item_t) ui_items, vec2 ui_results) {
-    // adjust size for all the upcoming UI elements
-    // old method: nk_layout_row_dynamic(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/, array_count(ui_items));
-    {
-        const struct nk_style *style = &ui_ctx->style;
-        const struct nk_user_font *f = style->font;
-
-        nk_layout_row_template_begin(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/);
-        for(int i = 0; i < array_count(ui_items); ++i) {
-            char first_token[512];
-            sscanf(ui_items[i].buf, "%[^,;|]", first_token); // @fixme: vsnscanf
-
-            char *tooltip = strchr(first_token, '@');
-            int len = tooltip ? (int)(tooltip - first_token /*- 1*/) : strlen(first_token);
-
-            float pixels_width = f->width(f->userdata, f->height, first_token, len);
-            pixels_width += style->window.header.label_padding.x * 2 + style->window.header.padding.x * 2;
-            if( pixels_width < 5 ) pixels_width = 5;
-            nk_layout_row_template_push_static(ui_ctx, pixels_width);
-        }
-        nk_layout_row_template_end(ui_ctx);
-    }
-
-    // display the UI elements
-    bool has_popups = ui_popups();
-    for( int i = 0, end = array_count(ui_items); i < end; ++i ) {
-        array(char*) ids = strsplit(ui_items[i].buf, ",;|");
-
-        // transparent style
-        static struct nk_style_button transparent_style;
-        do_once transparent_style = ui_ctx->style.button;
-        do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
-        do_once transparent_style.border_color = nk_rgba(0,0,0,0);
-        do_once transparent_style.active = transparent_style.normal;
-        do_once transparent_style.hover = transparent_style.normal;
-        do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
-        transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE; // array_count(ids) > 1 ? NK_TEXT_ALIGN_LEFT : NK_TEXT_ALIGN_CENTERED;
-
-        char *tooltip = strchr(ids[0], '@');
-        int len = tooltip ? (int)(tooltip -  ids[0]) : strlen(ids[0]);
-
-        // single button
-        if( array_count(ids) == 1 ) {
-            // tooltip
-            if( tooltip && !has_popups ) {
-                struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-                if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds) && nk_window_has_focus(ui_ctx)) {
-                    nk_tooltip(ui_ctx, tooltip+1);
-                }
-            }
-            // input...
-            if( ui_items[i].type == 0xED17 ) {
-                int active = nk_edit_string_zero_terminated(ui_ctx, NK_EDIT_AUTO_SELECT|NK_EDIT_CLIPBOARD|NK_EDIT_FIELD/*NK_EDIT_BOX*/|NK_EDIT_SIG_ENTER, ui_items[i].buf, ui_items[i].bufcap, nk_filter_default);
-                if( !!(active & NK_EDIT_COMMITED) ) ui_results = vec2(i+1, 0+1), nk_edit_unfocus(ui_ctx);
-            }
-            else
-            // ... else text
-            if( nk_button_text_styled(ui_ctx, &transparent_style, ids[0], len) ) {
-                ui_results = vec2(i+1, 0+1);
-            }
-        }
-        else {
-            struct nk_vec2 dims = {120, array_count(ids) * UI_MENUROW_HEIGHT};
-            const struct nk_style *style = &ui_ctx->style;
-            const struct nk_user_font *f = style->font;
-            static array(float) lens = 0; array_resize(lens, array_count(ids));
-            lens[0] = len;
-            for( int j = 1; j < array_count(ids); ++j ) {
-                lens[j] = strlen(ids[j]);
-                float width_px = f->width(f->userdata, f->height, ids[j], lens[j]);
-                dims.x = maxf(dims.x, width_px);
-            }
-            dims.x += 2 * style->window.header.label_padding.x;
-
-            // dropdown menu
-            if( nk_menu_begin_text_styled(ui_ctx, ids[0], lens[0], NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, dims, &transparent_style) ) {
-                nk_layout_row_dynamic(ui_ctx, 0, 1);
-
-                for( int j = 1; j < array_count(ids); ++j ) {
-                    char *item = ids[j];
-                    if( *item == '-' ) {
-                        while(*item == '-') ++item, --lens[j];
-                        //nk_menu_item_label(ui_ctx, "---", NK_TEXT_LEFT);
-                        ui_separator_line();
-                    }
-
-                    if( nk_menu_item_text(ui_ctx, item, lens[j], NK_TEXT_LEFT) ) {
-                        ui_results = vec2(i+1, j+1-1);
-                    }
-                }                    
-
-                nk_menu_end(ui_ctx);
-            }            
-        }
-    }
-
-    return ui_results;
-}
-
-int ui_toolbar(const char *icons) { // usage: int clicked_icon = ui_toolbar( ICON_1 ";" ICON_2 ";" ICON_3 ";" ICON_4 );
-    vec2 results = {0};
-    array(char*) items = strsplit(icons, ",;|");
-        static array(ui_item_t) temp = 0;
-        array_resize(temp, array_count(items));
-        for( int i = 0; i < array_count(items); ++i ) temp[i].buf = items[i], temp[i].bufcap = 0, temp[i].type = 0;
-    return ui_toolbar_(temp, results).x;
-}
-
-
-// UI Windows handlers. These are not OS Windows but UI Windows instead. For OS Windows check window_*() API.
-
-#ifndef WINDOWS_INI
-#define WINDOWS_INI editor_path("windows.ini")
-#endif
-
-static map(char*,unsigned) ui_windows = 0;
-
-static void ui_init() {
-    do_once {
-        nk_config_custom_fonts();
-        nk_config_custom_theme();
-
-        map_init(ui_windows, less_str, hash_str);
-    }
-}
-
-static int ui_window_register(const char *panel_or_window_title) {
-    unsigned *state = map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0);
-
-    // check for visibility flag on first call
-    int visible = 0;
-    if( *state == 0 ) {
-        static ini_t i = 0;
-        do_once i = ini(WINDOWS_INI); // @leak
-        char **found = i ? map_find(i, va("%s.visible", panel_or_window_title)) : NULL;
-        if( found ) visible = (*found)[0] == '1';
-    }
-
-    *state |= 2;
-    return visible;
-}
-int ui_visible(const char *panel_or_window_title) {
-    return *map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0) & 1;
-}
-int ui_show(const char *panel_or_window_title, int enabled) {
-    unsigned *found = map_find_or_add_allocated_key(ui_windows, STRDUP(panel_or_window_title), 0);
-    if( enabled ) {
-        *found |= 1;
-        nk_window_collapse(ui_ctx, panel_or_window_title, NK_MAXIMIZED); // in case windows was previously collapsed
-    } else {
-        *found &= ~1;
-    }
-    return !!enabled;
-}
-int ui_dims(const char *panel_or_window_title, float width, float height) {
-    nk_window_set_size(ui_ctx, panel_or_window_title, (struct nk_vec2){width, height});
-    return 0;
-}
-vec2 ui_get_dims() {
-    return (vec2){nk_window_get_width(ui_ctx), nk_window_get_height(ui_ctx)};
-}
-static char *ui_build_window_list() {
-    char *build_windows_menu = 0;
-    strcatf(&build_windows_menu, "%s;", ICON_MD_VIEW_QUILT); // "Windows");
-    for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
-        strcatf(&build_windows_menu, "%s %s;", ui_visible(*k) ? ICON_MD_CHECK_BOX : ICON_MD_CHECK_BOX_OUTLINE_BLANK, *k); // ICON_MD_VISIBILITY : ICON_MD_VISIBILITY_OFF, *k); // ICON_MD_TOGGLE_ON : ICON_MD_TOGGLE_OFF, *k);
-    }
-    strcatf(&build_windows_menu, "-%s;%s", ICON_MD_RECYCLING " Reset layout", ICON_MD_SAVE_AS " Save layout");
-    return build_windows_menu; // @leak if discarded
-}
-static int ui_layout_all_reset(const char *mask);
-static int ui_layout_all_save_disk(const char *mask);
-static int ui_layout_all_load_disk(const char *mask);
-
-
-static
-void ui_menu_render() {
-    // clean up from past frame
-    ui_results = vec2(0,0);
-    if( !ui_items ) return;
-    if( !array_count(ui_items) ) return;
-
-// artificially inject Windows menu on the first icon
-bool show_window_menu = !!array_count(ui_items);
-if( show_window_menu ) {
-    array_push_front(ui_items, ((ui_item_t){ui_build_window_list(), 0, 0}));
-}
-
-    // process menus
-    if( nk_begin(ui_ctx, "Menu", nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR/*|NK_WINDOW_BACKGROUND*/)) {
-        if( ui_ctx->current ) {
-            nk_menubar_begin(ui_ctx);
-
-            ui_results = ui_toolbar_(ui_items, ui_results);
-
-            //nk_layout_row_end(ui_ctx);
-            nk_menubar_end(ui_ctx);
-        }
-    }
-    nk_end(ui_ctx);
-
-if( show_window_menu ) {
-    // if clicked on first menu (Windows)
-    if( ui_results.x == 1 ) {
-        array(char*) split = strsplit(ui_items[0].buf,";"); // *array_back(ui_items), ";");
-        const char *title = split[(int)ui_results.y]; title += title[0] == '-'; title += 3 * (title[0] == '\xee'); title += title[0] == ' '; /*skip separator+emoji+space*/
-        // toggle window unless clicked on lasts items {"reset layout", "save layout"}
-        bool clicked_reset_layout = ui_results.y == array_count(split) - 2;
-        bool clicked_save_layout = ui_results.y == array_count(split) - 1;
-        /**/ if( clicked_reset_layout ) ui_layout_all_reset("*");
-        else if( clicked_save_layout ) file_delete(WINDOWS_INI), ui_layout_all_save_disk("*");
-        else ui_show(title, ui_visible(title) ^ true);
-        // reset value so developers don't catch this click
-        ui_results = vec2(0,0);
-    }
-    // restore state prior to previously injected Windows menu
-    else
-    ui_results.x = ui_results.x > 0 ? ui_results.x - 1 : 0;
-}
-
-    // clean up for next frame
-    for( int i = 0; i < array_count(ui_items); ++i ) {
-        if(ui_items[i].type != 0xED17)
-            FREE(ui_items[i].buf);
-    }
-    array_resize(ui_items, 0);
-}
-
-// -----------------------------------------------------------------------------
-
-static int ui_dirty = 1;
-static int ui_has_active_popups = 0;
-static float ui_hue = 0; // hue
-static int ui_is_hover = 0;
-static int ui_is_active = 0;
-static uint64_t ui_active_mask = 0;
-
-int ui_popups() {
-    return ui_has_active_popups;
-}
-int ui_hover() {
-    return ui_is_hover;
-}
-int ui_active() {
-    return ui_is_active; //window_has_cursor() && nk_window_is_any_hovered(ui_ctx) && nk_item_is_any_active(ui_ctx);
-}
-
-static
-int ui_set_enable_(int enabled) {
-    static struct nk_style off, on;
-    do_once {
-        off = on = ui_ctx->style;
-        float alpha = 0.5f;
-
-        off.text.color.a *= alpha;
-
-        off.button.normal.data.color.a *= alpha;
-        off.button.hover.data.color.a *= alpha;
-        off.button.active.data.color.a *= alpha;
-        off.button.border_color.a *= alpha;
-        off.button.text_background.a *= alpha;
-        off.button.text_normal.a *= alpha;
-        off.button.text_hover.a *= alpha;
-        off.button.text_active.a *= alpha;
-
-        off.contextual_button.normal.data.color.a *= alpha;
-        off.contextual_button.hover.data.color.a *= alpha;
-        off.contextual_button.active.data.color.a *= alpha;
-        off.contextual_button.border_color.a *= alpha;
-        off.contextual_button.text_background.a *= alpha;
-        off.contextual_button.text_normal.a *= alpha;
-        off.contextual_button.text_hover.a *= alpha;
-        off.contextual_button.text_active.a *= alpha;
-
-        off.menu_button.normal.data.color.a *= alpha;
-        off.menu_button.hover.data.color.a *= alpha;
-        off.menu_button.active.data.color.a *= alpha;
-        off.menu_button.border_color.a *= alpha;
-        off.menu_button.text_background.a *= alpha;
-        off.menu_button.text_normal.a *= alpha;
-        off.menu_button.text_hover.a *= alpha;
-        off.menu_button.text_active.a *= alpha;
-
-        off.option.normal.data.color.a *= alpha;
-        off.option.hover.data.color.a *= alpha;
-        off.option.active.data.color.a *= alpha;
-        off.option.border_color.a *= alpha;
-        off.option.cursor_normal.data.color.a *= alpha;
-        off.option.cursor_hover.data.color.a *= alpha;
-        off.option.text_normal.a *= alpha;
-        off.option.text_hover.a *= alpha;
-        off.option.text_active.a *= alpha;
-        off.option.text_background.a *= alpha;
-
-        off.checkbox.normal.data.color.a *= alpha;
-        off.checkbox.hover.data.color.a *= alpha;
-        off.checkbox.active.data.color.a *= alpha;
-        off.checkbox.border_color.a *= alpha;
-        off.checkbox.cursor_normal.data.color.a *= alpha;
-        off.checkbox.cursor_hover.data.color.a *= alpha;
-        off.checkbox.text_normal.a *= alpha;
-        off.checkbox.text_hover.a *= alpha;
-        off.checkbox.text_active.a *= alpha;
-        off.checkbox.text_background.a *= alpha;
-
-        off.selectable.normal.data.color.a *= alpha;
-        off.selectable.hover.data.color.a *= alpha;
-        off.selectable.pressed.data.color.a *= alpha;
-        off.selectable.normal_active.data.color.a *= alpha;
-        off.selectable.hover_active.data.color.a *= alpha;
-        off.selectable.pressed_active.data.color.a *= alpha;
-        off.selectable.text_normal.a *= alpha;
-        off.selectable.text_hover.a *= alpha;
-        off.selectable.text_pressed.a *= alpha;
-        off.selectable.text_normal_active.a *= alpha;
-        off.selectable.text_hover_active.a *= alpha;
-        off.selectable.text_pressed_active.a *= alpha;
-        off.selectable.text_background.a *= alpha;
-
-        off.slider.normal.data.color.a *= alpha;
-        off.slider.hover.data.color.a *= alpha;
-        off.slider.active.data.color.a *= alpha;
-        off.slider.border_color.a *= alpha;
-        off.slider.bar_normal.a *= alpha;
-        off.slider.bar_hover.a *= alpha;
-        off.slider.bar_active.a *= alpha;
-        off.slider.bar_filled.a *= alpha;
-        off.slider.cursor_normal.data.color.a *= alpha;
-        off.slider.cursor_hover.data.color.a *= alpha;
-        off.slider.cursor_active.data.color.a *= alpha;
-        off.slider.dec_button.normal.data.color.a *= alpha;
-        off.slider.dec_button.hover.data.color.a *= alpha;
-        off.slider.dec_button.active.data.color.a *= alpha;
-        off.slider.dec_button.border_color.a *= alpha;
-        off.slider.dec_button.text_background.a *= alpha;
-        off.slider.dec_button.text_normal.a *= alpha;
-        off.slider.dec_button.text_hover.a *= alpha;
-        off.slider.dec_button.text_active.a *= alpha;
-        off.slider.inc_button.normal.data.color.a *= alpha;
-        off.slider.inc_button.hover.data.color.a *= alpha;
-        off.slider.inc_button.active.data.color.a *= alpha;
-        off.slider.inc_button.border_color.a *= alpha;
-        off.slider.inc_button.text_background.a *= alpha;
-        off.slider.inc_button.text_normal.a *= alpha;
-        off.slider.inc_button.text_hover.a *= alpha;
-        off.slider.inc_button.text_active.a *= alpha;
-
-        off.progress.normal.data.color.a *= alpha;
-        off.progress.hover.data.color.a *= alpha;
-        off.progress.active.data.color.a *= alpha;
-        off.progress.border_color.a *= alpha;
-        off.progress.cursor_normal.data.color.a *= alpha;
-        off.progress.cursor_hover.data.color.a *= alpha;
-        off.progress.cursor_active.data.color.a *= alpha;
-        off.progress.cursor_border_color.a *= alpha;
-
-        off.property.normal.data.color.a *= alpha;
-        off.property.hover.data.color.a *= alpha;
-        off.property.active.data.color.a *= alpha;
-        off.property.border_color.a *= alpha;
-        off.property.label_normal.a *= alpha;
-        off.property.label_hover.a *= alpha;
-        off.property.label_active.a *= alpha;
-        off.property.edit.normal.data.color.a *= alpha;
-        off.property.edit.hover.data.color.a *= alpha;
-        off.property.edit.active.data.color.a *= alpha;
-        off.property.edit.border_color.a *= alpha;
-        off.property.edit.cursor_normal.a *= alpha;
-        off.property.edit.cursor_hover.a *= alpha;
-        off.property.edit.cursor_text_normal.a *= alpha;
-        off.property.edit.cursor_text_hover.a *= alpha;
-        off.property.edit.text_normal.a *= alpha;
-        off.property.edit.text_hover.a *= alpha;
-        off.property.edit.text_active.a *= alpha;
-        off.property.edit.selected_normal.a *= alpha;
-        off.property.edit.selected_hover.a *= alpha;
-        off.property.edit.selected_text_normal.a *= alpha;
-        off.property.edit.selected_text_hover.a *= alpha;
-        off.property.dec_button.normal.data.color.a *= alpha;
-        off.property.dec_button.hover.data.color.a *= alpha;
-        off.property.dec_button.active.data.color.a *= alpha;
-        off.property.dec_button.border_color.a *= alpha;
-        off.property.dec_button.text_background.a *= alpha;
-        off.property.dec_button.text_normal.a *= alpha;
-        off.property.dec_button.text_hover.a *= alpha;
-        off.property.dec_button.text_active.a *= alpha;
-        off.property.inc_button.normal.data.color.a *= alpha;
-        off.property.inc_button.hover.data.color.a *= alpha;
-        off.property.inc_button.active.data.color.a *= alpha;
-        off.property.inc_button.border_color.a *= alpha;
-        off.property.inc_button.text_background.a *= alpha;
-        off.property.inc_button.text_normal.a *= alpha;
-        off.property.inc_button.text_hover.a *= alpha;
-        off.property.inc_button.text_active.a *= alpha;
-
-        off.edit.normal.data.color.a *= alpha;
-        off.edit.hover.data.color.a *= alpha;
-        off.edit.active.data.color.a *= alpha;
-        off.edit.border_color.a *= alpha;
-        off.edit.cursor_normal.a *= alpha;
-        off.edit.cursor_hover.a *= alpha;
-        off.edit.cursor_text_normal.a *= alpha;
-        off.edit.cursor_text_hover.a *= alpha;
-        off.edit.text_normal.a *= alpha;
-        off.edit.text_hover.a *= alpha;
-        off.edit.text_active.a *= alpha;
-        off.edit.selected_normal.a *= alpha;
-        off.edit.selected_hover.a *= alpha;
-        off.edit.selected_text_normal.a *= alpha;
-        off.edit.selected_text_hover.a *= alpha;
-
-        off.chart.background.data.color.a *= alpha;
-        off.chart.border_color.a *= alpha;
-        off.chart.selected_color.a *= alpha;
-        off.chart.color.a *= alpha;
-
-        off.scrollh.normal.data.color.a *= alpha;
-        off.scrollh.hover.data.color.a *= alpha;
-        off.scrollh.active.data.color.a *= alpha;
-        off.scrollh.border_color.a *= alpha;
-        off.scrollh.cursor_normal.data.color.a *= alpha;
-        off.scrollh.cursor_hover.data.color.a *= alpha;
-        off.scrollh.cursor_active.data.color.a *= alpha;
-        off.scrollh.cursor_border_color.a *= alpha;
-
-        off.scrollv.normal.data.color.a *= alpha;
-        off.scrollv.hover.data.color.a *= alpha;
-        off.scrollv.active.data.color.a *= alpha;
-        off.scrollv.border_color.a *= alpha;
-        off.scrollv.cursor_normal.data.color.a *= alpha;
-        off.scrollv.cursor_hover.data.color.a *= alpha;
-        off.scrollv.cursor_active.data.color.a *= alpha;
-        off.scrollv.cursor_border_color.a *= alpha;
-
-        off.tab.background.data.color.a *= alpha;
-        off.tab.border_color.a *= alpha;
-        off.tab.text.a *= alpha;
-
-        off.combo.normal.data.color.a *= alpha;
-        off.combo.hover.data.color.a *= alpha;
-        off.combo.active.data.color.a *= alpha;
-        off.combo.border_color.a *= alpha;
-        off.combo.label_normal.a *= alpha;
-        off.combo.label_hover.a *= alpha;
-        off.combo.label_active.a *= alpha;
-        off.combo.symbol_normal.a *= alpha;
-        off.combo.symbol_hover.a *= alpha;
-        off.combo.symbol_active.a *= alpha;
-        off.combo.button.normal.data.color.a *= alpha;
-        off.combo.button.hover.data.color.a *= alpha;
-        off.combo.button.active.data.color.a *= alpha;
-        off.combo.button.border_color.a *= alpha;
-        off.combo.button.text_background.a *= alpha;
-        off.combo.button.text_normal.a *= alpha;
-        off.combo.button.text_hover.a *= alpha;
-        off.combo.button.text_active.a *= alpha;
-
-        off.window.fixed_background.data.color.a *= alpha;
-        off.window.background.a *= alpha;
-        off.window.border_color.a *= alpha;
-        off.window.popup_border_color.a *= alpha;
-        off.window.combo_border_color.a *= alpha;
-        off.window.contextual_border_color.a *= alpha;
-        off.window.menu_border_color.a *= alpha;
-        off.window.group_border_color.a *= alpha;
-        off.window.tooltip_border_color.a *= alpha;
-        off.window.scaler.data.color.a *= alpha;
-        off.window.header.normal.data.color.a *= alpha;
-        off.window.header.hover.data.color.a *= alpha;
-        off.window.header.active.data.color.a *= alpha;
-    }
-    static struct nk_input input;
-    if (!enabled) {
-        ui_alpha_push(0.5);
-        ui_ctx->style = off; // .button = off.button; 
-        input = ui_ctx->input;
-        memset(&ui_ctx->input, 0, sizeof(ui_ctx->input));
-    } else {
-        ui_alpha_pop();
-        ui_ctx->style = on; // .button = on.button;
-        ui_ctx->input = input;
-    }
-    return enabled;
-}
-
-static int ui_is_enabled = 1;
-int ui_enable() {
-    return ui_is_enabled == 1 ? 0 : ui_set_enable_(ui_is_enabled = 1);
-}
-int ui_disable() {
-    return ui_is_enabled == 0 ? 0 : ui_set_enable_(ui_is_enabled = 0);
-}
-int ui_enabled() {
-    return ui_is_enabled;
-}
-
-static
-void ui_destroy(void) {
-    if(ui_ctx) {
-        nk_glfw3_shutdown(&nk_glfw); // nk_sdl_shutdown();
-        ui_ctx = 0;
-    }
-}
-static
-void ui_create() {
-    do_once atexit(ui_destroy);
-
-    if( ui_dirty ) {
-        nk_glfw3_new_frame(&nk_glfw); //g->nk_glfw);
-        ui_dirty = 0;
-
-        ui_enable();
-    }
-}
-
-enum {
-    UI_NOTIFICATION_1 = 32, // sets panel as 1-story notification. used by ui_notify()
-    UI_NOTIFICATION_2 = 64, // sets panel as 2-story notification. used by ui_notify()
-};
-
-struct ui_notify {
-    char *title;
-    char *body; // char *icon;
-    float timeout;
-    float alpha;
-    int   used;
-};
-
-static array(struct ui_notify) ui_notifications; // format=("%d*%s\n%s", timeout, title, body)
-
-static
-void ui_notify_render() {
-    // draw queued notifications
-    if( array_count(ui_notifications) ) {
-        struct ui_notify *n = array_back(ui_notifications);
-
-        static double timeout = 0;
-        timeout += 1/60.f; // window_delta(); // @fixme: use editor_time() instead
-
-        ui_alpha_push( timeout >= n->timeout ? 1 - clampf(timeout - n->timeout,0,1) : 1 );
-
-            if( timeout < (n->timeout + 1) ) { // N secs display + 1s fadeout
-                if(n->used++ < 3) nk_window_set_focus(ui_ctx, "!notify");
-
-                if( ui_panel( "!notify", n->title && n->body ? UI_NOTIFICATION_2 : UI_NOTIFICATION_1 ) ) {
-                    if(n->title) ui_label(n->title);
-                    if(n->body)  ui_label(n->body);
-
-                    ui_panel_end();
-                }
-            }
-
-            if( timeout >= (n->timeout + 2) ) { // 1s fadeout + 1s idle
-                timeout = 0;
-
-                if(n->title) FREE(n->title);
-                if(n->body)  FREE(n->body);
-                array_pop(ui_notifications);
-            }
-
-        ui_alpha_pop();
-    }
-}
-
-static
-void ui_hue_cycle( unsigned num_cycles ) {
-    // cycle color (phi ratio)
-    for( unsigned i = 0; i < num_cycles; ++i ) {
-        //ui_hue = (ui_hue+0.61803f)*1.61803f; while(ui_hue > 1) ui_hue -= 1;
-        ui_hue *= 1.61803f / 1.85f; while(ui_hue > 1) ui_hue -= 1;
-    }
-}
-
-static
-void ui_render() {
-
-    // draw queued menus
-    ui_notify_render();
-    ui_menu_render();
-
-    /* IMPORTANT: `nk_sdl_render` modifies some global OpenGL state
-     * with blending, scissor, face culling, depth test and viewport and
-     * defaults everything back into a default state.
-     * Make sure to either a.) save and restore or b.) reset your own state after
-     * rendering the UI. */
-    //nk_sdl_render(NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
-
-    GLfloat bkColor[4]; glGetFloatv(GL_COLOR_CLEAR_VALUE, bkColor); // @transparent
-    glClearColor(0,0,0,1); // @transparent
-    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,!bkColor[3] ? GL_TRUE : GL_FALSE);  // @transparent
-    nk_glfw3_render(&nk_glfw, NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
-    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);  // @transparent
-
-#if is(ems)
-    glFinish();
-#endif
-
-    ui_dirty = 1;
-    ui_hue = 0;
-
-    ui_is_hover = nk_window_is_any_hovered(ui_ctx) && window_has_cursor();
-
-    if(input_down(MOUSE_L))
-        ui_is_active = (ui_is_hover && nk_item_is_any_active(ui_ctx));
-    if(input_up(MOUSE_L))
-        ui_is_active = 0;
-}
-
-
-// -----------------------------------------------------------------------------
-// save/restore all window layouts on every framebuffer resize
-
-#define UI_SNAP_PX      1 /*treshold of pixels when snapping panels/windows to the application borders [1..N]*/
-#define UI_ANIM_ALPHA 0.9 /*animation alpha used when restoring panels/windows state from application resizing events: [0..1]*/
-//#define UI_MENUBAR_Y     32 // menubar and row
-
-typedef struct ui_layout {
-    const char *title;
-
-    bool is_panel;
-
-    vec2   desktop;
-    vec2     p0,p1;
-    float    l0,l1;
-
-    float alpha;
-    float anim_timer;
-
-} ui_layout;
-
-static array(ui_layout) ui_layouts[2] = {0};
-
-static
-int ui_layout_find(const char *title, bool is_panel) {
-    int i = 0;
-    for each_array_ptr(ui_layouts[is_panel], ui_layout, s) {
-        if( !strcmp(title, s->title) ) return i;
-        ++i;
-    }
-    ui_layout s = {0};
-    s.is_panel = is_panel;
-    s.title = STRDUP(title);
-    array_push(ui_layouts[is_panel], s);
-    return array_count(ui_layouts[is_panel]) - 1;
-}
-
-static
-void ui_layout_save_mem(int idx, vec2 desktop, float workarea_h, struct nk_rect *xywh_, bool is_panel) {
-    struct nk_rect xywh = *xywh_; //< workaround for a (tcc-0.9.27+lubuntu16) bug, where xywh_ is never populated (ie, empty always) when passed by-copy
-
-    ui_layout *s = &ui_layouts[is_panel][idx];
-
-    struct nk_window *win = nk_window_find(ui_ctx, s->title);
-    // if(win && win->flags & NK_WINDOW_FULLSCREEN) return;    // skip if maximized
-
-    s->desktop = desktop;
-
-float excess = 0;
-if( win && (win->flags & NK_WINDOW_MINIMIZED)) {
-    excess = xywh.h - UI_MENUROW_HEIGHT;
-    xywh.h = UI_MENUROW_HEIGHT;
-}
-
-    // sanity checks
-    if(xywh.x<0)                               xywh.x = 0;
-    if(xywh.w>desktop.w-UI_SNAP_PX)            xywh.w = desktop.w-UI_SNAP_PX-1;
-
-    if(xywh.y<workarea_h)                      xywh.y = workarea_h;
-    if(xywh.h>desktop.h-workarea_h-UI_SNAP_PX) xywh.h = desktop.h-workarea_h-UI_SNAP_PX-1;
-
-    if((xywh.x+xywh.w)>desktop.w)              xywh.x-= xywh.x+xywh.w-desktop.w;
-    if((xywh.y+xywh.h)>desktop.h)              xywh.y-= xywh.y+xywh.h-desktop.h;
-
-if( win && (win->flags & NK_WINDOW_MINIMIZED)) {
-    xywh.h += excess;
-}
-
-    // build reconstruction vectors from bottom-right corner
-    s->p0 = vec2(xywh.x/s->desktop.x,xywh.y/s->desktop.y);
-    s->p1 = vec2(xywh.w/s->desktop.x,xywh.h/s->desktop.y);
-    s->p0 = sub2(s->p0, vec2(1,1)); s->l0 = len2(s->p0);
-    s->p1 = sub2(s->p1, vec2(1,1)); s->l1 = len2(s->p1);
-}
-
-static
-struct nk_rect ui_layout_load_mem(int idx, vec2 desktop, bool is_panel) {
-    ui_layout *s = &ui_layouts[is_panel][idx];
-
-    // extract reconstruction coords from bottom-right corner
-    vec2 p0 = mul2(add2(vec2(1,1), scale2(norm2(s->p0), s->l0)), desktop);
-    vec2 p1 = mul2(add2(vec2(1,1), scale2(norm2(s->p1), s->l1)), desktop);
-
-    return nk_rect( p0.x, p0.y, p1.x, p1.y );
-}
-
-static
-int ui_layout_all_reset(const char *mask) {
-    ui_layout z = {0};
-
-    vec2 desktop = vec2(window_width(), window_height());
-    float workarea_h = ui_has_menubar()*UI_MENUROW_HEIGHT; // @fixme workarea -> reserved_area
-
-    for( int is_panel = 0; is_panel < 2; ++is_panel ) {
-        for( int j = 0; j < array_count(ui_layouts[is_panel]); ++j ) {
-            if( ui_layouts[is_panel][j].title ) {
-
-                if( nk_window_is_hidden(ui_ctx, ui_layouts[is_panel][j].title) ) continue;
-
-                struct nk_rect xywh = { 0, workarea_h + j * UI_MENUROW_HEIGHT, desktop.w / 3.333, UI_MENUROW_HEIGHT };
-                if( is_panel ) {
-                    xywh.x = 0;
-                    xywh.y = workarea_h + j * UI_MENUROW_HEIGHT;
-                    xywh.w = desktop.w / 4;
-                    xywh.h = desktop.h / 3;
-                } else {
-                    xywh.x = desktop.w / 3.00 + j * UI_MENUROW_HEIGHT;
-                    xywh.y = workarea_h + j * UI_MENUROW_HEIGHT;
-                    xywh.w = desktop.w / 4;
-                    xywh.h = desktop.h / 3;
-                }
-                nk_window_set_focus(ui_ctx, ui_layouts[is_panel][j].title);
-                nk_window_collapse(ui_ctx, ui_layouts[is_panel][j].title, is_panel ? 0 : 1);
-                struct nk_window* win = is_panel ? 0 : nk_window_find(ui_ctx, ui_layouts[is_panel][j].title );
-                if(win) win->flags &= ~NK_WINDOW_FULLSCREEN;
-                if(win) win->flags &= ~NK_WINDOW_MINIMIZED;
-                ui_layout_save_mem(j, desktop, workarea_h, &xywh, is_panel);
-                ui_layouts[is_panel][j].anim_timer = 1.0;
-            }
-        }
-    }
-
-    return 1;
-}
-
-static
-int ui_layout_all_save_disk(const char *mask) {
-    float w = window_width(), h = window_height();
-    for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
-        struct nk_window *win = nk_window_find(ui_ctx, *k);
-        if( win && strmatchi(*k, mask) ) {
-            ini_write(WINDOWS_INI, *k, "x", va("%f", win->bounds.x / w ));
-            ini_write(WINDOWS_INI, *k, "y", va("%f", win->bounds.y / h ));
-            ini_write(WINDOWS_INI, *k, "w", va("%f", win->bounds.w / w ));
-            ini_write(WINDOWS_INI, *k, "h", va("%f", win->bounds.h / h ));
-            ini_write(WINDOWS_INI, *k, "visible", ui_visible(*k) ? "1":"0");
-        }
-    }
-    return 1;
-}
-
-static
-const char *ui_layout_load_disk(const char *title, const char *mask, ini_t i, struct nk_rect *r) {
-    if(!i) return 0;
-
-    const char *dot = strrchr(title, '.');
-    if( dot ) title = va("%.*s", (int)(dot - title), title);
-    if( !strmatchi(title, mask) ) return 0;
-
-    char **x = map_find(i, va("%s.x", title));
-    char **y = map_find(i, va("%s.y", title));
-    char **w = map_find(i, va("%s.w", title));
-    char **h = map_find(i, va("%s.h", title));
-    if( x && y && w && h ) {
-        float ww = window_width(), wh = window_height();
-        r->x = atof(*x) * ww;
-        r->y = atof(*y) * wh;
-        r->w = atof(*w) * ww;
-        r->h = atof(*h) * wh;
-
-        char **on = map_find(i, va("%s.visible", title));
-
-        return title;
-    }
-    return 0;
-}
-
-static
-int ui_layout_all_load_disk(const char *mask) {
-    ini_t i = ini(WINDOWS_INI); // @leak
-    if( !i ) return 0;
-    for each_map(i, char*, k, char*, v) {
-        struct nk_rect out = {0};
-        const char *title = ui_layout_load_disk(k, mask, i, &out);
-        if( title ) {
-            struct nk_window *win = nk_window_find(ui_ctx, title);
-            if( win ) {            
-                win->bounds.x = out.x;
-                win->bounds.y = out.y;
-                win->bounds.w = out.w;
-                win->bounds.h = out.h;
-            }
-        }
-    }
-    return 1;
-}
-
-
-// -----------------------------------------------------------------------------
-// shared code for both panels and windows. really messy.
-
-static
-int ui_begin_panel_or_window_(const char *title, int flags, bool is_window) {
-
-struct nk_window *win = nk_window_find(ui_ctx, title);
-
-int is_panel = !is_window;
-bool starts_minimized = is_panel ? !(flags & PANEL_OPEN) : 0;
-bool is_closable = is_window;
-bool is_scalable = true;
-bool is_movable = true;
-bool is_auto_minimizes = starts_minimized; // false;
-bool is_pinned = win && (win->flags & NK_WINDOW_PINNED);
-
-if( is_pinned ) {
-//    is_closable = false;
-    is_auto_minimizes = false;
-    is_scalable = false;
-//    is_movable = false;
-}
-
-    ui_create();
-
-    uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
-    for(int i = 0; title[i]; ++i) hash = (hash ^ title[i]) * mult;
-    ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
-
-    int idx = ui_layout_find(title, is_panel);
-    ui_layout *s = &ui_layouts[is_panel][idx];
-
-vec2 desktop = vec2(window_width(), window_height());
-float workarea_h = ui_has_menubar()*UI_MENUROW_HEIGHT;
-
-    int row = idx + !!ui_has_menubar(); // add 1 to skip menu
-    vec2 offset = vec2(0, UI_ROW_HEIGHT*row);
-    float w = desktop.w / 3.33, h = (flags & UI_NOTIFICATION_2 ? UI_MENUROW_HEIGHT*2 : (flags & UI_NOTIFICATION_1 ? UI_MENUROW_HEIGHT : desktop.h - offset.y * 2 - 1)); // h = desktop.h * 0.66; //
-    struct nk_rect start_coords = {offset.x, offset.y, offset.x+w, offset.y+h};
-
-if(is_window) {
-    w = desktop.w / 1.5;
-    h = desktop.h / 1.5;
-    start_coords.x = (desktop.w-w)/2;
-    start_coords.y = (desktop.h-h)/2 + workarea_h/2;
-    start_coords.w = w;
-    start_coords.h = h;
-}
-
-    static vec2 edge = {0}; static int edge_type = 0; // [off],L,R,U,D
-    do_once edge = vec2(desktop.w * 0.33, desktop.h * 0.66);
-
-// do not snap windows and/or save windows when using may be interacting with UI
-int is_active = 0;
-int mouse_pressed = !!input(MOUSE_L) && ui_ctx->active == win;
-if( win ) {
-    // update global window activity bitmask
-    is_active = ui_ctx->active == win;
-    ui_active_mask = is_active ? ui_active_mask | (1ull << idx) : ui_active_mask & ~(1ull << idx);
-}
-
-//  struct nk_style *s = &ui_ctx->style;
-//  nk_style_push_color(ui_ctx, &s->window.header.normal.data.color, nk_hsv_f(ui_hue,0.6,0.8));
-
-// adjust inactive edges automatically
-if( win ) {
-    bool group1_any             = !is_active; // && !input(MOUSE_L);
-    bool group2_not_resizing    =  is_active && !win->is_window_resizing;
-    bool group2_interacting     =  is_active && input(MOUSE_L);
-
-#if 0
-    if( group1_any ) {
-        // cancel self-adjust if this window is not overlapping the active one that is being resized at the moment
-        struct nk_window *parent = ui_ctx->active;
-
-        struct nk_rect a = win->bounds, b = parent->bounds;
-        bool overlap = a.x <= (b.x+b.w) && b.x <= (a.x+a.w) && a.y <= (b.y+b.h) && b.y <= (a.y+a.h);
-
-        group1_any = overlap;
-    }
-#else
-    if( group1_any )
-        group1_any = !(win->flags & NK_WINDOW_PINNED);
-#endif
-
-    if( group1_any ) {
-        float mouse_x = clampf(input(MOUSE_X), 0, desktop.w);
-        float mouse_y = clampf(input(MOUSE_Y), 0, desktop.h);
-        float distance_x = absf(mouse_x - win->bounds.x) / desktop.w;
-        float distance_y = absf(mouse_y - win->bounds.y) / desktop.h;
-        float alpha_x = sqrt(sqrt(distance_x)); // amplify signals a little bit: 0.1->0.56,0.5->0.84,0.98->0.99,etc
-        float alpha_y = sqrt(sqrt(distance_y));
-
-        /**/ if( (edge_type & 1) && win->bounds.x <= UI_SNAP_PX ) {
-            win->bounds.w = win->bounds.w * alpha_y + edge.w * (1-alpha_y);
-        }
-        else if( (edge_type & 2) && (win->bounds.x + win->bounds.w) >= (desktop.w-UI_SNAP_PX) ) {
-            win->bounds.w = win->bounds.w * alpha_y + edge.w * (1-alpha_y);
-            win->bounds.x = desktop.w - win->bounds.w;
-        }
-        if( (edge_type & 8) && (win->bounds.y + (win->flags & NK_WINDOW_MINIMIZED ? UI_ROW_HEIGHT : win->bounds.h)) >= (desktop.h-UI_SNAP_PX) ) {
-            win->bounds.h = win->bounds.h * alpha_x + edge.h * (1-alpha_x);
-            win->bounds.y = desktop.h - (win->flags & NK_WINDOW_MINIMIZED ? UI_ROW_HEIGHT : win->bounds.h);
-        }
-    }
-
-    // skip any saving if window is animating (moving) and/or maximized
-    bool anim_in_progress = s->anim_timer > 1e-3;
-    s->anim_timer *= anim_in_progress * UI_ANIM_ALPHA;
-
-    if( group1_any || !group2_interacting || anim_in_progress ) {
-        struct nk_rect target = ui_layout_load_mem(idx, desktop, is_panel);
-        float alpha = len2sq(sub2(s->desktop, desktop)) ? 0 : UI_ANIM_ALPHA; // smooth unless we're restoring a desktop change 
-#if 1
-        if( is_window && win->flags & NK_WINDOW_FULLSCREEN ) {
-            target.x = 1;
-            target.w = desktop.w - 1;
-            target.y = workarea_h + 1;
-            target.h = desktop.h - workarea_h - 2;
-        }
-        if( is_window && win->is_window_restoring > 1e-2) {
-            win->is_window_restoring = win->is_window_restoring * alpha + 0 * (1 - alpha);
-            target.w = desktop.w / 2;
-            target.h = (desktop.h - workarea_h) / 2;
-            target.x = (desktop.w - target.w) / 2;
-            target.y = ((desktop.h - workarea_h) - target.h) / 2;
-        }
-#endif
-        win->bounds = nk_rect( 
-            win->bounds.x * alpha + target.x * (1 - alpha),
-            win->bounds.y * alpha + target.y * (1 - alpha),
-            win->bounds.w * alpha + target.w * (1 - alpha),
-            win->bounds.h * alpha + target.h * (1 - alpha)
-        );
-    }
-    if(!anim_in_progress)
-    ui_layout_save_mem(idx, desktop, workarea_h, &win->bounds, is_panel);
-} else { // if(!win)
-    ui_layout_save_mem(idx, desktop, workarea_h, &start_coords, is_panel);
-}
-
-
-    int window_flags = NK_WINDOW_PINNABLE | NK_WINDOW_MINIMIZABLE | NK_WINDOW_NO_SCROLLBAR_X | (is_window ? NK_WINDOW_MAXIMIZABLE : 0);
-    if( starts_minimized ) window_flags |= (win ? 0 : NK_WINDOW_MINIMIZED);
-    if( is_auto_minimizes ) window_flags |= is_active ? 0 : !!starts_minimized * NK_WINDOW_MINIMIZED;
-    if( is_movable )  window_flags |= NK_WINDOW_MOVABLE;
-    if( is_closable ) window_flags |= NK_WINDOW_CLOSABLE;
-    if( is_scalable ) {
-        window_flags |= NK_WINDOW_SCALABLE;
-        if(win) window_flags |= input(MOUSE_X) < (win->bounds.x + win->bounds.w/2) ? NK_WINDOW_SCALE_LEFT : 0;
-        if(win) window_flags |= input(MOUSE_Y) < (win->bounds.y + win->bounds.h/2) ? NK_WINDOW_SCALE_TOP : 0;
-    }
-
-//    if( is_pinned )
-        window_flags |= NK_WINDOW_BORDER;
-
-if( is_panel && win && !is_active ) {
-    if( !is_pinned && is_auto_minimizes ) {
-        window_flags |= NK_WINDOW_MINIMIZED;
-    }
-}
-
-// if( is_modal ) window_flags &= ~(NK_WINDOW_MINIMIZED | NK_WINDOW_MINIMIZABLE);
-if( is_panel && win ) {
-//    if( win->bounds.x > 0 && (win->bounds.x+win->bounds.w) < desktop.w-1 ) window_flags &= ~NK_WINDOW_MINIMIZED;
-}
-
-if(!win) { // if newly created window (!win)
-    // first time, try to restore from WINDOWS_INI file
-    static ini_t i; do_once i = ini(WINDOWS_INI); // @leak
-    ui_layout_load_disk(title, "*", i, &start_coords);
-    ui_layout_save_mem(idx, desktop, workarea_h, &start_coords, is_panel);
-}
-
-bool is_notify = flags & (UI_NOTIFICATION_1 | UI_NOTIFICATION_2);
-if( is_notify ) {
-    window_flags = NK_WINDOW_MOVABLE | NK_WINDOW_NOT_INTERACTIVE | NK_WINDOW_NO_SCROLLBAR;
-    start_coords = nk_rect(desktop.w / 2 - w / 2, -h, w, h);
-}
-
-    if( nk_begin(ui_ctx, title, start_coords, window_flags) ) {
-
-// set width for all inactive panels
-struct nk_rect bounds = nk_window_get_bounds(ui_ctx); 
-if( mouse_pressed && win && win->is_window_resizing ) {
-    edge = vec2(bounds.w, bounds.h);
-
-    // push direction
-    int top  = !!(win->is_window_resizing & NK_WINDOW_SCALE_TOP);
-    int left = !!(win->is_window_resizing & NK_WINDOW_SCALE_LEFT), right = !left;
-
-    edge_type = 0;
-    /**/ if( right && (win->bounds.x <= UI_SNAP_PX) ) edge_type |= 1;
-    else if(  left && (win->bounds.x + win->bounds.w) >= (desktop.w-UI_SNAP_PX) ) edge_type |= 2;
-    /**/ if(   top && (win->bounds.y + win->bounds.h) >= (desktop.h-UI_SNAP_PX) ) edge_type |= 8;
-
-    // @fixme
-    // - if window is in a corner (sharing 2 edges), do not allow for multi edges. either vert or horiz depending on the clicked scaler
-    // - or maybe, only propagate edge changes to the other windows that overlapping our window.
-}
-
-        return 1;
-    } else {
-
-if(is_panel) {
-   ui_panel_end(); 
-} else ui_window_end();
-
-        return 0;
-    }
-}
-
-static const char *ui_last_title = 0;
-static int *ui_last_enabled = 0;
-static int ui_has_window = 0;
-static int ui_window_has_menubar = 0;
-int ui_window(const char *title, int *enabled) {
-    if( window_width() <= 0 ) return 0;
-    if( window_height() <= 0 ) return 0;
-    if( !ui_ctx || !ui_ctx->style.font ) return 0;
-
-    bool forced_creation = enabled && *enabled; // ( enabled ? *enabled : !ui_has_menubar() );
-    forced_creation |= ui_window_register(title);
-    if(!ui_visible(title)) {
-        if( !forced_creation ) return 0;
-        ui_show(title, forced_creation);
-    }
-
-    ui_last_enabled = enabled;
-    ui_last_title = title;
-    ui_has_window = 1;
-    return ui_begin_panel_or_window_(title, /*flags*/0, true);
-}
-int ui_window_end() {
-    if(ui_window_has_menubar) nk_menubar_end(ui_ctx), ui_window_has_menubar = 0;
-    nk_end(ui_ctx), ui_has_window = 0;
-
-    int closed = 0;
-    if( nk_window_is_hidden(ui_ctx, ui_last_title) ) {
-        nk_window_close(ui_ctx, ui_last_title);
-        ui_show(ui_last_title, false);
-        if( ui_last_enabled ) *ui_last_enabled = 0; // clear developers' flag
-        closed = 1;
-    }
-
-    // @transparent
-    #if !is(ems)
-    static bool has_transparent_attrib = 0; do_once has_transparent_attrib = glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE;
-    if( closed && has_transparent_attrib && !ui_has_menubar() ) {
-        bool any_open = 0;
-        for each_map_ptr(ui_windows, char*, k, unsigned, v) any_open |= *v & 1;
-        if( !any_open ) glfwSetWindowShouldClose(window_handle(), GLFW_TRUE);
-    }
-    #endif
-    // @transparent
-
-    return 0;
-}
-
-int ui_panel(const char *title, int flags) {
-    if( window_width() <= 0 ) return 0;
-    if( window_height() <= 0 ) return 0;
-    if( !ui_ctx || !ui_ctx->style.font ) return 0;
-
-    if( ui_has_window ) {
-        // transparent style
-        static struct nk_style_button transparent_style;
-        do_once transparent_style = ui_ctx->style.button;
-        do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
-        do_once transparent_style.border_color = nk_rgba(0,0,0,0);
-        do_once transparent_style.active = transparent_style.normal;
-        do_once transparent_style.hover = transparent_style.normal;
-        do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
-        transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE;
-
-        if(!ui_window_has_menubar) nk_menubar_begin(ui_ctx);
-        if(!ui_window_has_menubar) nk_layout_row_begin(ui_ctx, NK_STATIC, UI_MENUBAR_ICON_HEIGHT, 4);
-        if(!ui_window_has_menubar) nk_layout_row_push(ui_ctx, 70);
-        ui_window_has_menubar = 1;
-
-        return nk_menu_begin_text_styled(ui_ctx, title, strlen(title), NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, nk_vec2(220, 200), &transparent_style);    
-    }
-
-    return ui_begin_panel_or_window_(title, flags, false);
-}
-int ui_panel_end() {
-    if( ui_has_window ) {
-        nk_menu_end(ui_ctx);
-        return 0;
-    }
-    nk_end(ui_ctx);
-//  nk_style_pop_color(ui_ctx);
-    return 0;
-}
-
-static unsigned ui_collapse_state = 0;
-int ui_collapse(const char *label, const char *id) { // mask: 0(closed),1(open),2(created)
-
-    uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
-    for(int i = 0; id[i]; ++i) hash = (hash ^ id[i]) * mult;
-    ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
-
-    ui_collapse_state = nk_tree_base_(ui_ctx, NK_TREE_NODE, 0, label, NK_MINIMIZED, id, strlen(id), 0);
-    return ui_collapse_state & 1; // |1 open, |2 clicked, |4 toggled
-}
-int ui_collapse_clicked() {
-    return ui_collapse_state >> 1; // |1 clicked, |2 toggled
-}
-int ui_collapse_end() {
-    return nk_tree_pop(ui_ctx), 1;
-}
-
-
-int ui_contextual() {
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-    bounds.y -= 25;
-    return ui_popups() ? 0 : nk_contextual_begin(ui_ctx, 0, nk_vec2(150, 300), bounds);
-}
-int ui_contextual_end() {
-    nk_contextual_end(ui_ctx);
-    return 1;
-}
-int ui_submenu(const char *options) {
-    int choice = 0;
-    if( ui_contextual() ) {
-        array(char*) tokens = strsplit(options, ";");
-        for( int i = 0; i < array_count(tokens) ; ++i ) {
-            if( ui_button_transparent(tokens[i]) ) choice = i + 1;
-        }
-        ui_contextual_end();
-    }
-    return choice;
-}
-
-// -----------------------------------------------------------------------------
-// code for all the widgets
-
-static
-int nk_button_transparent(struct nk_context *ctx, const char *text) {
-    static struct nk_style_button transparent_style;
-    do_once transparent_style = ctx->style.button;
-    do_once transparent_style.text_alignment = NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE;
-    do_once transparent_style.normal.data.color = nk_rgba(0,0,0,0);
-    do_once transparent_style.border_color = nk_rgba(0,0,0,0);
-    do_once transparent_style.active = transparent_style.normal;
-    do_once transparent_style.hover = transparent_style.normal;
-    do_once transparent_style.hover.data.color = nk_rgba(0,0,0,127);
-    transparent_style.text_background.a = 255 * ui_alpha;
-    transparent_style.text_normal.a = 255 * ui_alpha;
-    transparent_style.text_hover.a = 255 * ui_alpha;
-    transparent_style.text_active.a = 255 * ui_alpha;
-    return nk_button_label_styled(ctx, &transparent_style, text);
-}
-
-// internal vars for our editor. @todo: maybe expose these to the end-user as well?
-bool ui_label_icon_highlight;
-vec2 ui_label_icon_clicked_L; // left
-vec2 ui_label_icon_clicked_R; // right
-
-static
-int ui_label_(const char *label, int alignment) {
-    // beware: assuming label can start with any ICON_MD_ glyph, which I consider them to be a 3-bytes utf8 sequence.
-    // done for optimization reasons because this codepath is called a lot!
-    const char *icon = label ? label : ""; while( icon[0] == '!' || icon[0] == '*' ) ++icon;
-    int has_icon = (unsigned)icon[0] > 127, icon_len = 3, icon_width_px = 1*24;
-
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-    const struct nk_input *input = &ui_ctx->input;
-    int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
-    if( is_hovering ) {
-        struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
-        is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
-
-        struct nk_window *win = ui_ctx->current;
-        bool has_contextual = !win->name; // contextual windows are annonymous
-
-        is_hovering &= has_contextual || nk_window_has_focus(ui_ctx);
-    }
-
-    int skip_color_tab = label && label[0] == '!';
-    if( skip_color_tab) label++;
-
-    int spacing = 8; // between left colorbar and content
-    struct nk_window *win = ui_ctx->current;
-    struct nk_panel *layout = win->layout;
-    layout->at_x += spacing;
-    layout->bounds.w -= spacing;
-    if( !skip_color_tab ) {
-        float w = is_hovering ? 4 : 2; // spacing*3/4 : spacing/2-1;
-        bounds.w = w;
-        bounds.h -= 1;
-        struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
-        nk_fill_rect(canvas, bounds, 0, nk_hsva_f(ui_hue, 0.75f, 0.8f, ui_alpha) );
-    }
-
-    if(!label || !label[0]) {
-        nk_label(ui_ctx, "", alignment);
-        layout->at_x -= spacing;
-        layout->bounds.w += spacing;
-        return 0;
-    }
-
-        const char *split = strchr(label, '@');
-            char buffer[128]; if( split ) label = (snprintf(buffer, 128, "%.*s", (int)(split-label), label), buffer);
-
-struct nk_style *style = &ui_ctx->style;
-bool bold = label[0] == '*'; label += bold;
-struct nk_font *font = bold && nk_glfw.atlas.fonts->next ? nk_glfw.atlas.fonts->next->next /*3rd font*/ : NULL; // list
-
-if( !has_icon ) {
-    // set bold style and color if needed
-    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
-    if( font )  nk_style_push_color(ui_ctx, &style->text.color, nk_rgba(255, 255, 255, 255 * ui_alpha));
-    nk_label(ui_ctx, label, alignment);
-} else {
-    char *icon_glyph = va("%.*s", icon_len, icon);
-
-// @todo: implement nk_push_layout() 
-//  nk_rect bounds = {..}; nk_panel_alloc_space(bounds, ctx);
-    struct nk_window *win = ui_ctx->current;
-    struct nk_panel *layout = win->layout, copy = *layout;
-    struct nk_rect before; nk_layout_peek(&before, ui_ctx);
-    nk_label_colored(ui_ctx, icon_glyph, alignment, nk_rgba(255, 255, 255, (64 + 192 * ui_label_icon_highlight) * ui_alpha) );
-    struct nk_rect after; nk_layout_peek(&after, ui_ctx);
-    *layout = copy;
-    layout->at_x += icon_width_px; layout->bounds.w -= icon_width_px; // nk_layout_space_push(ui_ctx, nk_rect(0,0,icon_width_px,0));
-
-    // set bold style and color if needed
-    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
-    if( font )  nk_style_push_color(ui_ctx, &style->text.color, nk_rgba(255, 255, 255, 255 * ui_alpha));
-    nk_label(ui_ctx, icon+icon_len, alignment);
-
-    layout->at_x -= icon_width_px; layout->bounds.w += icon_width_px;
-}
-
-if( font )  nk_style_pop_color(ui_ctx);
-if( font )  nk_style_pop_font(ui_ctx);
-
-            if (split && is_hovering && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
-                nk_tooltip(ui_ctx, split + 1);
-            }
-
-    layout->at_x -= spacing;
-    layout->bounds.w += spacing;
-
-    // old way
-    // ui_labeicon_l_icked_L.x = is_hovering ? nk_input_has_mouse_click_down_in_rect(input, NK_BUTTON_LEFT, layout->bounds, nk_true) : 0;
-    // new way
-    // this is an ugly hack to detect which icon (within a label) we're clicking on. 
-    // @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
-    ui_label_icon_clicked_L.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (alignment == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
-
-    return ui_label_icon_clicked_L.x;
-}
-
-int ui_label(const char *text) {
-    int align = text[0] == '>' ? (text++, NK_TEXT_RIGHT) : text[0] == '=' ? (text++, NK_TEXT_CENTERED) : text[0] == '<' ? (text++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
-    nk_layout_row_dynamic(ui_ctx, 0, 1);
-    return ui_label_(text, align);
-}
-int ui_label2(const char *label, const char *text_) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-
-    int align1 = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
-    int align2 = text_[0] == '>' ? (text_++, NK_TEXT_RIGHT) : text_[0] == '=' ? (text_++, NK_TEXT_CENTERED) : text_[0] == '<' ? (text_++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
-    ui_label_(label, align1);
-
-const struct nk_input *input = &ui_ctx->input;
-struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
-if( is_hovering ) {
-    struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
-    is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
-    is_hovering &= nk_window_has_focus(ui_ctx);
-}
-
-    nk_label(ui_ctx, text_, align2);
-
-// this is an ugly hack to detect which icon (within a label) we're clicking on. 
-// @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
-ui_label_icon_clicked_R.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (align2 == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
-
-    return ui_label_icon_clicked_R.x;
-}
-int ui_label2_bool(const char *text, bool value) {
-    bool b = !!value;
-    return ui_bool(text, &b), 0;
-}
-int ui_label2_float(const char *text, float value) {
-    float f = (float)value;
-    return ui_float(text, &f), 0;
-}
-int ui_label2_wrap(const char *label, const char *str) { // @fixme: does not work (remove dynamic layout?)
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-    nk_text_wrap(ui_ctx, str, strlen(str));
-    return 0;
-}
-int ui_label2_toolbar(const char *label, const char *icons) {
-    int mouse_click = ui_label2(label, va(">%s", icons));
-    int choice = !mouse_click ? 0 : 1 + -mouse_click / (UI_ICON_FONTSIZE + UI_ICON_SPACING_X); // divided by px per ICON_MD_ glyph approximately
-    int glyphs = strlen(icons) / 3;
-    return choice > glyphs ? 0 : choice;
-}
-
-int ui_notify(const char *title, const char *body) {
-    struct ui_notify n = {0};
-    n.title = title && title[0] ? stringf("*%s", title) : 0;
-    n.body = body && body[0] ? STRDUP(body) : 0;
-    n.timeout = 2; // 4s = 2s timeout (+ 1s fade + 1s idle)
-    n.alpha = 1;
-    array_push_front(ui_notifications, n);
-    return 1;
-}
-
-int ui_button_transparent(const char *text) {
-    nk_layout_row_dynamic(ui_ctx, 0, 1);
-    int align = text[0] == '>' ? (text++, NK_TEXT_RIGHT) : text[0] == '=' ? (text++, NK_TEXT_CENTERED) : text[0] == '<' ? (text++, NK_TEXT_LEFT) : NK_TEXT_CENTERED;
-    return !!nk_contextual_item_label(ui_ctx, text, align);
-}
-
-#ifndef UI_BUTTON_MONOCHROME
-#define UI_BUTTON_MONOCHROME 0
-#endif
-
-static
-int ui_button_(const char *text) {
-    if( 1 ) {
-#if UI_BUTTON_MONOCHROME
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba(0,0,0,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba(0,0,0,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba(0,0,0,ui_alpha));
-
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.0,0.8*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,0.0,1.0*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.0,0.4*ui_alpha));
-#elif 0 // old
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba(0,0,0,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba(0,0,0,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba(0,0,0,ui_alpha));
-
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.75,0.8*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,1.00,1.0*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.60,0.4*ui_alpha));
-#else // new
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba_f(0.00,0.00,0.00,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_hover,  nk_rgba_f(0.11,0.11,0.11,ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_active, nk_rgba_f(0.00,0.00,0.00,ui_alpha));
-
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.normal.data.color, nk_hsva_f(ui_hue,0.80,0.6,0.90*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.hover.data.color,  nk_hsva_f(ui_hue,0.85,0.9,0.90*ui_alpha));
-        nk_style_push_color(ui_ctx, &ui_ctx->style.button.active.data.color, nk_hsva_f(ui_hue,0.80,0.6,0.90*ui_alpha));
-#endif
-    }
-
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-
-    const char *split = strchr(text, '@'), *tooltip = split + 1;
-    int ret = nk_button_text(ui_ctx, text, split ? (int)(split - text) : strlen(text) );
-
-    const struct nk_input *in = &ui_ctx->input;
-    if (split && nk_input_is_mouse_hovering_rect(in, bounds) && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
-        nk_tooltip(ui_ctx, tooltip);
-    }
-
-    if( 1 ) {
-        nk_style_pop_color(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-
-        nk_style_pop_color(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-        nk_style_pop_color(ui_ctx);
-    }
-
-    return ret;
-}
-
-int ui_buttons(int buttons, ...) {
-    nk_layout_row_dynamic(ui_ctx, 0, buttons);
-
-    float ui_hue_old = ui_hue;
-
-        int indent = 8;
-        struct nk_window *win = ui_ctx->current;
-        struct nk_panel *layout = win->layout;
-        struct nk_panel copy = *layout;
-        ui_label_("", NK_TEXT_LEFT);
-        *layout = copy;
-        layout->at_x += indent;
-        layout->bounds.w -= indent;
-
-            int rc = 0;
-            va_list list;
-            va_start(list, buttons);
-            for( int i = 0; i < buttons; ++i ) {
-                if( ui_button_( va_arg(list, const char*) ) ) rc = i+1;
-                ui_hue_cycle( 3 );
-            }
-            va_end(list);
-
-        layout->at_x -= indent;
-        layout->bounds.w += indent;
-
-    ui_hue = ui_hue_old;
-    return rc;
-}
-
-int ui_button(const char *s) {
-    return ui_buttons(1, s);
-}
-
-int ui_toggle(const char *label, bool *value) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    // nk_label(ui_ctx, label, alignment);
-    int rc = nk_button_transparent(ui_ctx, *value ? ICON_MD_TOGGLE_ON : ICON_MD_TOGGLE_OFF);
-    return rc ? (*value ^= 1), rc : rc;
-}
-
-int ui_color4f(const char *label, float *color4) {
-    float c[4] = { color4[0]*255, color4[1]*255, color4[2]*255, color4[3]*255 };
-    int ret = ui_color4(label, c);
-    for( int i = 0; i < 4; ++i ) color4[i] = c[i] / 255.0f;
-    return ret;
-}
-
-static enum color_mode {COL_RGB, COL_HSV} ui_color_mode = COL_RGB;
-
-int ui_color4(const char *label, float *color4) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    struct nk_colorf after = { color4[0]*ui_alpha/255, color4[1]*ui_alpha/255, color4[2]*ui_alpha/255, color4[3]/255 }, before = after;
-    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
-        nk_layout_row_dynamic(ui_ctx, 120, 1);
-        after = nk_color_picker(ui_ctx, after, NK_RGBA);
-
-        nk_layout_row_dynamic(ui_ctx, 0, 2);
-        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
-        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
-
-        nk_layout_row_dynamic(ui_ctx, 0, 1);
-        if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
-            after.a = nk_propertyf(ui_ctx, "#A:", 0, after.a, 1.0f, 0.01f,0.005f);
-        } else {
-            float hsva[4];
-            nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
-            hsva[3] = nk_propertyf(ui_ctx, "#A:", 0, hsva[3], 1.0f, 0.01f,0.05f);
-            after = nk_hsva_colorfv(hsva);
-        }
-
-        color4[0] = after.r * 255;
-        color4[1] = after.g * 255;
-        color4[2] = after.b * 255;
-        color4[3] = after.a * 255;
-
-        nk_combo_end(ui_ctx);
-    }
-    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
-}
-
-int ui_color3f(const char *label, float *color3) {
-    float c[3] = { color3[0]*255, color3[1]*255, color3[2]*255 };
-    int ret = ui_color3(label, c);
-    for( int i = 0; i < 3; ++i ) color3[i] = c[i] / 255.0f;
-    return ret;
-}
-
-int ui_color3(const char *label, float *color3) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    struct nk_colorf after = { color3[0]*ui_alpha/255, color3[1]*ui_alpha/255, color3[2]*ui_alpha/255, 1 }, before = after;
-    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
-        nk_layout_row_dynamic(ui_ctx, 120, 1);
-        after = nk_color_picker(ui_ctx, after, NK_RGB);
-
-        nk_layout_row_dynamic(ui_ctx, 0, 2);
-        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
-        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
-
-        nk_layout_row_dynamic(ui_ctx, 0, 1);
-        if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
-        } else {
-            float hsva[4];
-            nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
-            after = nk_hsva_colorfv(hsva);
-        }
-
-        color3[0] = after.r * 255;
-        color3[1] = after.g * 255;
-        color3[2] = after.b * 255;
-
-        nk_combo_end(ui_ctx);
-    }
-    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
-}
-
-int ui_list(const char *label, const char **items, int num_items, int *selector) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    int val = nk_combo(ui_ctx, items, num_items, *selector, UI_ROW_HEIGHT, nk_vec2(200,200));
-    int chg = val != *selector;
-    *selector = val;
-    return chg;
-}
-
-int ui_slider(const char *label, float *slider) {
-    // return ui_slider2(label, slider, va("%.2f ", *slider));
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    nk_size val = *slider * 1000;
-    int chg = nk_progress(ui_ctx, &val, 1000, NK_MODIFIABLE);
-    *slider = val / 1000.f;
-    return chg;
-}
-int ui_slider2(const char *label, float *slider, const char *caption) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    struct nk_window *win = ui_ctx->current;
-    const struct nk_style *style = &ui_ctx->style;
-    struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx); bounds.w -= 10; // bounds.w *= 0.95f;
-    struct nk_vec2 item_padding = style->text.padding;
-    struct nk_text text;
-    text.padding.x = item_padding.x;
-    text.padding.y = item_padding.y;
-    text.background = style->window.background;
-    text.text = nk_rgba_f(1,1,1,ui_alpha);
-
-        nk_size val = *slider * 1000;
-        int chg = nk_progress(ui_ctx, &val, 1000, NK_MODIFIABLE);
-        *slider = val / 1000.f;
-
-    chg |= input(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds); // , true);
-
-    nk_widget_text(&win->buffer, bounds, caption, strlen(caption), &text, NK_TEXT_RIGHT, style->font);
-    return chg;
-}
-
-int ui_bool(const char *label, bool *enabled ) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    int val = *enabled;
-#if 0
-    int chg = !!nk_checkbox_label(ui_ctx, "", &val);
-#else
-    int chg = !!nk_button_transparent(ui_ctx, val ? ICON_MD_CHECK_BOX : ICON_MD_CHECK_BOX_OUTLINE_BLANK );
-#endif
-    *enabled ^= chg;
-    return chg;
-}
-
-int ui_int(const char *label, int *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    int prev = *v;
-    *v = nk_propertyi(ui_ctx, "#", INT_MIN, *v, INT_MAX, 1,1);
-    return prev != *v;
-}
-
-int ui_unsigned(const char *label, unsigned *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    unsigned prev = *v;
-    *v = (unsigned)nk_propertyd(ui_ctx, "#", 0, *v, UINT_MAX, 1,1);
-    return prev != *v;
-}
-
-int ui_short(const char *label, short *v) {
-    int i = *v, ret = ui_int( label, &i );
-    return *v = (short)i, ret;
-}
-
-int ui_float(const char *label, float *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, 0.01f,0.005f);
-    return prev != v[0];
-}
-
-int ui_double(const char *label, double *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    double prev = v[0]; v[0] = nk_propertyd(ui_ctx, "#", -DBL_MAX, v[0], DBL_MAX, 0.01f,0.005f);
-    return prev != v[0];
-}
-
-int ui_clampf(const char *label, float *v, float minf, float maxf) {
-    if( minf > maxf ) return ui_clampf(label, v, maxf, minf);
-
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, 0.1f,0.05f);
-    return prev != v[0];
-}
-
-int ui_float2(const char *label, float *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    char *buffer = va("%.2f, %.2f", v[0], v[1]);
-    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
-        nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        nk_combo_end(ui_ctx);
-        return prev0 != v[0] || prev1 != v[1];
-    }
-    return 0;
-}
-
-int ui_float3(const char *label, float *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    char *buffer = va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
-    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
-        nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
-        nk_combo_end(ui_ctx);
-        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
-    }
-    return 0;
-}
-
-int ui_float4(const char *label, float *v) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    char *buffer = va("%.2f, %.2f, %.2f, %.2f", v[0], v[1], v[2], v[3]);
-    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
-        nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
-        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, 1,0.5f);
-        nk_combo_end(ui_ctx);
-        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2] || prev3 != v[3];
-    }
-    return 0;
-}
-
-int ui_mat33(const char *label, float M[9]) {
-    int changed = 0;
-    changed |= ui_label(label);
-    changed |= ui_float3(NULL, M);
-    changed |= ui_float3(NULL, M+3);
-    changed |= ui_float3(NULL, M+6);
-    return changed;
-}
-int ui_mat34(const char *label, float M[12]) {
-    int changed = 0;
-    changed |= ui_label(label);
-    changed |= ui_float4(NULL, M);
-    changed |= ui_float4(NULL, M+4);
-    changed |= ui_float4(NULL, M+8);
-    return changed;
-}
-int ui_mat44(const char *label, float M[16]) {
-    int changed = 0;
-    changed |= ui_label(label);
-    changed |= ui_float4(NULL, M);
-    changed |= ui_float4(NULL, M+4);
-    changed |= ui_float4(NULL, M+8);
-    changed |= ui_float4(NULL, M+12);
-    return changed;
-}
-
-int ui_buffer(const char *label, char *buffer, int buflen) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
-
-    int active = nk_edit_string_zero_terminated(ui_ctx, NK_EDIT_AUTO_SELECT|NK_EDIT_CLIPBOARD|NK_EDIT_FIELD/*NK_EDIT_BOX*/|NK_EDIT_SIG_ENTER, buffer, buflen, nk_filter_default);
-    return !!(active & NK_EDIT_COMMITED) ? nk_edit_unfocus(ui_ctx), 1 : 0;
-}
-
-int ui_string(const char *label, char **str) {
-    char *bak = va("%s%c", *str ? *str : "", '\0');
-    int rc = ui_buffer(label, bak, strlen(bak)+2);
-    if( *str ) 0[*str] = '\0';
-    strcatf(str, "%s", bak);
-    return rc;
-}
-
-int ui_separator() {
-    nk_layout_row_dynamic(ui_ctx, UI_SEPARATOR_HEIGHT, 1);
-
-    ui_hue_cycle( 1 );
-
-    struct nk_command_buffer *canvas;
-    struct nk_input *input = &ui_ctx->input;
-    canvas = nk_window_get_canvas(ui_ctx);
-    struct nk_rect space;
-    enum nk_widget_layout_states state;
-    state = nk_widget(&space, ui_ctx);
-    if (state) nk_fill_rect(canvas, space, 0, ui_ctx->style.window.header.normal.data.color );
-
-    return 1;
-}
-
-int ui_subimage(const char *label, handle id, unsigned iw, unsigned ih, unsigned sx, unsigned sy, unsigned sw, unsigned sh) {
-    nk_layout_row_dynamic(ui_ctx, sh < 30 || id == texture_checker().id ? 0 : sh, 1 + (label && label[0]));
-    if( label && label[0] ) ui_label_(label, NK_TEXT_LEFT);
-
-    struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx); bounds.w -= 10; // bounds.w *= 0.95f;
-
-    int ret = nk_button_image_styled(ui_ctx, &ui_ctx->style.button, nk_subimage_id((int)id, iw, ih, nk_rect(sx,sy,sw,sh)));
-    if( !ret ) {
-        ret |= input(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, bounds); // , true);
-    }
-    if( ret ) {
-        int px = 100 * (ui_ctx->input.mouse.pos.x - bounds.x ) / (float)bounds.w;
-        int py = 100 * (ui_ctx->input.mouse.pos.y - bounds.y ) / (float)bounds.h;
-        return px * 100 + py; // printf("%d %d xy:%d\n", px, py, (px * 100) + py);
-    }
-    return ret; // !!ret;
-}
-
-int ui_image(const char *label, handle id, unsigned w, unsigned h) {
-    return ui_subimage(label, id, w,h, 0,0,w,h);
-}
-
-int ui_texture(const char *label, texture_t t) {
-    return ui_subimage(label, t.id, t.w,t.h, 0,0,t.w,t.h);
-}
-
-int ui_subtexture(const char *label, texture_t t, unsigned x, unsigned y, unsigned w, unsigned h) {
-    return ui_subimage(label, t.id, t.w,t.h, x,y,w,h);
-}
-
-int ui_colormap( const char *map_name, colormap_t *cm ) {
-    int ret = 0;
-    if( !cm->texture ) {
-        const char *title = va("%s (no image)", map_name);
-        if( ui_image( title, texture_checker().id, 0,0 ) ) {
-            ret = 2;
-        }
-    } else {
-        unsigned w = cm->texture->w, h = cm->texture->h;
-        ui_label(va("%s (%s)", map_name, cm->texture->filename) ); // @fixme: labelf would crash?
-
-        const char *fmt[] = { "", "R", "RG", "RGB", "RGBA" };
-        const char *title = va("%s %dx%d %s", map_name, w, h, fmt[cm->texture->n]);
-        if( ui_image( title, cm->texture->id, 128, 128 ) ) {
-            ret = 2;
-        }
-    }
-
-    if( ui_color4f( va("%s Color", map_name), (float *) &cm->color ) ) {
-        ret = 1;
-    }
-    return ret;
-}
-
-int ui_radio(const char *label, const char **items, int num_items, int *selector) {
-    int ret = 0;
-    if( label && label[0] ) ui_label(label);
-    for( int i = 0; i < num_items; i++ ) {
-        bool enabled = *selector == i;
-        if( ui_bool( va("%s%s", label && label[0] ? "  ":"", items[i]), &enabled ) ) {
-            *selector = i;
-            ret |= 1;
-        }
-    }
-    return ret;
-}
-
-int ui_section(const char *section) {
-    //ui_separator();
-    return ui_label(va("*%s", section));
-}
-
-int ui_dialog(const char *title, const char *text, int choices, bool *show) { // @fixme: return
-    ui_has_active_popups = 0;
-    if(*show) {
-        static struct nk_rect s = {0, 0, 300, 190};
-        if (nk_popup_begin(ui_ctx, NK_POPUP_STATIC, title, NK_WINDOW_BORDER|NK_WINDOW_CLOSABLE, s)) {
-            nk_layout_row_dynamic(ui_ctx, 20, 1);
-            for( char label[1024]; *text && sscanf(text, "%[^\r\n]", label); ) {
-                nk_label(ui_ctx, label, NK_TEXT_LEFT);
-                text += strlen(label); while(*text && *text < 32) text++;
-            }
-
-            if( choices ) {
-                if( ui_buttons(choices > 1 ? 2 : 1, "OK", "Cancel") ) {
-                    *show = 0;
-                    nk_popup_close(ui_ctx);
-                }
-            }
-
-            nk_popup_end(ui_ctx);
-        } else {
-            *show = nk_false;
-        }
-        ui_has_active_popups = *show;
-    }
-    return *show;
-}
-
-#define ui_bitmask_template(X) \
-int ui_bitmask##X(const char *label, uint##X##_t *enabled) { \
-    /* @fixme: better way to retrieve widget width? nk_layout_row_dynamic() seems excessive */ \
-    nk_layout_row_dynamic(ui_ctx, 1, 1); \
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx); \
-\
-    /* actual widget: label + X checkboxes */ \
-    nk_layout_row_begin(ui_ctx, NK_STATIC, 0, 1+X); \
-\
-        int offset = bounds.w > (15*X) ? bounds.w - (15*X) : 0; /* bits widget below needs at least 118px wide */ \
-        nk_layout_row_push(ui_ctx, offset); \
-        ui_label_(label, NK_TEXT_LEFT); \
-\
-        uint8_t copy = *enabled; \
-        for( int i = 0; i < X; ++i ) { \
-            int b = (X-1-i); \
-            nk_layout_row_push(ui_ctx, 10); \
-            /* bit */ \
-            int val = (*enabled >> b) & 1; \
-            int chg = nk_checkbox_label(ui_ctx, "", &val); \
-            *enabled = (*enabled & ~(1 << b)) | ((!!val) << b); \
-            /* tooltip */ \
-            struct nk_rect bb = { offset + 10 + i * 14, bounds.y, 14, 30 }; /* 10:padding,14:width,30:height */ \
-            if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bb) && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) { \
-                nk_tooltipf(ui_ctx, "Bit %d", b); \
-            } \
-        } \
-\
-    nk_layout_row_end(ui_ctx); \
-    return copy ^ *enabled; \
-}
-
-ui_bitmask_template(8);
-ui_bitmask_template(16);
-//ui_bitmask_template(32);
-
-int ui_console() { // @fixme: buggy
-    static char *cmd = 0;
-    static int enter = 0;
-
-    struct nk_font *font = nk_glfw.atlas.fonts->next /*2nd font*/;
-    if( font && nk_style_push_font(ui_ctx, &font->handle) ) {} else font = 0;
-
-        struct nk_rect bounds = {0,0,400,300}; // @fixme: how to retrieve inlined region below? (inlined)
-        if( 1 ) /*if( windowed || (!windowed && *inlined) )*/ bounds = nk_window_get_content_region(ui_ctx);
-        else { struct nk_rect b; nk_layout_peek(&b, ui_ctx); bounds.w = b.w; }
-
-    nk_layout_row_static(ui_ctx, bounds.h - UI_ROW_HEIGHT, bounds.w, 1);
-
-    static array(char*) lines = 0;
-    for( int i = 0; i < array_count(lines); ++i )
-    if(lines[i]) nk_label_wrap(ui_ctx, lines[i]); // "This is a very long line to hopefully get this text to be wrapped into multiple lines to show line wrapping");
-
-    if( enter ) {
-        array_push(lines, 0);
-
-        for( FILE *fp = popen(cmd, "r"); fp; pclose(fp), fp = 0) {
-            int ch;
-            do {
-                ch = fgetc(fp);
-                if( strchr("\r\n\t\b", ch) ) {
-                    array_push(lines,0);
-                    continue;
-                }
-                if( ch >= ' ' ) strcatf(array_back(lines), "%c", ch);
-            } while(ch > 0);
-        }
-
-        cmd[0] = 0;
-    }
-
-    enter = ui_string("", &cmd);
-
-    if( font )  nk_style_pop_font(ui_ctx);
-
-    return enter;
-}
-
-int ui_browse(const char **output, bool *inlined) {
-    static struct browser_media media = {0};
-    static struct browser browsers[2] = {0}; // 2 instances max: 0=inlined, 1=windowed
-    static char *results[2] = {0}; // 2 instances max: 0=inlined, 1=windowed
-    do_once {
-        const int W = 96, H = 96; // 2048x481 px, 21x5 cells
-        texture_t i = texture("icons/suru.png", TEXTURE_RGBA|TEXTURE_MIPMAPS);
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 16, 3), BROWSER_FOLDER); // default group
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  2, 4), BROWSER_HOME); 
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 17, 3), BROWSER_COMPUTER);
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  1, 4), BROWSER_PROJECT);
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  0, 4), BROWSER_DESKTOP);
-
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 0), "");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 10, 2), ".txt.md.doc.license" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 1), ".ini.cfg" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  8, 3), ".xlsx" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  9, 0), ".c" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 1), ".h.hpp.hh.hxx" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 2), ".fs.vs.gs.fx.glsl.shader" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 12, 0), ".cpp.cc.cxx" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 0), ".json" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 2), ".bat.sh" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 1), ".htm.html" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 20, 1), ".xml" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 12, 1), ".js" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  0, 3), ".ts" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 2), ".py" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 16, 1), ".lua" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 10, 0), ".css.doc" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  6, 0), ".wav.flac.ogg.mp1.mp3.mod.xm.s3m.it.sfxr.mid.fur" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  1, 3), ".ttf.ttc.otf" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  7, 1), ".jpg.jpeg.png.bmp.psd.pic.pnm.ico.ktx.pvr.dds.astc.basis.hdr.tga.gif" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  4, 3), ".mp4.mpg.ogv.mkv.wmv.avi" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  2, 1), ".iqm.iqe.gltf.gltf2.glb.fbx.obj.dae.blend.md3.md5.ms3d.smd.x.3ds.bvh.dxf.lwo" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  0, 1), ".exe" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H,  7, 0), ".bin.dSYM.pdb.o.lib.dll" ".");
-        browser_config_type(icon_load_rect(i.id, i.w, i.h, W, H, 15, 3), ".zip.rar.7z.pak" ".");
-
-        for( int j = 0; j < countof(browsers); ++j ) browser_init(&browsers[j]);
-        browsers[0].listing = 1; // inlined version got listing by default, as there is not much space for layouting
-    }
-    // at_exit: browser_free(&browser);
-
-    int clicked = 0;
-    bool windowed = !inlined;
-    if( windowed || (!windowed && *inlined) ) {
-
-        struct browser *browser = browsers + windowed; // select instance
-        char **result = results + windowed; // select instance
-
-        struct nk_rect bounds = {0,0,400,300}; // @fixme: how to retrieve inlined region below? (inlined)
-        if( windowed || (!windowed && *inlined) ) bounds = nk_window_get_content_region(ui_ctx);
-        else { struct nk_rect b; nk_layout_peek(&b, ui_ctx); bounds.w = b.w; }
-
-        clicked = browser_run(ui_ctx, browser, windowed, bounds);
-        if( clicked ) {
-            strcatf(result, "%d", 0);
-            (*result)[0] = '\0';
-            strcatf(result, "%s", browser->file);
-            if( inlined ) *inlined = 0;
-
-            const char *target = ifdef(win32, "/", "\\"), *replace = ifdef(win32, "\\", "/");
-            strswap(*result, target, replace);
-
-            if( output ) *output = *result;
-        }
-    }
-
-    return clicked;
-}
-
-/*
-//  demo:
-    static const char *file;
-    if( ui_panel("inlined", 0)) {
-        static bool show_browser = 0;
-        if( ui_button("my button") ) { show_browser = true; }
-        if( ui_browse(&file, &show_browser) ) puts(file);
-        ui_panel_end();
-    }
-    if( ui_window("windowed", 0) ) {
-        if( ui_browse(&file, NULL) ) puts(file);
-        ui_window_end();
-    }
-*/
+#line 1 "fwk_tween.c"
+// ----------------------------------------------------------------------------
+// ease
+
+float ease_nop(float t) { return 0; }
+float ease_linear(float t) { return t; }
+
+float ease_out_sine(float t) { return sinf(t*(C_PI*0.5f)); }
+float ease_out_quad(float t) { return -(t*(t-2)); }
+float ease_out_cubic(float t) { float f=t-1; return f*f*f+1; }
+float ease_out_quart(float t) { float f=t-1; return f*f*f*(1-t)+1; }
+float ease_out_quint(float t) { float f=(t-1); return f*f*f*f*f+1; }
+float ease_out_expo(float t) { return (t >= 1) ? t : 1-powf(2,-10*t); }
+float ease_out_circ(float t) { return sqrtf((2-t)*t); }
+float ease_out_back(float t) { float f=1-t; return 1-(f*f*f-f*sinf(f*C_PI)); }
+float ease_out_elastic(float t) { return sinf(-13*(C_PI*0.5f)*(t+1))*powf(2,-10*t)+1; }
+float ease_out_bounce(float t) { return (t < 4.f/11) ? (121.f*t*t)/16 : (t < 8.f/11) ? (363.f/40*t*t)-(99.f/10*t)+17.f/5 : (t < 9.f/10) ? (4356.f/361*t*t)-(35442.f/1805*t)+16061.f/1805 : (54.f/5*t*t)-(513.f/25*t)+268.f/25; }
+
+float ease_in_sine(float t) { return 1+sinf((t-1)*(C_PI*0.5f)); }
+float ease_in_quad(float t) { return t*t; }
+float ease_in_cubic(float t) { return t*t*t; }
+float ease_in_quart(float t) { return t*t*t*t; }
+float ease_in_quint(float t) { return t*t*t*t*t; }
+float ease_in_expo(float t) { return (t <= 0) ? t : powf(2,10*(t-1)); }
+float ease_in_circ(float t) { return 1-sqrtf(1-(t*t)); }
+float ease_in_back(float t) { return t*t*t-t*sinf(t*C_PI); }
+float ease_in_elastic(float t) { return sinf(13*(C_PI*0.5f)*t)*powf(2,10*(t-1)); }
+float ease_in_bounce(float t) { return 1-ease_out_bounce(1-t); }
+
+float ease_inout_sine(float t) { return 0.5f*(1-cosf(t*C_PI)); }
+float ease_inout_quad(float t) { return (t < 0.5f) ? 2*t*t : (-2*t*t)+(4*t)-1; }
+float ease_inout_cubic(float t) { float f; return (t < 0.5f) ? 4*t*t*t : (f=(2*t)-2,0.5f*f*f*f+1); }
+float ease_inout_quart(float t) { float f; return (t < 0.5f) ? 8*t*t*t*t : (f=(t-1),-8*f*f*f*f+1); }
+float ease_inout_quint(float t) { float f; return (t < 0.5f) ? 16*t*t*t*t*t : (f=((2*t)-2),0.5f*f*f*f*f*f+1); }
+float ease_inout_expo(float t) { return (t <= 0 || t >= 1) ? t : t < 0.5f ? 0.5f*powf(2,(20*t)-10) : -0.5f*powf(2,(-20*t)+10)+1; }
+float ease_inout_circ(float t) { return t < 0.5f ? 0.5f*(1-sqrtf(1-4*(t*t))) : 0.5f*(sqrtf(-((2*t)-3)*((2*t)-1))+1); }
+float ease_inout_back(float t) { float f; return t < 0.5f ? (f=2*t,0.5f*(f*f*f-f*sinf(f*C_PI))) : (f=(1-(2*t-1)),0.5f*(1-(f*f*f-f*sinf(f*C_PI)))+0.5f); }
+float ease_inout_elastic(float t) { return t < 0.5f ? 0.5f*sinf(13*(C_PI*0.5f)*(2*t))*powf(2,10*((2*t)-1)) : 0.5f*(sinf(-13*(C_PI*0.5f)*((2*t-1)+1))*powf(2,-10*(2*t-1))+2); }
+float ease_inout_bounce(float t) { return t < 0.5f ? 0.5f*ease_in_bounce(t*2) : 0.5f*ease_out_bounce(t*2-1)+0.5f; }
+
+float ease_inout_perlin(float t) { float t3=t*t*t,t4=t3*t,t5=t4*t; return 6*t5-15*t4+10*t3; }
+
+float ease(float t01, unsigned mode) {
+    typedef float (*easing)(float);
+    easing modes[] = {
+        ease_out_sine,
+        ease_out_quad,
+        ease_out_cubic,
+        ease_out_quart,
+        ease_out_quint,
+        ease_out_expo,
+        ease_out_circ,
+        ease_out_back,
+        ease_out_elastic,
+        ease_out_bounce,
+
+        ease_in_sine,
+        ease_in_quad,
+        ease_in_cubic,
+        ease_in_quart,
+        ease_in_quint,
+        ease_in_expo,
+        ease_in_circ,
+        ease_in_back,
+        ease_in_elastic,
+        ease_in_bounce,
+
+        ease_inout_sine,
+        ease_inout_quad,
+        ease_inout_cubic,
+        ease_inout_quart,
+        ease_inout_quint,
+        ease_inout_expo,
+        ease_inout_circ,
+        ease_inout_back,
+        ease_inout_elastic,
+        ease_inout_bounce,
+
+        ease_nop,
+        ease_linear,
+        ease_inout_perlin,
+    };
+    return modes[clampi(mode, 0, countof(modes))](clampf(t01,0,1));
+}
+
+float ease_pong(float t, unsigned fn) { return 1 - ease(t, fn); }
+float ease_ping_pong(float t, unsigned fn1, unsigned fn2) { return t < 0.5 ? ease(t*2,fn1) : ease(1-(t-0.5)*2,fn2); }
+float ease_pong_ping(float t, unsigned fn1, unsigned fn2) { return 1 - ease_ping_pong(t,fn1,fn2); }
+
+
+const char **ease_enums() {
+    static const char *list[] = {
+        "ease_out_sine",
+        "ease_out_quad",
+        "ease_out_cubic",
+        "ease_out_quart",
+        "ease_out_quint",
+        "ease_out_expo",
+        "ease_out_circ",
+        "ease_out_back",
+        "ease_out_elastic",
+        "ease_out_bounce",
+
+        "ease_in_sine",
+        "ease_in_quad",
+        "ease_in_cubic",
+        "ease_in_quart",
+        "ease_in_quint",
+        "ease_in_expo",
+        "ease_in_circ",
+        "ease_in_back",
+        "ease_in_elastic",
+        "ease_in_bounce",
+
+        "ease_inout_sine",
+        "ease_inout_quad",
+        "ease_inout_cubic",
+        "ease_inout_quart",
+        "ease_inout_quint",
+        "ease_inout_expo",
+        "ease_inout_circ",
+        "ease_inout_back",
+        "ease_inout_elastic",
+        "ease_inout_bounce",
+
+        "ease_nop",
+        "ease_linear",
+        "ease_inout_perlin",
+
+        0
+    };
+    return list;
+}
+
+const char *ease_enum(unsigned mode) {
+    return mode[ ease_enums() ];
+}
+
+/*AUTORUN {
+    ENUM(EASE_LINEAR|EASE_OUT);
+    ENUM(EASE_SINE|EASE_OUT);
+    ENUM(EASE_QUAD|EASE_OUT);
+    ENUM(EASE_CUBIC|EASE_OUT);
+    ENUM(EASE_QUART|EASE_OUT);
+    ENUM(EASE_QUINT|EASE_OUT);
+    ENUM(EASE_EXPO|EASE_OUT);
+    ENUM(EASE_CIRC|EASE_OUT);
+    ENUM(EASE_BACK|EASE_OUT);
+    ENUM(EASE_ELASTIC|EASE_OUT);
+    ENUM(EASE_BOUNCE|EASE_OUT);
+
+    ENUM(EASE_SINE|EASE_IN);
+    ENUM(EASE_QUAD|EASE_IN);
+    ENUM(EASE_CUBIC|EASE_IN);
+    ENUM(EASE_QUART|EASE_IN);
+    ENUM(EASE_QUINT|EASE_IN);
+    ENUM(EASE_EXPO|EASE_IN);
+    ENUM(EASE_CIRC|EASE_IN);
+    ENUM(EASE_BACK|EASE_IN);
+    ENUM(EASE_ELASTIC|EASE_IN);
+    ENUM(EASE_BOUNCE|EASE_IN);
+
+    ENUM(EASE_SINE|EASE_INOUT);
+    ENUM(EASE_QUAD|EASE_INOUT);
+    ENUM(EASE_CUBIC|EASE_INOUT);
+    ENUM(EASE_QUART|EASE_INOUT);
+    ENUM(EASE_QUINT|EASE_INOUT);
+    ENUM(EASE_EXPO|EASE_INOUT);
+    ENUM(EASE_CIRC|EASE_INOUT);
+    ENUM(EASE_BACK|EASE_INOUT);
+    ENUM(EASE_ELASTIC|EASE_INOUT);
+    ENUM(EASE_BOUNCE|EASE_INOUT);
+
+    ENUM(EASE_NOP);
+    ENUM(EASE_LINEAR);
+    ENUM(EASE_INOUT_PERLIN);
+};*/
 
 // ----------------------------------------------------------------------------
+// tween
 
-int ui_demo(int do_windows) {
-    static int integer = 42;
-    static bool toggle = true;
-    static bool boolean = true;
-    static float floating = 3.14159;
-    static float float2[2] = {1,2};
-    static float float3[3] = {1,2,3};
-    static float float4[4] = {1,2,3,4};
-    static float rgb[3] = {0.84,0.67,0.17};
-    static float rgba[4] = {0.67,0.90,0.12,1};
-    static float slider = 0.5f;
-    static float slider2 = 0.5f;
-    static char string[64] = "hello world 123";
-    static int item = 0; const char *list[] = {"one","two","three"};
-    static bool show_dialog = false;
-    static bool show_browser = false;
-    static const char* browsed_file = "";
-    static uint8_t bitmask = 0x55;
-    static int hits = 0;
-    static int window1 = 0, window2 = 0, window3 = 0;
-    static int disable_all = 0;
+tween_t tween() {
+    tween_t tw = {0};
+    return tw;
+}
 
-    if( ui_panel("UI", 0) ) {
-        int choice = ui_toolbar("Browser;Toast@Notify;Toggle on/off");
-            if(choice == 1) show_browser = true;
-            if(choice == 2) ui_notify(va("My random toast (%d)", rand()), va("This is notification #%d", ++hits));
-            if(choice == 3) disable_all ^= 1;
+float tween_update(tween_t *tw, float dt) {
+    if( !array_count(tw->keyframes) ) return 0.0f;
 
-        if( disable_all ) ui_disable();
-
-        if( ui_browse(&browsed_file, &show_browser) ) puts(browsed_file);
-
-        if( ui_section("Labels")) {}
-        if( ui_label("my label")) {}
-        if( ui_label("my label with tooltip@built on " __DATE__ " " __TIME__)) {}
-        if( ui_label2_toolbar("my toolbar", ICON_MD_STAR ICON_MD_STAR_OUTLINE ICON_MD_BOOKMARK ICON_MD_BOOKMARK_BORDER) ) {}
-        //if( ui_label2_wrap("my long label", "and some long long long long text wrapped")) {}
-
-        if( ui_section("Types")) {}
-        if( ui_bool("my bool", &boolean) ) puts("bool changed");
-        if( ui_int("my int", &integer) ) puts("int changed");
-        if( ui_float("my float", &floating) ) puts("float changed");
-        if( ui_buffer("my string", string, 64) ) puts("string changed");
-
-        if( ui_section("Vectors") ) {}
-        if( ui_float2("my float2", float2) ) puts("float2 changed");
-        if( ui_float3("my float3", float3) ) puts("float3 changed");
-        if( ui_float4("my float4", float4) ) puts("float4 changed");
-
-        if( ui_section("Lists")) {}
-        if( ui_list("my list", list, 3, &item ) ) puts("list changed");
-
-        if( ui_section("Colors")) {}
-        if( ui_color3f("my color3", rgb) ) puts("color3 changed");
-        if( ui_color4f("my color4@this is a tooltip", rgba) ) puts("color4 changed");
-
-        if( ui_section("Sliders")) {}
-        if( ui_slider("my slider", &slider)) puts("slider changed");
-        if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
-
-        if( do_windows ) {
-        if( ui_section("Windows")) {}
-        int show = ui_buttons(3, "Container", "SubPanel", "SubRender");
-        if( show == 1 ) window1 = 1;
-        if( show == 2 ) window2 = 1;
-        if( show == 3 ) window3 = 1;
+    for( int i = 0, end = array_count(tw->keyframes) - 1; i < end; ++i ) {
+        tween_keyframe_t *kf1 = &tw->keyframes[i];
+        tween_keyframe_t *kf2 = &tw->keyframes[i + 1];
+        if (tw->time >= kf1->t && tw->time <= kf2->t) {
+            float localT = (tw->time - kf1->t) / (kf2->t - kf1->t);
+            float easedT = ease(localT, kf1->ease);
+            tw->result = mix3(kf1->v, kf2->v, easedT);
+            break;
         }
-
-        if( ui_section("Others")) {}
-        if( ui_bitmask8("my bitmask", &bitmask) ) printf("bitmask changed %x\n", bitmask);
-        if( ui_toggle("my toggle", &toggle) ) printf("toggle %s\n", toggle ? "on":"off");
-        if( ui_image("my image", texture_checker().id, 0, 0) ) { puts("image clicked"); }
-
-        if( ui_separator() ) {}
-        if( ui_button("my button") ) { puts("button clicked"); show_dialog = true; }
-        if( ui_buttons(2, "yes", "no") ) { puts("button clicked"); }
-        if( ui_buttons(3, "yes", "no", "maybe") ) { puts("button clicked"); }
-        if( ui_dialog("my dialog", __FILE__ "\n" __DATE__ "\n" "Public Domain.", 2/*two buttons*/, &show_dialog) ) {}
-
-        if( disable_all ) ui_enable(); // restore enabled state
-
-        ui_panel_end();
     }
 
-    if( !do_windows ) return 0;
+    float done = (tw->time / tw->duration);
+    tw->time += dt;
+    return clampf(done, 0.0f, 1.0f);
+}
 
-    // window api showcasing
-    if( ui_window("Container demo", &window1) ) {
-        ui_label("label #1");
-        if( ui_bool("my bool", &boolean) ) puts("bool changed");
-        if( ui_int("my int", &integer) ) puts("int changed");
-        if( ui_float("my float", &floating) ) puts("float changed");
-        if( ui_buffer("my string", string, 64) ) puts("string changed");
-        ui_window_end();
+void tween_reset(tween_t *tw) {
+    tw->time = 0.0f;
+}
+
+void tween_destroy(tween_t *tw) {
+    tween_t tw_ = {0};
+    array_free(tw->keyframes);
+    *tw = tw_;
+}
+
+static INLINE
+int tween_comp_keyframes(const void *a, const void *b) {
+    float t1 = ((const tween_keyframe_t*)a)->t;
+    float t2 = ((const tween_keyframe_t*)b)->t;
+    return (t1 > t2) - (t1 < t2);
+}
+
+void tween_setkey(tween_t *tw, float t, vec3 v, unsigned mode) {
+    tween_keyframe_t keyframe = { t, v, mode };
+    array_push(tw->keyframes, keyframe);
+    array_sort(tw->keyframes, tween_comp_keyframes);
+    tw->duration = array_back(tw->keyframes)->t;
+}
+
+void tween_delkey(tween_t *tw, float t) { // @todo: untested
+    for( int i = 0, end = array_count(tw->keyframes); i < end; i++ ) {
+        if( tw->keyframes[i].t == t ) {
+            array_erase_slow(tw->keyframes, i);
+            tw->duration = array_back(tw->keyframes)->t;
+            return;
+        }
     }
-
-    if( ui_window("SubPanel demo", &window2) ) {
-        if( ui_panel("panel #2", 0) ) {
-            ui_label("label #2");
-            if( ui_bool("my bool", &boolean) ) puts("bool changed");
-            if( ui_int("my int", &integer) ) puts("int changed");
-            if( ui_float("my float", &floating) ) puts("float changed");
-            if( ui_buffer("my string", string, 64) ) puts("string changed");
-            ui_panel_end();
-        }
-        ui_window_end();
-    }
-
-    if( ui_window("SubRender demo", &window3) ) {
-        if( ui_panel("panel #3A", 0) ) {
-            if( ui_bool("my bool", &boolean) ) puts("bool changed");
-            if( ui_int("my int", &integer) ) puts("int changed");
-            if( ui_float("my float", &floating) ) puts("float changed");
-            if( ui_buffer("my string", string, 64) ) puts("string changed");
-            if( ui_separator() ) {}
-            if( ui_slider("my slider", &slider)) puts("slider changed");
-            if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
-            ui_panel_end();
-        }
-        if( ui_panel("panel #3B", 0) ) {
-            if( ui_bool("my bool", &boolean) ) puts("bool changed");
-            if( ui_int("my int", &integer) ) puts("int changed");
-            if( ui_float("my float", &floating) ) puts("float changed");
-            if( ui_buffer("my string", string, 64) ) puts("string changed");
-            if( ui_separator() ) {}
-            if( ui_slider("my slider", &slider)) puts("slider changed");
-            if( ui_slider2("my slider 2", &slider2, va("%.2f", slider2))) puts("slider2 changed");
-            ui_panel_end();
-        }
-
-        const char *title = "SubRender demo";
-        struct nk_window *win = nk_window_find(ui_ctx, title);
-        if( win ) {
-            enum { menubar_height = 65 }; // title bar (~32) + menu bounds (~25)
-            struct nk_rect bounds = win->bounds; bounds.y += menubar_height; bounds.h -= menubar_height; 
-#if 1
-            ddraw_flush();
-
-            // @fixme: this is breaking rendering when post-fxs are in use. edit: cannot reproduce
-            static texture_t tx = {0};
-            if( texture_rec_begin(&tx, bounds.w, bounds.h )) {
-                glClearColor(0.15,0.15,0.15,1);
-                glClear(GL_COLOR_BUFFER_BIT);
-                ddraw_grid(10);
-                ddraw_flush();
-                texture_rec_end(&tx);
-            }
-            struct nk_image image = nk_image_id((int)tx.id);
-            nk_draw_image_flipped(nk_window_get_canvas(ui_ctx), bounds, &image, nk_white);
-#else
-            static video_t *v = NULL;
-            do_once v = video( "bjork-all-is-full-of-love.mp4", VIDEO_RGB );
-
-            texture_t *textures = video_decode( v );
-
-            struct nk_image image = nk_image_id((int)textures[0].id);
-            nk_draw_image(nk_window_get_canvas(ui_ctx), bounds, &image, nk_white);
-#endif
-        }
-
-        ui_window_end();
-    }
-    return 0;
 }
 #line 0
 
@@ -20263,25 +23732,28 @@ void (ui_profiler)() {
     static float values[COUNT] = {0}; static int offset = 0;
     values[offset=(offset+1)%COUNT] = fps;
 
-    int index = -1;
-    if( nk_chart_begin(ui_ctx, NK_CHART_LINES, COUNT, 0.f, 70.f) ) {
-        for( int i = 0; i < COUNT; ++i ) {
-            nk_flags res = nk_chart_push(ui_ctx, (float)values[i]);
-            if( res & NK_CHART_HOVERING ) index = i;
-            if( res & NK_CHART_CLICKED ) index = i;
+    // draw chart unless filterig is enabled
+    if( !(ui_filter && ui_filter[0]) ) {
+        int index = -1;
+        if( nk_chart_begin(ui_ctx, NK_CHART_LINES, COUNT, 0.f, 70.f) ) {
+            for( int i = 0; i < COUNT; ++i ) {
+                nk_flags res = nk_chart_push(ui_ctx, (float)values[i]);
+                if( res & NK_CHART_HOVERING ) index = i;
+                if( res & NK_CHART_CLICKED ) index = i;
+            }
+            nk_chart_end(ui_ctx);
         }
-        nk_chart_end(ui_ctx);
-    }
 
-    //  hightlight 60fps, 36fps and 12fps
-    struct nk_rect space; nk_layout_peek(&space, ui_ctx);
-    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
-    nk_stroke_line(canvas, space.x+0,space.y-60,space.x+space.w,space.y-60, 1.0, nk_rgba(0,255,0,128));
-    nk_stroke_line(canvas, space.x+0,space.y-36,space.x+space.w,space.y-36, 1.0, nk_rgba(255,255,0,128));
-    nk_stroke_line(canvas, space.x+0,space.y-12,space.x+space.w,space.y-12, 1.0, nk_rgba(255,0,0,128));
+        //  hightlight 60fps, 36fps and 12fps
+        struct nk_rect space; nk_layout_peek(&space, ui_ctx);
+        struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+        nk_stroke_line(canvas, space.x+0,space.y-60,space.x+space.w,space.y-60, 1.0, nk_rgba(0,255,0,128));
+        nk_stroke_line(canvas, space.x+0,space.y-36,space.x+space.w,space.y-36, 1.0, nk_rgba(255,255,0,128));
+        nk_stroke_line(canvas, space.x+0,space.y-12,space.x+space.w,space.y-12, 1.0, nk_rgba(255,0,0,128));
 
-    if( index >= 0 ) {
-        nk_tooltipf(ui_ctx, "%.2f fps", (float)values[index]);
+        if( index >= 0 ) {
+            nk_tooltipf(ui_ctx, "%.2f fps", (float)values[index]);
+        }
     }
 
     for each_map_ptr_sorted(profiler, const char *, key, struct profile_t, val ) {
@@ -20804,6 +24276,9 @@ void glNewFrame() {
 }
 
 bool window_create_from_handle(void *handle, float scale, unsigned flags) {
+    // abort run if any test suite failed in unit-test mode
+    ifdef(debug, if( flag("--test") ) exit( test_errors ? -test_errors : 0 ));
+
     glfw_init();
     fwk_init();
     if(!t) t = glfwGetTime();
@@ -20893,10 +24368,10 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     #endif
 
     glDebugEnable();
-    
+
     // setup nuklear ui
     ui_ctx = nk_glfw3_init(&nk_glfw, window, NK_GLFW3_INSTALL_CALLBACKS);
-   
+
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
@@ -20908,6 +24383,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     glfwSwapInterval(interval);
 
     const GLFWvidmode *mode = glfwGetVideoMode(monitor ? monitor : glfwGetPrimaryMonitor());
+    PRINTF("Build version: %s\n", BUILD_VERSION);
     PRINTF("Monitor: %s (%dHz, vsync=%d)\n", glfwGetMonitorName(monitor ? monitor : glfwGetPrimaryMonitor()), mode->refreshRate, interval);
     PRINTF("GPU device: %s\n", glGetString(GL_RENDERER));
     PRINTF("GPU driver: %s\n", glGetString(GL_VERSION));
@@ -20937,7 +24413,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         // display a progress bar meanwhile cook is working in the background
         // Sleep(500);
         if( !COOK_ON_DEMAND )
-        if( file_exist(COOK_INI) && cook_jobs() )
+        if( have_tools() && cook_jobs() )
         while( cook_progress() < 100 ) {
             for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
                 window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
@@ -20978,7 +24454,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             // set black screen
             glNewFrame();
             window_swap();
+#if !ENABLE_RETAIL
             window_title("");
+#endif
         }
 
     if(cook_cancelling) cook_stop(), exit(-1);
@@ -21015,12 +24493,16 @@ char* window_stats() {
 
     // @todo: print %used/%avail kib mem, %used/%avail objs as well
     static char buf[256];
-    snprintf(buf, 256, "%s | boot %.2fs | %5.2ffps (%.2fms)%s%s", title, !boot_time ? now : boot_time, fps, (now - prev_frame) * 1000.f, cmdline[0] ? " | ":"", cmdline[0] ? cmdline:"");
+    snprintf(buf, 256, "%s%s%s%s | boot %.2fs | %5.2ffps (%.2fms)%s%s",
+        title, BUILD_VERSION[0] ? " (":"", BUILD_VERSION[0] ? BUILD_VERSION:"", BUILD_VERSION[0] ? ")":"",
+        !boot_time ? now : boot_time,
+        fps, (now - prev_frame) * 1000.f,
+        cmdline[0] ? " | ":"", cmdline[0] ? cmdline:"");
 
     prev_frame = now;
     ++num_frames;
 
-    return buf + 3 * (buf[0] == ' ');
+    return buf + strspn(buf, " ");
 }
 
 int window_frame_begin() {
@@ -21028,7 +24510,7 @@ int window_frame_begin() {
 
     // we cannot simply terminate threads on some OSes. also, aborted cook jobs could leave temporary files on disc.
     // so let's try to be polite: we will be disabling any window closing briefly until all cook is either done or canceled.
-    static bool has_cook; do_once has_cook = !COOK_ON_DEMAND && file_exist(COOK_INI) && cook_jobs();
+    static bool has_cook; do_once has_cook = !COOK_ON_DEMAND && have_tools() && cook_jobs();
     if( has_cook ) {
         has_cook = cook_progress() < 100;
         if( glfwWindowShouldClose(g->window) ) cook_cancel();
@@ -21043,113 +24525,33 @@ int window_frame_begin() {
 
     ui_create();
 
-    bool may_render_stats = 1;
+#if !ENABLE_RETAIL
+    bool has_menu = 0; // ui_has_menubar();
+    bool may_render_debug_panel = 1;
 
-    int has_menu = ui_has_menubar();
-    if( !has_menu ) {
-        static int cook_on_demand; do_once cook_on_demand = COOK_ON_DEMAND;
-        if( !cook_on_demand ) {
+    if( have_tools() ) {
+        static int cook_has_progressbar; do_once cook_has_progressbar = !COOK_ON_DEMAND;
+        if( cook_has_progressbar) {
             // render profiler, unless we are in the cook progress screen
             static unsigned frames = 0; if(frames <= 0) frames += cook_progress() >= 100;
-            may_render_stats = (frames > 0);
+            may_render_debug_panel = (frames > 0);
         }
     }
 
-    // @transparent
-    static bool has_transparent_attrib = 0; ifndef(ems, do_once has_transparent_attrib = glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE);
-    if( has_transparent_attrib ) may_render_stats = 0;
-    // @transparent
-
     // generate Debug panel contents
-    if( may_render_stats ) {
+    if( may_render_debug_panel ) {
         if( has_menu ? ui_window("Debug " ICON_MD_SETTINGS, 0) : ui_panel("Debug " ICON_MD_SETTINGS, 0) ) {
-
-#if 1
-            static char *filter = 0;
-            static int do_filter = 0;
-            if( input_down(KEY_F) ) if( input(KEY_LCTRL) || input(KEY_RCTRL) ) do_filter ^= 1;
-            int choice = ui_toolbar(ICON_MD_SEARCH ";");
-            if( choice == 1 ) do_filter = 1;
-            if( do_filter ) {
-                ui_string(ICON_MD_CLOSE " Filter " ICON_MD_SEARCH, &filter);
-                if( ui_label_icon_clicked_L.x > 0 && ui_label_icon_clicked_L.x <= 24 ) { // if clicked on CANCEL icon (1st icon)
-                    do_filter = 0;
-                }
-            } else {
-                if( filter ) filter[0] = '\0';
-            }
-            char *filter_mask = filter && filter[0] ? va("*%s*", filter) : "*";
-#endif
-
-            int open = 0, clicked_or_toggled = 0;
-
-            #define ui_collapse_filtered(lbl,id) (strmatchi(lbl,filter_mask) && ui_collapse(lbl,id))
-
-            for( int p = (open = ui_collapse_filtered(ICON_MD_FOLDER_SPECIAL " Art", "Debug.Art")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                bool inlined = true;
-                const char *file = 0;
-                if( ui_browse(&file, &inlined) ) {
-                    const char *sep = ifdef(win32, "\"", "'");
-                    app_exec(va("%s %s%s%s", ifdef(win32, "start \"\"", ifdef(osx, "open", "xdg-open")), sep, file, sep));
-                }
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_ROCKET_LAUNCH " AI", "Debug.AI")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VOLUME_UP " Audio", "Debug.Audio")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VIDEOCAM " Camera", "Debug.Camera")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_camera( camera_get_active() );
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_BUILD " Cook", "Debug.Cook")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_SIGNAL_CELLULAR_ALT " Network", "Debug.Network")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_CONTENT_PASTE " Scripts", "Debug.Scripts")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_MOVIE " FXs", "Debug.FXs")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_fxs();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_SPEED " Profiler", "Debug.Profiler")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_profiler();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_STAR_HALF " Shaders", "Debug.Shaders")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_shaders();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_KEYBOARD " Keyboard", "Debug.Keyboard")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_keyboard();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_MOUSE " Mouse", "Debug.Mouse")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_mouse();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_GAMEPAD " Gamepads", "Debug.Gamepads")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                for( int q = 0; q < 4; ++q ) {
-                    for( int r = (open = ui_collapse(va("Gamepad #%d",q+1), va("Debug.Gamepads%d",q))), dummy = (clicked_or_toggled = ui_collapse_clicked()); r; ui_collapse_end(), r = 0) {
-                        ui_gamepad(q);
-                    }
-                }
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VIEW_QUILT " UI", "Debug.UI")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                int choice = ui_toolbar(ICON_MD_RECYCLING " Reset layout;" ICON_MD_SAVE_AS " Save layout");
-                if( choice == 1 ) ui_layout_all_reset("*");
-                if( choice == 2 ) file_delete(WINDOWS_INI), ui_layout_all_save_disk("*");
-
-                for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
-                    bool visible = ui_visible(*k);
-                    if( ui_bool( *k, &visible ) ) {
-                        ui_show( *k, ui_visible(*k) ^ true );
-                    }
-                }
-            }
+            API int ui_debug();
+            ui_debug();
 
             (has_menu ? ui_window_end : ui_panel_end)();
         }
+
+        API int engine_tick();
+        engine_tick();
     }
- 
+#endif // ENABLE_RETAIL
+
 #if 0 // deprecated
     // run user-defined hooks
     for(int i = 0; i < 64; ++i) {
@@ -21161,6 +24563,7 @@ int window_frame_begin() {
     dt = now - t;
     t = now;
 
+#if !ENABLE_RETAIL
     char *st = window_stats();
     static double timer = 0;
     timer += window_delta();
@@ -21168,6 +24571,9 @@ int window_frame_begin() {
         glfwSetWindowTitle(window, st);
         timer = 0;
     }
+#else
+    glfwSetWindowTitle(window, title);
+#endif
 
     void input_update();
     input_update();
@@ -21178,7 +24584,7 @@ int window_frame_begin() {
 void window_frame_end() {
     // flush batching systems that need to be rendered before frame swapping. order matters.
     {
-        font_goto(0,0);        
+        font_goto(0,0);
         touch_flush();
         sprite_flush();
 
@@ -21239,7 +24645,7 @@ void window_shutdown() {
 
         #endif
 
-        window_loop_exit(); // finish emscripten loop automatically        
+        window_loop_exit(); // finish emscripten loop automatically
     }
 }
 
@@ -21265,7 +24671,7 @@ int window_swap() {
 static
 void (*window_render_callback)(void* loopArg);
 
-static vec2 last_canvas_size;
+static vec2 last_canvas_size = {0};
 
 static
 void window_resize() {
@@ -21274,14 +24680,13 @@ void window_resize() {
     if (g->flags&WINDOW_FIXED) return;
     EM_ASM(canvas.canResize = 1);
     vec2 size = window_canvas();
-    do_once last_canvas_size = size;
     if (size.x != last_canvas_size.x || size.y != last_canvas_size.y) {
         w = size.x;
         h = size.y;
         g->width  = w;
         g->height = h;
-        glfwSetWindowSize(g->window, w, h);
-        // emscripten_set_canvas_size(w, h);
+        last_canvas_size = vec2(w,h);
+        emscripten_set_canvas_size(w, h);
     }
 #endif /* __EMSCRIPTEN__ */
 }
@@ -21319,8 +24724,8 @@ void window_loop_exit() {
 
 vec2 window_canvas() {
 #if is(ems)
-    int width = EM_ASM_INT_V(return canvas.width || window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth);
-    int height = EM_ASM_INT_V(return canvas.height || window.innerHeight || document.documentElement.clientHeight|| document.body.clientHeight);
+    int width = EM_ASM_INT_V(return canvas.width);
+    int height = EM_ASM_INT_V(return canvas.height);
     return vec2(width, height);
 #else
     glfw_init();
@@ -21370,23 +24775,28 @@ void window_color(unsigned color) {
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
+static int has_icon;
+int window_has_icon() {
+    return has_icon;
+}
 void window_icon(const char *file_icon) {
-    unsigned len = file_size(file_icon); // len = len ? len : vfs_size(file_icon); // @fixme: reenable this to allow icons to be put in cooked .zipfiles
-    if( len ) {
-        void *data = file_read(file_icon); // data = data ? data : vfs_read(file_icon); // @fixme: reenable this to allow icons to be put in cooked .zipfiles
-        if( data ) {
-            image_t img = image_from_mem(data, len, IMAGE_RGBA);
-            if( img.w && img.h && img.pixels ) {
-                GLFWimage images[1];
-                images[0].width = img.w;
-                images[0].height = img.h;
-                images[0].pixels = img.pixels;
-                glfwSetWindowIcon(window, 1, images);
-                return;
-            }
+    int len = 0;
+    void *data = vfs_load(file_icon, &len);
+    if( !data ) data = file_read(file_icon), len = file_size(file_icon);
+
+    if( data && len ) {
+        image_t img = image_from_mem(data, len, IMAGE_RGBA);
+        if( img.w && img.h && img.pixels ) {
+            GLFWimage images[1];
+            images[0].width = img.w;
+            images[0].height = img.h;
+            images[0].pixels = img.pixels;
+            glfwSetWindowIcon(window, 1, images);
+            has_icon = 1;
+            return;
         }
     }
-#if is(win32)
+#if 0 // is(win32)
     HANDLE hIcon = LoadImageA(0, file_icon, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_LOADFROMFILE);
     if( hIcon ) {
         HWND hWnd = glfwGetWin32Window(window);
@@ -21394,6 +24804,7 @@ void window_icon(const char *file_icon) {
         SendMessage(hWnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
         SendMessage(GetWindow(hWnd, GW_OWNER), WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
         SendMessage(GetWindow(hWnd, GW_OWNER), WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+        has_icon = 1;
         return;
     }
 #endif
@@ -21405,7 +24816,7 @@ void* window_handle() {
 void window_reload() {
     // @todo: save_on_exit();
     fflush(0);
-    chdir(app_path());
+    // chdir(app_path());
     execv(__argv[0], __argv);
     exit(0);
 }
@@ -21417,6 +24828,13 @@ int window_record(const char *outfile_mp4) {
     return record_active();
 }
 
+vec2 window_dpi() {
+    vec2 dpi = vec2(1,1);
+#ifndef __EMSCRIPTEN__
+    glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &dpi.x, &dpi.y);
+#endif
+    return dpi;
+}
 
 // -----------------------------------------------------------------------------
 // fullscreen
@@ -21501,9 +24919,9 @@ void window_fullscreen(int enabled) {
     }
 #else
     if( enabled )
-    EM_ASM(Module.requestFullscreen(1, 1)); 
+    EM_ASM(Module.requestFullscreen(1, 1));
     else
-    EM_ASM(Module.exitFullscreen()); 
+    EM_ASM(Module.exitFullscreen());
 #endif
 
 #else
@@ -21513,7 +24931,7 @@ void window_fullscreen(int enabled) {
         /*glfwGetWindowPos(g->window, &g->window_xpos, &g->window_ypos);*/
         glfwGetWindowSize(g->window, &g->width, &g->height);
         glfwSetWindowMonitor(g->window, glfwGetPrimaryMonitor(), 0, 0, g->width, g->height, GLFW_DONT_CARE);
-    } else {            
+    } else {
         glfwSetWindowMonitor(g->window, NULL, 0, 0, g->width, g->height, GLFW_DONT_CARE);
     }
 #else
@@ -21653,294 +25071,776 @@ int window_has_maximize() {
 #line 0
 
 #line 1 "fwk_obj.c"
-void *obj_initialize( void **ptr, char *type ) {
-    unsigned payload = ((unsigned char)type[0]) << 8; type[0] = '\1'; // @fixme: actually use this '\1' custom tag
-#ifndef NDEBUG
-    strcatf(&type, "%s", callstack(+16)); // debug: for debugging purposes only
-#endif
-    ptr[0] = OBJBOX((void *)type, payload);
+// C objects framework
+// - rlyeh, public domain.
 
-    return &ptr[1];
+// --- implement new vtables
+
+obj_vtable(ctor, void,  {} );
+obj_vtable(dtor, void,  {} );
+
+obj_vtable_null(save, char* );
+obj_vtable_null(load, bool  );
+obj_vtable_null(test, int   );
+
+obj_vtable_null(init, int   );
+obj_vtable_null(quit, int   );
+obj_vtable_null(tick, int   );
+obj_vtable_null(draw, int   );
+
+obj_vtable_null(lerp, int   );
+obj_vtable_null(edit, int   ); // OSC cmds: argc,argv "undo","redo","cut","copy","paste","edit","view","menu"
+
+// ----------------------------------------------------------------------------
+
+const char *OBJTYPES[256] = { 0 }; // = { REPEAT256("") };
+
+// ----------------------------------------------------------------------------
+// heap/stack ctor/dtor
+
+void *obj_malloc(unsigned sz) {
+    //sz = sizeof(obj) + sz + sizeof(array(obj*))); // useful?
+    obj *ptr = CALLOC(1, sz);
+    OBJ_CTOR_HDR(ptr,1,sz,OBJTYPE_obj);
+    return ptr;
 }
-
-void obj_free( void *obj ) {
-    void *ptr = *((void**)obj - 1);
-    FREE( OBJUNBOX(ptr) );
-    obj = (void**)obj - 1;
-    FREE( obj );
-}
-
-void obj_del( void *obj ) {
-    unsigned type = obj_typeid(obj);
-    (type[dtor])(obj);
-    obj_free( obj );
-}
-
-unsigned obj_instances( const void *obj ) {
-    return OBJPAYLOAD3(obj) + 1;
-}
-
-// ---
-
-const char *obj_output( const void *obj ) {
-    void* ptr = *((void**)obj - 1);
-    char *str = OBJUNBOX(ptr);
-
-    while( *str != '\n' ) ++str;
-    return (const char *)str + 1;
-}
-void (obj_printf)( void *obj, const char *text ) {
-    void* ptr = *((void**)obj - 1);
-    char* str = OBJUNBOX(ptr);
-    unsigned payload = OBJPAYLOAD16(ptr);
-
-    strcatf(&str, "%s", text);
-
-    *((void**)obj - 1) = OBJBOX(str, payload);
-}
-
-// ---
-
-const char *obj_typeof( const void *obj ) {
-    void* ptr = *((void**)obj - 1);
-    ptr = OBJUNBOX(ptr);
-
-    char name[256]; sscanf((const char*)ptr + 1, "%[^\n]", name); // @fixme: overflow
-    return va("%s", name);
-}
-
-unsigned obj_typeid(const void *obj) {
-    void* ptr = *((void**)obj - 1);
-    unsigned payload = OBJPAYLOAD16(ptr);
-    return payload >> 8;
-}
-
-bool obj_typeeq( const void *obj1, const void *obj2 ) {
-    if( obj_typeid(obj1) != obj_typeid(obj2) ) return false;
-    return !strcmp( obj_typeof(obj1), obj_typeof(obj2) );
-}
-
-unsigned obj_typeid_from_name(const char *name) {
-    name += strbegi(name, "struct ") ? 8 : strbegi(name, "union ") ? 7 : 0;
-    unsigned typeid = hash_str(name) & 255; // @fixme: increase bits / decrease colliders (256 types only!)
-    ASSERT( typeid, "Name of given class has an empty (zeroed) hash. Limitation by design" );
-
-    static map(unsigned, char *) registered; // @fixme: add mutex
-    do_once map_init(registered, less_int, hash_int);
-    do_once map_insert(registered, 1, "(typeless)");
-    char **found = map_find(registered, typeid);
-    if(!found) map_insert(registered, typeid, STRDUP(name));
-    else ASSERT( !strcmp(name, *found), "Uh-oh, types collided. Please rename one of these two classes '%s'/'%s'", name, *found);
-
-    return typeid;
-}
-
-// ---
-
-unsigned obj_sizeof(const void *obj) {
-    void *ptr = (void**)obj - 1;
-    return ALLOCSIZE(ptr) - sizeof(void*);
-}
-
-void obj_zero(void *obj) {
-    // clear console log
-    void* ptr = *((void**)obj - 1);
-    char* str = OBJUNBOX(ptr);
-    if( str[0] ) {
-        unsigned payload = OBJPAYLOAD16(ptr);
-
-        unsigned namelen = strlen(obj_typeof(obj));
-        str = REALLOC(str, 1+namelen+2); // preserve \1+name+\n+\0
-        str[1+namelen+2-1] = '\0';
-
-        *((void**)obj - 1) = OBJBOX(str, payload);
-    }
-
-    // reset data
-    dtor(obj);
-    memset(obj, 0, obj_sizeof(obj));
-    ctor(obj);
-}
-
-void obj_hexdumpf(FILE *out, const void *obj) {
-    hexdumpf(out, obj, obj_sizeof(obj), 16);
-
-    const char *output = obj_output(obj);
-    fprintf( out, "; ptr=[%p] sizeof=%d typeof=%s typeid=%#x refs=%d\n%s%s\n",
-        obj, obj_sizeof(obj), obj_typeof(obj), obj_typeid(obj), (int)(OBJPAYLOAD16(obj) & 0xFF),
-        output[0] ? output : "(no output)", output[0] ? "---" : "");
-}
-
-void obj_hexdump(const void *obj) {
-    obj_hexdumpf( stdout, obj );
-}
-
-// object: load/save
-
-unsigned obj_load_buffer(void *obj, const void *src, unsigned srclen) {
-    unsigned objlen = obj_sizeof(obj);
-    if( srclen > objlen ) return 0; // @fixme: do something clever
-    memcpy(obj, src, srclen); // @fixme: do something clever
-    return objlen;
-}
-unsigned obj_load(void *obj, const array(char) buffer) {
-    unsigned bytes = buffer ? obj_load_buffer(obj, buffer, array_count((char*)buffer)) : 0;
-    return bytes;
-}
-unsigned obj_load_file(void *obj, FILE *fp) {
-    unsigned len = obj_sizeof(obj);
-    char *buffer = va("%*.s", len, "");
-    unsigned read = fread(buffer, 1, len, fp);
-    if( read != (1*len) ) {
+void *obj_free(void *o) {
+    if( !((obj*)o)->objrefs ) {
+        obj_detach(o);
+        obj_dtor(o);
+        //obj_zero(o);
+        if( ((obj*)o)->objheap ) {
+            FREE(o);
+        }
         return 0;
     }
-    unsigned bytes = obj_load_buffer(obj, buffer, len);
-    return bytes;
+    return o; // cannot destroy: object is still referenced
 }
 
-unsigned obj_save_buffer(void *dst, unsigned cap, const void *obj) {
-    unsigned len = obj_sizeof(obj);
-    if( len > cap ) return 0;
-    memcpy(dst, obj, len); // @fixme: do something clever
-    return len;
+// ----------------------------------------------------------------------------
+// core
+
+uintptr_t obj_header(const void *o) {
+    return ((obj*)o)->objheader;
 }
-array(char) obj_save(const void *obj) { // empty if error. must array_free() after use
-    array(char) data = 0;
-    unsigned len = obj_sizeof(obj);
-    array_resize(data, len);
-    unsigned bytes = obj_save_buffer(data, len, obj);
-    array_resize(data, bytes);
-    return data;
+uintptr_t obj_id(const void *o) {
+    return ((obj*)o)->objid;
 }
-unsigned obj_save_file(FILE *fp, const void *obj) {
-    unsigned len = obj_sizeof(obj);
-    char *buffer = va("%*.s", len, "");
-    unsigned bytes = obj_save_buffer(buffer, len, obj);
-    if( bytes > 0 ) {
-        unsigned written = fwrite(buffer, 1, len, fp);
-        if( written == (1*len) ) {
-            return written;
+unsigned obj_typeid(const void *o) {
+    return ((obj*)o)->objtype;
+}
+const char *obj_type(const void *o) {
+    return OBJTYPES[ (((obj*)o)->objtype) ];
+}
+//const char *obj_name(const void *o) {
+//    return quark(((obj*)o)->objnameid);
+//}
+int obj_sizeof(const void *o) {
+    return (int)( ((const obj*)o)->objsizew << OBJ_MIN_PRAGMAPACK_BITS );
+}
+int obj_size(const void *o) { // size of all members together in struct. may include padding bytes.
+    static int obj_sizes[256] = {0};
+    unsigned objtypeid = ((obj*)o)->objtype;
+    if( objtypeid > 1 && !obj_sizes[objtypeid] ) { // check reflection for a more accurate objsize (without padding bits)
+        reflect_init();
+        array(reflect_t) *found = map_find(members, intern(obj_type(o)));
+        if(!found)
+            obj_sizes[objtypeid] = obj_sizeof(o) - sizeof(obj); // @fixme: -= sizeof(entity);
+        else
+        for each_array_ptr(*found, reflect_t, it)
+            obj_sizes[objtypeid] += it->bytes;
+    }
+    return obj_sizes[objtypeid];
+}
+char *obj_data(void *o) { // pointer to the first member in struct
+    return (char*)o + sizeof(obj);
+}
+const char *obj_datac(const void *o) { // const pointer to the first struct member
+    return (const char*)o + sizeof(obj);
+}
+void* obj_payload(const void *o) { // pointer right after last member in struct
+    return (char*)o + (((obj*)o)->objsizew<<OBJ_MIN_PRAGMAPACK_BITS);
+}
+void *obj_zero(void *o) { // reset all object members
+    return memset(obj_data(o), 0, obj_size(o)), o;
+}
+
+static
+void test_obj_core() {
+    obj *r = obj_new_ext(obj, "root");
+    obj *s = obj_new_ext(obj, "root");
+
+    test(r);
+    test( 0 == strcmp(obj_type(r), "obj") );
+    test( 0 == strcmp(obj_name(r), "root") );
+    test( OBJTYPE_obj == obj_typeid(r) );
+
+    test(s);
+    test( 0 == strcmp(obj_type(s), "obj") );
+    test( 0 == strcmp(obj_name(s), "root") );
+    test( OBJTYPE_obj == obj_typeid(s) );
+
+    test( obj_id(r) != 0 );
+    test( obj_id(s) != 0 );
+    test( obj_id(r) != obj_id(s) );
+
+    obj t = obj(obj); obj_setname(&t, "root");
+    obj u = obj(obj); obj_setname(&u, "root");
+
+    test(&t);
+    test( 0 == strcmp(obj_type(&t), "obj") );
+    test( 0 == strcmp(obj_name(&t), "root") );
+    test( OBJTYPE_obj == obj_typeid(&t) );
+
+    test(&u);
+    test( 0 == strcmp(obj_type(&u), "obj") );
+    test( 0 == strcmp(obj_name(&u), "root") );
+    test( OBJTYPE_obj == obj_typeid(&u) );
+
+    test( obj_id(&t) == 0 );
+    test( obj_id(&u) == 0 );
+    test( obj_id(&t) == obj_id(&u) );
+}
+
+// ----------------------------------------------------------------------------
+// refcounting
+
+// static int __thread global_ref_count; // @fixme: make it atomic
+// static void objref_check_atexit(void) {
+//     if(global_ref_count) tty_color(YELLOW), fprintf(stderr, "Warn! obj_refs not zero (%d)\n", global_ref_count), tty_color(0);
+// }
+// AUTORUN { (atexit)(objref_check_atexit); }
+
+void *obj_ref(void *oo) {
+    obj* o = (obj*)oo;
+    int num = o->objrefs;
+    ++o->objrefs;
+    assert( num < o->objrefs && "Object referenced too many times");
+    //++global_ref_count;
+    return o;
+}
+void *obj_unref(void *oo) {
+    obj* o = (obj*)oo;
+    if( o->objrefs ) --o->objrefs;
+    if( o->objrefs ) return o;
+    obj_free(o);
+    //--global_ref_count;
+    return 0;
+}
+
+// ----------------------------------------------------------------------------
+// scene tree
+
+array(obj*)* obj_children(const void *o) {
+    array(obj*) *c = &((obj*)o)->objchildren;
+    if(!(*c)) array_push((*c), NULL); // default parenting: none. @todo: optimize & move this at construction time
+    return c;
+}
+obj* obj_parent(const void *o) {
+    array(obj*) *c = obj_children(o);
+    return 0[*c]; // (*c) ? 0[*c] : NULL;
+}
+obj* obj_root(const void *o) {
+    while( obj_parent(o) ) o = obj_parent(o);
+    return (obj*)o;
+}
+array(obj*)* obj_siblings(const void *o) {
+    return obj_children(obj_parent(o));
+}
+
+static
+obj* obj_reparent(obj *o, const void *p) {
+    array(obj*) *c = obj_children(o);
+    0[*c] = (void*)p;
+    return o;
+}
+
+obj* obj_detach(void *c) {
+    obj *p = obj_parent(c);
+    if( p ) {
+        uintptr_t id = obj_id(c);
+
+        array(obj*) *oo = obj_children(p);
+        for( int i = 1, end = array_count(*oo); i < end; ++i) {
+            obj *v = (*oo)[i];
+            {
+                if( obj_id(v) == id ) {
+                    obj_reparent(c, 0);
+                    array_erase_slow(*oo, i);
+                    return c;
+                }
+            }
         }
     }
-    return 0; // error
+    return 0;
+}
+obj* obj_attach(void *o, void *c) {
+    // reattach
+    obj_detach(c);
+    obj_reparent(c, o);
+    // insert into children
+    array(obj*) *p = obj_children(o);
+    array_push(*p, c);
+    return o;
 }
 
-// ---
-
-static int __thread global_ref_count; // @fixme: make it atomic
-
-static void objref_check_atexit(void) {
-    if(global_ref_count > 0) fprintf(stderr, "Warn! Possible memory_leaks: %d refs not destroyed\n", global_ref_count);
-    if(global_ref_count < 0) fprintf(stderr, "Warn! Possible double free: %d refs double destroyed\n", -global_ref_count);
-}
-
-void* obj_ref(void *obj) {
-    do_once atexit(objref_check_atexit);
-
-    if( obj ) {
-        void *ptr = *((void**)obj - 1);
-        unsigned payload = OBJPAYLOAD16(ptr);
-        unsigned ref_count = payload & 255;
-        ASSERT(ref_count < 255, "Object cannot hold more than 256 refs. Limitation by design.");
-
-        *((void**)obj - 1) = OBJBOX(OBJUNBOX(ptr), payload + 1);
-        global_ref_count++;
+int obj_dumptree(const void *o) {
+    static int tabs = 0;
+    printf("%*s" "+- %s\n", tabs++, "", obj_name(o));
+    for each_objchild(o, obj*, v) {
+        obj_dumptree(v);
     }
-
-    return obj;
+    --tabs;
+    return 0;
 }
 
-void* obj_unref(void *obj) {
-    if( obj ) {
-        void *ptr = *((void**)obj - 1);
-        unsigned payload = OBJPAYLOAD16(ptr);
-        unsigned ref_count = payload & 255;
+static
+void test_obj_scene() {
+    obj *r = obj_new_ext(obj, "root");           // root
+    obj *c1 = obj_new_ext(obj, "child1");        // child1
+    obj *c2 = obj_new_ext(obj, "child2");        // child2
+    obj *gc1 = obj_new_ext(obj, "grandchild1");  // grandchild1
+    obj *gc2 = obj_new_ext(obj, "grandchild2");  // grandchild2
+    obj *gc3 = obj_new_ext(obj, "grandchild3");  // grandchild3
 
-        *((void**)obj - 1) = OBJBOX(OBJUNBOX(ptr), payload - 1);
-        global_ref_count--;
+    test( !obj_parent(r) );
+    test( !obj_parent(c1) );
+    test( !obj_parent(c2) );
+    test( !obj_parent(gc1) );
+    test( !obj_parent(gc2) );
+    test( !obj_parent(gc3) );
+    test( obj_root(r) == r );
+    test( obj_root(c1) == c1 );
+    test( obj_root(c2) == c2 );
+    test( obj_root(gc1) == gc1 );
+    test( obj_root(gc2) == gc2 );
+    test( obj_root(gc3) == gc3 );
 
-        if( ref_count <= 1 ) {
-            obj_del(obj);
-            return 0;
+                               // r
+    obj_attach(r, c1);         // +- c1
+    obj_attach(c1, gc1);       //  +- gc1
+    obj_attach(r, c2);         // +- c2
+    obj_attach(c2, gc2);       //  +- gc2
+    obj_attach(c2, gc3);       //  +- gc3
+
+    obj_dumptree(r);
+    // puts("---");
+
+    test( obj_parent(r) == 0 );
+    test( obj_parent(c1) == r );
+    test( obj_parent(c2) == r );
+    test( obj_parent(gc1) == c1 );
+    test( obj_parent(gc2) == c2 );
+    test( obj_parent(gc3) == c2 );
+
+    test( obj_root(r) == r );
+    test( obj_root(c1) == r );
+    test( obj_root(c2) == r );
+    test( obj_root(gc1) == r );
+    test( obj_root(gc2) == r );
+    test( obj_root(gc3) == r );
+
+    for each_objchild(r, obj*, o) test( o == c1 || o == c2 );
+    for each_objchild(c1, obj*, o) test( o == gc1 );
+    for each_objchild(c2, obj*, o) test( o == gc2 || o == gc3 );
+
+    obj_detach(c1);
+    test( !obj_parent(c1) );
+    for each_objchild(r, obj*, o) test( o != c1 );
+    for each_objchild(c1, obj*, o) test( o == gc1 );
+
+    obj_detach(c2);
+    test( !obj_parent(c2) );
+    for each_objchild(r, obj*, o) test( o != c2 );
+    for each_objchild(c2, obj*, o) test( o == gc2 || o == gc3 );
+}
+
+// ----------------------------------------------------------------------------
+// metadata
+
+static map(int,int) oms;
+static thread_mutex_t *oms_lock;
+void *obj_setmeta(void *o, const char *key, const char *value) {
+    do_threadlock(oms_lock) {
+        if(!oms) map_init_int(oms);
+        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        if(!*q && !value[0]) {} else *q = intern(value);
+        return quark(*q), o;
+    }
+    return 0; // unreachable
+}
+const char* obj_meta(const void *o, const char *key) {
+    do_threadlock(oms_lock) {
+        if(!oms) map_init_int(oms);
+        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        return quark(*q);
+    }
+    return 0; // unreachable
+}
+
+void *obj_setname(void *o, const char *name) {
+    ifdef(debug,((obj*)o)->objname = name);
+    return obj_setmeta(o, "name", name);
+}
+const char *obj_name(const void *o) {
+    const char *objname = obj_meta(o, "name");
+    return objname[0] ? objname : "obj";
+}
+
+
+static
+void test_obj_metadatas( void *o1 ) {
+    obj *o = (obj *)o1;
+    test( !strcmp("", obj_meta(o, "has_passed_test")) );
+    test( obj_setmeta(o, "has_passed_test", "yes") );
+    test( !strcmp("yes", obj_meta(o, "has_passed_test")) );
+}
+
+// ----------------------------------------------------------------------------
+// stl
+
+void* obj_swap(void *dst, void *src) { // @testme
+    int len = obj_size(dst);
+    char *buffer = ALLOCA(len);
+    memcpy(buffer,        obj_datac(dst), len);
+    memcpy(obj_data(dst), obj_datac(src), len);
+    memcpy(obj_data(src), buffer,         len);
+    return dst;
+}
+
+void* obj_copy_fast(void *dst, const void *src) {
+    // note: prefer obj_copy() as it should handle pointers and guids as well
+    return memcpy(obj_data(dst), obj_datac(src), obj_size(dst));
+}
+void* obj_copy(void *dst, const void *src) { // @testme
+    // @todo: use obj_copy_fast() silently if the object does not contain any pointers/guids
+    return obj_loadini(dst, obj_saveini(src));
+    // return obj_load(dst, obj_save(src));
+    // return obj_loadbin(dst, obj_savebin(src));
+    // return obj_loadini(dst, obj_saveini(src));
+    // return obj_loadjson(dst, obj_savejson(src));
+    // return obj_loadmpack(dst, obj_savempack(src));
+}
+
+int obj_comp_fast(const void *a, const void *b) {
+    // note: prefer obj_comp() as it should handle pointers and guids as well
+    return memcmp(obj_datac(a), obj_datac(b), obj_size(a));
+}
+int obj_comp(const void *a, const void *b) {
+    // @todo: use obj_comp_fast() silently if the object does not contain any pointers/guids
+    return strcmp(obj_saveini(a),obj_saveini(b));
+}
+int obj_lesser(const void *a, const void *b) {
+    return obj_comp(a,b) < 0;
+}
+int obj_greater(const void *a, const void *b) {
+    return obj_comp(a,b) > 0;
+}
+int obj_equal(const void *a, const void *b) {
+    return obj_comp(a,b) == 0;
+}
+
+uint64_t obj_hash(const void *o) {
+    return hash_bin(obj_datac(o), obj_size(o));
+}
+
+static
+void test_obj_similarity(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test( 0 == strcmp(obj_name(b),obj_name(c)) );
+    test( 0 == strcmp(obj_type(b),obj_type(c)) );
+}
+static
+void test_obj_equality(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test_obj_similarity(b, c);
+    test( obj_size(b) == obj_size(c) );
+    test( obj_hash(b) == obj_hash(c) );
+    test( 0 == obj_comp(b,c) );
+    test( obj_equal(b,c) );
+    test( !obj_lesser(b,c) );
+    test( !obj_greater(b,c) );
+}
+static
+void test_obj_exact(void *o1, void *o2) {
+    obj *b = (obj*)o1;
+    obj *c = (obj*)o2;
+    test_obj_equality(b, c);
+    test( obj_header(b) == obj_header(c) );
+    test( 0 == memcmp(b, c, obj_sizeof(b)) );
+}
+
+// ----------------------------------------------------------------------------
+// debug
+
+bool obj_hexdump(const void *oo) {
+    const obj *o = (const obj *)oo;
+    int header = 1 * sizeof(obj);
+    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %llx\n",
+        obj_name(o), obj_type(o),
+        (int)o->objid>>16, (int)o->objid&0xffff, (int)o->objunused,
+        obj_sizeof(o), o->objheader);
+    return hexdump(obj_datac(o) - header, obj_size(o) + header), 1;
+}
+int obj_print(const void *o) {
+    char *sav = obj_saveini(o); // obj_savejson(o)
+    return puts(sav);
+}
+static char *obj_tempname = 0;
+static FILE *obj_filelog = 0;
+int (obj_printf)(const void *o, const char *text) {
+    if( !obj_tempname ) {
+        obj_tempname = stringf("%s.log", app_name());
+        unlink(obj_tempname);
+        obj_filelog = fopen(obj_tempname, "w+b");
+        if( obj_filelog ) fseek(obj_filelog, 0L, SEEK_SET);
+    }
+    int rc = 0;
+    for( char *end; (end = strchr(text, '\n')) != NULL; ) {
+        rc |= fprintf(obj_filelog, "[%p] %.*s\n", o, (int)(end - text), text );
+        text = end + 1;
+    }
+    if( text[0] ) rc |= fprintf(obj_filelog, "[%p] %s\n", o, text);
+    return rc;
+}
+int obj_console(const void *o) { // obj_output() ?
+    if( obj_filelog ) fflush(obj_filelog);
+    return obj_tempname && !system(va(ifdef(win32,"type \"%s\" | find \"[%p]\"", "cat %s | grep \"[%p]\""), obj_tempname, o));
+}
+
+static
+void test_obj_console(void *o1) {
+    obj *o = (obj *)o1;
+
+    obj_printf(o, "this is [%s], line 1\n", obj_name(o));
+    obj_printf(NULL, "this line does not belong to any object\n");
+    obj_printf(o, "this is [%s], line 2\n", obj_name(o));
+    obj_console(o);
+}
+
+// ----------------------------------------------------------------------------
+// serialization
+
+const char *p2s(const char *type, void *p) {
+    // @todo: p2s(int interned_type, void *p)
+    /**/ if( !strcmp(type, "int") ) return itoa1(*(int*)p);
+    else if( !strcmp(type, "unsigned") ) return itoa1(*(unsigned*)p);
+    else if( !strcmp(type, "float") ) return ftoa1(*(float*)p);
+    else if( !strcmp(type, "double") ) return ftoa1(*(double*)p);
+    else if( !strcmp(type, "uintptr_t") ) return va("%08llx", *(uintptr_t*)p);
+    else if( !strcmp(type, "vec2i") ) return itoa2(*(vec2i*)p);
+    else if( !strcmp(type, "vec3i") ) return itoa3(*(vec3i*)p);
+    else if( !strcmp(type, "vec2") ) return ftoa2(*(vec2*)p);
+    else if( !strcmp(type, "vec3") ) return ftoa3(*(vec3*)p);
+    else if( !strcmp(type, "vec4") ) return ftoa4(*(vec4*)p);
+    else if( !strcmp(type, "char*") || !strcmp(type, "string") ) return va("%s", *(char**)p);
+    // @todo: if strchr('*') assume obj, if reflected save guid: obj_id();
+    return tty_color(YELLOW), printf("p2s: cannot serialize `%s` type\n", type), tty_color(0), "";
+}
+bool s2p(void *P, const char *type, const char *str) {
+    int i; unsigned u; float f; double g; char *s = 0; uintptr_t p;
+    vec2 v2; vec3 v3; vec4 v4; vec2i v2i; vec3i v3i;
+    /**/ if( !strcmp(type, "int") )       return !!memcpy(P, (i = atoi1(str), &i), sizeof(i));
+    else if( !strcmp(type, "unsigned") )  return !!memcpy(P, (u = atoi1(str), &u), sizeof(u));
+    else if( !strcmp(type, "vec2i") )     return !!memcpy(P, (v2i = atoi2(str), &v2i), sizeof(v2i));
+    else if( !strcmp(type, "vec3i") )     return !!memcpy(P, (v3i = atoi3(str), &v3i), sizeof(v3i));
+    else if( !strcmp(type, "float") )     return !!memcpy(P, (f = atof1(str), &f), sizeof(f));
+    else if( !strcmp(type, "double") )    return !!memcpy(P, (g = atof1(str), &g), sizeof(g));
+    else if( !strcmp(type, "vec2") )      return !!memcpy(P, (v2 = atof2(str), &v2), sizeof(v2));
+    else if( !strcmp(type, "vec3") )      return !!memcpy(P, (v3 = atof3(str), &v3), sizeof(v3));
+    else if( !strcmp(type, "vec4") )      return !!memcpy(P, (v4 = atof4(str), &v4), sizeof(v4));
+    else if( !strcmp(type, "uintptr_t") ) return !!memcpy(P, (p = strtol(str, NULL, 16), &p), sizeof(p));
+    else if( !strcmp(type, "char*") || !strcmp(type, "string") ) {
+        char substring[128] = {0};
+        sscanf(str, "%[^\r\n]", substring);
+
+        strcatf(&s, "%s", substring);
+
+        *(uintptr_t*)(P) = (uintptr_t)s;
+        return 1;
+    }
+    // @todo: if strchr('*') assume obj, if reflected load guid: obj_id();
+    return tty_color(YELLOW), printf("s2p: cannot deserialize `%s` type\n", type), tty_color(0), 0;
+}
+
+char *obj_saveini(const void *o) { // @testme
+    char *out = 0;
+    const char *T = obj_type(o);
+    strcatf(&out, "[%s] ; v100\n", T);
+    for each_member(T,R) {
+        const char *sav = p2s(R->type,(char*)(o)+R->sz);
+        if(!sav) return FREE(out), NULL;
+        strcatf(&out,"%s.%s=%s\n", R->type,R->name,sav );
+    }
+    char *cpy = va("%s", out);
+    FREE(out);
+    return cpy;
+}
+obj *obj_mergeini(void *o, const char *ini) { // @testme
+    const char *sqr = strchr(ini, '[');
+    if( !sqr ) return 0;
+    ini = sqr+1;
+
+    char T[64] = {0};
+    if( sscanf(ini, "%63[^]]", T) != 1 ) return 0; // @todo: parse version as well
+    ini += strlen(T);
+
+    for each_member(T,R) {
+        char *lookup = va("\n%s.%s=", R->type,R->name), *found = 0;
+
+        // type needed? /*
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        if(!found) { *lookup = '\r'; }
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        // */
+
+        if(!found) lookup = va("\n%s=", R->name);
+
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+        if(!found) { *lookup = '\r'; }
+        if(!found) { found = strstr(ini, lookup); if (found) found += strlen(lookup); }
+
+        if( found) {
+            if(!s2p((char*)(o)+R->sz, R->type, found))
+                return 0;
         }
     }
-
-    return obj;
+    return o;
+}
+obj *obj_loadini(void *o, const char *ini) { // @testme
+    return obj_mergeini(obj_zero(o), ini);
 }
 
-// ---
-
-void dummy1() {}
-#define dummy8   dummy1,dummy1,dummy1,dummy1,dummy1,dummy1,dummy1,dummy1
-#define dummy64  dummy8,dummy8,dummy8,dummy8,dummy8,dummy8,dummy8,dummy8
-#define dummy256 dummy64,dummy64,dummy64,dummy64
-
-void (*dtor[256])() = { dummy256 };
-void (*ctor[256])() = { dummy256 };
-
-// ---
-
-static set(uintptr_t) vtables; // @fixme: add mutex
-
-void (obj_override)(const char *objclass, void (**vtable)(), void(*fn)()) {
-    do_once set_init(vtables, less_64, hash_64);
-    set_find_or_add(vtables, (uintptr_t)vtable);
-
-    vtable[ obj_typeid_from_name(objclass) ] = fn;
+char *obj_savejson(const void *o) {
+    char *j = 0;
+    const char *T = obj_type(o);
+    for each_member(T,R) {
+        const char *sav = p2s(R->type,(char*)(o)+R->sz);
+        if(!sav) return FREE(j), NULL;
+        char is_string = !strcmp(R->type,"char*") || !strcmp(R->type,"string");
+        strcatf(&j," %s: %s%s%s,\n", R->name,is_string?"\"":"",sav,is_string?"\"":"" );
+    }
+    char *out = va("%s: { // v100\n%s}\n", T,j);
+    FREE(j);
+#if is(debug)
+    json5 root = { 0 };
+    char *error = json5_parse(&root, va("%s", out), 0);
+    assert( !error );
+    json5_free(&root);
+#endif
+    return out;
 }
-
-void (obj_extend)(const char *dstclass, const char *srcclass) { // wip, @testme
-    unsigned dst_id = obj_typeid_from_name(dstclass);
-    unsigned src_id = obj_typeid_from_name(srcclass);
-
-    // iterate src vtables, and assign them to dst
-    if(dst_id != src_id)
-    for each_set(vtables, void **, src_table) {
-        if( src_table[src_id] ) {
-            src_table[dst_id] = (void(*)()) (src_table[ src_id ]);
+obj *obj_mergejson(void *o, const char *json) {
+    // @fixme: va() call below could be optimized out since we could figure it out if json was internally provided (via va or strdup), or user-provided
+    json5 root = { 0 };
+    char *error = json5_parse(&root, va("%s", json), 0); // @todo: parse version comment
+    if( !error && root.type == JSON5_OBJECT && root.count == 1 ) {
+        json5 *n = &root.nodes[0];
+        char *T = n->name;
+        for each_member(T,R) {
+            for( int i = 0; i < n->count; ++i ) {
+                if( !strcmp(R->name, n->nodes[i].name) ) {
+                    void *p = (char*)o + R->sz;
+                    /**/ if( n->nodes[i].type == JSON5_UNDEFINED ) {}
+                    else if( n->nodes[i].type == JSON5_NULL ) {
+                        *(uintptr_t*)(p) = (uintptr_t)0;
+                    }
+                    else if( n->nodes[i].type == JSON5_BOOL ) {
+                        *(bool*)p = n->nodes[i].boolean;
+                    }
+                    else if( n->nodes[i].type == JSON5_INTEGER ) {
+                        if( strstr(R->type, "64" ) )
+                        *(int64_t*)p = n->nodes[i].integer;
+                        else
+                        *(int*)p = n->nodes[i].integer;
+                    }
+                    else if( n->nodes[i].type == JSON5_STRING ) {
+                        char *s = 0;
+                        strcatf(&s, "%s", n->nodes[i].string);
+                        *(uintptr_t*)(p) = (uintptr_t)s;
+                    }
+                    else if( n->nodes[i].type == JSON5_REAL ) {
+                        if( R->type[0] == 'f' )
+                        *(float*)(p) = n->nodes[i].real;
+                        else
+                        *(double*)(p) = n->nodes[i].real;
+                    }
+                    else if( n->nodes[i].type == JSON5_OBJECT ) {}
+                    else if( n->nodes[i].type == JSON5_ARRAY ) {}
+                    break;
+                }
+            }
         }
     }
+    json5_free(&root);
+    return error ? 0 : o;
+}
+obj *obj_loadjson(void *o, const char *json) { // @testme
+    return obj_mergejson(obj_zero(o), json);
 }
 
-// ---
-
-void *obj_clone(const void *obj) { // @fixme: clone object console as well?
-    unsigned sz = obj_sizeof(obj);
-    const char *nm = obj_typeof(obj);
-    unsigned id = obj_typeid(obj);
-
-    void *obj2 = obj_initialize((void**)MALLOC(sizeof(void*)+sz), stringf("%c%s\n" "cloned" "\n", id, nm)); // STRDUP( OBJUNBOX(*((void**)obj - 1)) ));
-    memcpy(obj2, obj, sz);
-    return obj2;
+char *obj_savebin(const void *o) { // PACKMSG("ss", "entity_v1", quark(self->objnameid)); // = PACKMSG("p", obj_data(&b), (uint64_t)obj_size(&b));
+    int len = cobs_bounds(obj_size(o));
+    char *sav = va("%*.s", len, "");
+    len = cobs_encode(obj_datac(o), obj_size(o), sav, len);
+    sav[len] = '\0';
+    return sav;
+}
+obj *obj_mergebin(void *o, const char *sav) { // UNPACKMSG(sav, "p", obj_data(c), (uint64_t)obj_size(c));
+    int outlen = cobs_decode(sav, strlen(sav), obj_data(o), obj_size(o));
+    return outlen != obj_size(o) ? NULL : o;
+}
+obj *obj_loadbin(void *o, const char *sav) {
+    return obj_mergebin(obj_zero(o), sav);
 }
 
-void *obj_copy(void **dst, const void *src) {
-    if(!*dst) return *dst = obj_clone(src);
+char *obj_savempack(const void *o) { // @todo
+    return "";
+}
+obj *obj_mergempack(void *o, const char *sav) { // @todo
+    return 0;
+}
+obj *obj_loadmpack(void *o, const char *sav) { // @todo
+    return obj_mergempack(obj_zero(o), sav);
+}
 
-    if( obj_typeeq(*dst, src) ) {
-        return memcpy(*dst, src, obj_sizeof(src));
+static __thread map(void*,array(char*)) obj_stack;
+int obj_push(const void *o) {
+    if(!obj_stack) map_init_ptr(obj_stack);
+    array(char*) *found = map_find_or_add(obj_stack,(void*)o,0);
+
+    char *bin = STRDUP(obj_saveini(o)); // @todo: savebin
+    array_push(*found, bin);
+    return 1;
+}
+int obj_pop(void *o) {
+    if(!obj_stack) map_init_ptr(obj_stack);
+    array(char*) *found = map_find_or_add(obj_stack,(void*)o,0);
+
+    char **bin = array_back(*found);
+    if( bin ) {
+        int rc = !!obj_loadini(o, *bin); // @todo: loadbin
+        if( array_count(*found) > 1 ) {
+            FREE(*bin);
+            array_pop(*found);
+        }
+        return rc;
     }
-
-    return NULL;
+    return 0;
 }
 
-void *obj_mutate(void **dst_, const void *src) {
+static
+void test_obj_serialization(void *o1, void *o2) {
+    obj* b = (obj*)o1;
+    obj* c = (obj*)o2;
+
+    char *json = obj_savejson(b); // puts(json);
+    test( json[0] );
+    char *ini = obj_saveini(b); // puts(ini);
+    test( ini[0] );
+    char *bin = obj_savebin(b); // puts(bin);
+    test( bin[0] );
+
+    obj_push(c);
+
+        test( obj_copy(c,b) );
+        test( obj_comp(b,c) == 0 ) || obj_hexdump(b) & obj_hexdump(c);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadbin(c, bin) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadini(c, ini) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+        test( obj_zero(c) );
+        test( obj_comp(c,b) != 0 ) || obj_hexdump(c);
+        test( obj_loadjson(c, json) );
+        test( obj_comp(c,b) == 0 ) || obj_hexdump(c) & obj_hexdump(b);
+
+    obj_pop(c);
+    obj_hexdump(c);
+}
+
+// ----------------------------------------------------------------------------
+// components
+
+bool obj_addcomponent(entity *e, unsigned c, void *ptr) {
+    e->cflags |= (3ULL << c);
+    e->c[c & (OBJCOMPONENTS_MAX-1)] = ptr;
+    return 1;
+}
+bool obj_hascomponent(entity *e, unsigned c) {
+    return !!(e->cflags & (3ULL << c));
+}
+void* obj_getcomponent(entity *e, unsigned c) {
+    return e->c[c & (OBJCOMPONENTS_MAX-1)];
+}
+bool obj_delcomponent(entity *e, unsigned c) {
+    e->cflags &= ~(3ULL << c);
+    e->c[c & (OBJCOMPONENTS_MAX-1)] = NULL;
+    return 1;
+}
+bool obj_usecomponent(entity *e, unsigned c) {
+    e->cflags |= (1ULL << c);
+    return 1;
+}
+bool obj_offcomponent(entity *e, unsigned c) {
+    e->cflags &= ~(1ULL << c);
+    return 0;
+}
+
+char *entity_save(entity *self) {
+    char *sav = obj_saveini(self);
+    return sav;
+}
+
+static
+void entity_register() {
+    do_once {
+        STRUCT(entity, uintptr_t, cflags);
+        obj_extend(entity, save);
+    }
+}
+
+AUTORUN{
+    entity_register();
+}
+
+static
+void test_obj_ecs() {
+    entity_register(); // why is this required here? autorun init fiasco?
+
+    entity *e = entity_new(entity);
+    puts(obj_save(e));
+
+    for( int i = 0; i < 32; ++i) test(0 == obj_hascomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(1 == obj_addcomponent(e, i, NULL));
+    for( int i = 0; i < 32; ++i) test(1 == obj_hascomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(1 == obj_delcomponent(e, i));
+    for( int i = 0; i < 32; ++i) test(0 == obj_hascomponent(e, i));
+}
+
+// ----------------------------------------------------------------------------
+// reflection
+
+void* obj_mutate(void *dst, const void *src) {
+    ((obj*)dst)->objheader = ((const obj *)src)->objheader;
+
+#if 0
     // mutate a class. ie, convert a given object class into a different one,
-    // while preserving the original metas and references as much as possible.
-    //
-    // @fixme: systems might be tracking objects in the future. the fact that we
-    // can reallocate a pointer (and hence, change its address) seems way too dangerous,
-    // as the tracking systems could crash when referencing a mutated object.
-    // solutions: do not reallocate if sizeof(new_class) > sizeof(old_class) maybe? good enough?
-    // also, optimization hint: no need to reallocate if both sizes matches, just copy contents.
+    // while preserving the original metas, components and references as much as possible.
+    // @todo iterate per field
 
-    if(!*dst_) return *dst_ = obj_clone(src);
-
-    void *dst = *dst_;
     dtor(dst);
 
         unsigned src_sz = obj_sizeof(src);
-        unsigned src_id = obj_typeid(src);
+        unsigned src_id = obj_id(src);
 
         void *dst_ptr = *((void**)dst - 1);
         unsigned payload = (OBJPAYLOAD16(dst_ptr) & 255) | src_id << 8;
@@ -21954,209 +25854,51 @@ void *obj_mutate(void **dst_, const void *src) {
         memcpy(dst, src, src_sz);
 
     ctor(dst);
+#endif
     return dst;
 }
 
-
-#ifdef OBJ_DEMO
-
-typedef struct MyObject {
-    char* id;
-    int x,y;
-    float rotation;
-    struct MyObject *next;
-} MyObject;
-
-void tests1() {
-    // Construct two objects
-    MyObject *root = obj_new(MyObject, 0);
-    MyObject *obj = obj_new(MyObject, "An identifier!", 0x11, 0x22, 3.1415f, root );
-
-    // Log some lines
-    obj_printf(root, "this is a logline #1\n");
-    obj_printf(root, "this is a logline #2\n");
-    obj_printf(root, "this is a logline #3\n");
-
-    obj_printf(obj, "yet another logline #1\n");
-    obj_printf(obj, "yet another logline #2\n");
-
-    // Dump contents of our objects
-
-    obj_hexdump(root);
-    obj_hexdump(obj);
-
-    // Save to mem
-
-    array(char) buffer = obj_save(obj);
-    printf("%d bytes\n", (int)array_count(buffer));
-
-    // Clear
-
-    obj_zero( obj );
-    obj_hexdump( obj );
-
-    // Reload
-
-    obj_load( obj, buffer );
-    obj_hexdump( obj );
-
-    // Copy tests
-
-    {
-        MyObject *clone = obj_clone(obj);
-        obj_hexdump(clone);
-        obj_del(clone);
-    }
-
-    {
-        MyObject *copy = 0;
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    {
-        MyObject *copy = obj_new(MyObject, "A different identifier!", 0x33, 0x44, 0.0f, root );
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    {
-        void *copy = obj_malloc(100, "an untyped class" );
-        obj_mutate(&copy, obj);
-        obj_hexdump(copy);
-        obj_copy(&copy, obj);
-        obj_hexdump(copy);
-        obj_del(copy);
-    }
-
-    // Benchmarking call overhead.
-    // We're here using dtor as a method to test. Since there is actually no
-    // destructor associated to this class, it will be safe to call it extensively (no double frees).
-    //
-    // results:
-    // 427 million calls/s @ old i5-4300/1.90Ghz laptop. compiled with "cl /Ox /Os /MT /DNDEBUG /GL /GF /arch:AVX2"
-
-    #ifndef N
-    #define N (INT32_MAX-1)
-    #endif
-
-    double t = (puts("benchmarking..."), -clock() / (double)CLOCKS_PER_SEC);
-    for( int i = 0; i < N; ++i ) {
-        dtor(root);
-    }
-    t += clock() / (double)CLOCKS_PER_SEC;
-    printf("Benchmark: %5.2f objcalls/s %5.2fM objcalls/s\n", N/(t), (N/1000)/(t*1000)); // ((N+N)*5) / (t) );
-
+void *obj_clone(const void *src) {
+    int sz = sizeof(obj) + obj_size(src) + sizeof(array(obj*));
+    enum { N = 8 }; sz = ((sz + (N - 1)) & -N);  // Round up to N-byte boundary
+    obj *ptr = obj_malloc( sz );
+    obj_mutate(ptr, src); // ptr->objheader = ((const obj *)src)->objheader;
+    obj_loadini(ptr, obj_saveini(src));
+    return ptr;
 }
 
-// --------------
-
-#define dump(obj) dump[obj_typeid(obj)](obj)
-#define area(obj) area[obj_typeid(obj)](obj)
-
-extern void  (*dump[256])();
-extern float (*area[256])();
-
-void  (*dump[256])() = {0};
-float (*area[256])() = {0};
-
-// --------------
-
-typedef struct box {
-    float w;
-} box;
-
-void  box_ctor(box *b) { printf("box already constructed: box-w:%f\n", b->w); }
-void  box_dtor(box *b) { puts("deleting box..."); }
-void  box_dump(box *b) { printf("box-w:%f\n", b->w); }
-float box_area(box *b) { return b->w * b->w; }
-
-#define REGISTER_BOX \
-    obj_override(box, ctor); \
-    obj_override(box, dump); \
-    obj_override(box, area); \
-    obj_override(box, dtor);
-
-typedef struct rect {
-    float w, h;
-} rect;
-
-void  rect_dump(rect *r) { printf("rect-w:%f rect-h:%f\n", r->w, r->h); }
-float rect_area(rect *r) { return r->w * r->h; }
-void  rect_dtor(rect *r) { puts("deleting rect..."); }
-
-#define REGISTER_RECT \
-    obj_override(rect, dump); \
-    obj_override(rect, area); \
-    obj_override(rect, dtor);
-
-void tests2() {
-    REGISTER_BOX
-    REGISTER_RECT
-
-    box *b = obj_new(box, 100);
-    rect *r = obj_new(rect, 100, 200);
-
-    dump(b);
-    dump(r);
-
-    printf("%f\n", area(b));
-    printf("%f\n", area(r));
-
-    obj_del(b);
-    obj_ref(r); obj_unref(r); //obj_del(r);
-
-    int *untyped = obj_malloc( sizeof(int) );
-    int *my_number = obj_malloc( sizeof(int), "a comment about my_number" );
-    char *my_text = obj_malloc( 32, "some debug info here" );
-
-    *untyped = 100;
-    *my_number = 123;
-    sprintf( my_text, "hello world" );
-
-    struct my_bitmap { int w, h, bpp; const char *pixels; };
-    struct my_bitmap *my_bitmap = obj_new(struct my_bitmap, 2,2,8, "\1\2\3\4");
-
-    printf( "%p(%s,%u)\n", my_bitmap, obj_typeof(my_bitmap), obj_typeid(my_bitmap) );
-    printf( "%d(%s,%d)\n", *untyped, obj_typeof(untyped), obj_typeid(untyped) );
-    printf( "%d(%s,%d)\n", *my_number, obj_typeof(my_number), obj_typeid(my_number) );
-    printf( "%s(%s,%d)\n", my_text, obj_typeof(my_text), obj_typeid(my_text) );
-
-    obj_printf(my_text, "hello world #1\n");
-    obj_printf(my_text, "hello world #2\n");
-    puts(obj_output(my_text));
-
-    printf( "%s(%s,%d)\n", my_text, obj_typeof(my_text), obj_typeid(my_text) );
-
-    printf( "equal?:%d\n", obj_typeeq(my_number, untyped) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_number) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_text) );
-    printf( "equal?:%d\n", obj_typeeq(my_number, my_bitmap) );
-
-    obj_free( untyped );
-    obj_free( my_text );
-    obj_free( my_bitmap );
-    obj_del( my_number ); // should not crash, even if allocated with obj_malloc()
+void* obj_merge(void *dst, const void *src) { // @testme
+    char *bin = obj_savebin(src);
+    return obj_mergebin(dst, bin);
 }
 
-int main() {
-    tests1();
-    tests2();
-    puts("ok");
+void *obj_make(const char *str) {
+    const char *T;
+    const char *I = strchr(str, '['); // is_ini
+    const char *J = strchr(str, '{'); // is_json
+    if( !I && !J ) return 0;
+    else if( I && !J ) T = I;
+    else if( !I && J ) T = J;
+    else T = I < J ? I : J;
+
+    char name[64] = {0};
+    if( sscanf(T+1, T == I ? "%63[^]]" : "%63[^:=]", name) != 1 ) return 0;
+
+    int has_components = 0; // @todo: support entities too
+
+    unsigned Tid = intern(name);
+    reflect_init();
+    reflect_t *found = map_find(reflects, Tid);
+    if(!found) return obj_new(obj);
+
+    obj *ptr = CALLOC(1, found->sz + (has_components+1) * sizeof(array(obj*)));
+    void *ret = (T == I ? obj_mergeini : obj_mergejson)(ptr, str);
+    OBJTYPES[ found->objtype ] = found->name;
+    OBJ_CTOR_PTR(ptr,1,/*found->id,*/found->sz,found->objtype);
+    obj_setname(ptr, name); // found->id);
+
+    return ptr; // returns partial construction as well. @todo: just return `ret` for a more strict built/failed policy
 }
-
-/*
-    MEMBER( MyObject, char*, id );
-    MEMBER( MyObject, int, x );
-    MEMBER( MyObject, int, y );
-    MEMBER( MyObject, float, rotation, "(degrees)" );
-    MEMBER( MyObject, MyObject*, next, "(linked list)" );
-*/
-
-#define main main__
-#endif
 #line 0
 
 #line 1 "fwk_ai.c"
@@ -22177,7 +25919,7 @@ vec3 rnd3() { // random uniform
 int less3(vec3 *lhs, vec3 *rhs) {
     if(lhs->x != rhs->x) return lhs->x - rhs->x;
     if(lhs->y != rhs->y) return lhs->y - rhs->y;
-    if(lhs->z != rhs->z) return lhs->z - rhs->z;
+    if(lhs->z != rhs->z) return lhs->z - rhs->z; // @testme: remove superfluous if check
     return 0;
 }
 uint64_t hash3(vec3 *v) {
@@ -22213,7 +25955,7 @@ vec3 get_voxel_for_boid(float perception_radius, const boid_t *b) { // quantize 
 
 static
 void check_voxel_for_boids(float perception_radius, float blindspot_angledeg_compare_value, array(boid_t*) voxel_cached, array(nearby_boid_t) *result, const vec3 voxelPos, const boid_t *b) {
-    for each_array_ptr(voxel_cached, const boid_t*, test) {
+    for each_array_ptr(voxel_cached, boid_t*, test) {
         vec3 p1 = b->position;
         vec3 p2 = (*test)->position;
         vec3 vec = sub3(p2, p1);
@@ -22226,7 +25968,7 @@ void check_voxel_for_boids(float perception_radius, float blindspot_angledeg_com
             compare_value = dot3(neg3(b->velocity), vec) / (l1 * l2);
         }
 
-        if ((&b) != test && distance <= perception_radius && (blindspot_angledeg_compare_value > compare_value || len3(b->velocity) == 0)) {
+        if (b != (*test) && distance <= perception_radius && (blindspot_angledeg_compare_value > compare_value || len3(b->velocity) == 0)) {
             nearby_boid_t nb;
             nb.boid = (boid_t*)*test;
             nb.distance = distance;
@@ -22505,7 +26247,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
         #error ASTAR_POS_INDEX(p) should specify macro to map position to index
         #endif
 
-        #ifndef ASTAR_MAX_INDEX 
+        #ifndef ASTAR_MAX_INDEX
         #error ASTAR_MAX_INDEX should specify max count of indices the position can map to
         #endif
 
@@ -22596,7 +26338,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
                 i = p;                                    \
                 p = (i - 1) / 2;                          \
             }                                             \
-        } while (0) 
+        } while (0)
 
         #define ASTAR_HEAP_POP()                                          \
         do {                                                              \
@@ -22736,6 +26478,177 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
 #line 0
 
 #line 1 "fwk_bt.c"
+// Behavior trees: decision planning and decision making.
+// Supersedes finite state-machines (FSM) and hierarchical finite state-machines (HFSM).
+// - rlyeh, public domain.
+//
+// [ref] https://outforafight.wordpress.com/2014/07/15/behaviour-behavior-trees-for-ai-dudes-part-1/
+// [ref] https://www.gameaipro.com/GameAIPro/GameAIPro_Chapter06_The_Behavior_Tree_Starter_Kit.pdf
+// [ref] https://gitlab.com/NotYetGames/DlgSystem/-/wikis/Dialogue-Manual
+// [ref] https://towardsdatascience.com/designing-ai-agents-behaviors-with-behavior-trees-b28aa1c3cf8a
+// [ref] https://docs.nvidia.com/isaac/packages/behavior_tree/doc/behavior_trees.html
+// [ref] https://docs.unrealengine.com/4.26/en-US/InteractiveExperiences/ArtificialIntelligence/BehaviorTrees/
+// [ref] gdc ChampandardDaweHernandezCerpa_BehaviorTrees.pdf @todo debugging
+// [ref] https://docs.cocos.com/cocos2d-x/manual/en/actions/
+
+// The nodes in a behavior tree can be broadly categorized into three main types: control nodes, task nodes, and decorator nodes. Here is a brief description of each category:
+
+// Control Nodes: Control nodes are used to control the flow of the behavior tree. They determine the order in which child nodes are executed and how the results of those nodes are combined. They are usually parent nodes.
+// Action Nodes: Action nodes are used to perform specific actions or tasks within the behavior tree. They can include actions such as moving, attacking, or interacting with objects in the game world. They are usually leaf nodes.
+// Decorator Nodes: Decorator nodes are used to modify the behavior of child nodes in some way. They can be used to repeat child nodes, invert the result of a child node, or add a cooldown period between executions. They are usually located between control and action nodes.
+
+// --- VARIABLES
+
+// Key Prefixes:
+//     {visiblity:(l)ocal,s(q)uad,(r)ace,(f)action,(g)lobal}
+//     [persistence:(t)emp,(u)serdata,(s)avegame,(c)loud] + '_' + name.
+//     [persistence:(tmp),(usr)data,(sav)egame,(net)cloud] + '_' + name.
+
+// Ie, l_health = 123.4, gsav_player = "john"
+
+// --- ACTION NODES
+
+// [ ] * Actions/Behaviors have a common structure:
+// [ ]     - Entry point (function name) for a C call or Lua script.
+// [ ] * Status:
+// [ ]     - Uninitialized (never run)
+// [ ]     - Running (in progress)
+// [ ]     - Suspended (on hold till resumed)
+// [ ]     - Success (finished and succeeded)
+// [ ]     - Failure (finished and failed)
+// [ ] * Optional callbacks:
+// [ ]     - on_enter
+// [ ]     - on_leave
+// [ ]     - on_success
+// [ ]     - on_failure
+// [ ]     - on_suspend
+// [ ]     - on_resume
+
+// [x] Action Node: This node performs a single action, such as moving to a specific location or attacking a target.
+// [ ] Blackboard Node: Node that reads and writes data to a shared memory space known as a blackboard. The blackboard can be used to store information that is relevant to multiple nodes in the behavior tree.
+// [ ]     SetKey(keyVar,object)
+// [ ]     HasKey(keyVar)
+// [ ]     CompareKeys(keyVar1, operator < <= > >= == !=, keyVar2)
+// [ ]     SetTags(names=blank,cooldownTime=inf,bIsCooldownAdditive=false)
+// [ ]     HasTags(names=blank,bAllRequired=true)
+// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesn’t exist, and stores it in the passed variable name, and then pushes ‘item’ object onto it.
+// [ ]     PopFromStack(keyVar,itemVar): pop pops an item off the stack, and stores it in the itemVar variable, failing if the stack is already empty.
+// [ ]     IsEmptyStack(keyVar): checks if the stack passed is empty and returns success if it is, and failure if its not.
+// [ ] Communication Node: This is a type of action node that allows an AI agent to communicate with other agents or entities in the game world. The node takes an input specifying the message to be communicated and the recipient(s) of the message (wildmask,l/p/f/g prefixes). The node then sends the message to the designated recipient(s) and returns success when the communication is completed. This node can be useful for implementing behaviors that require the AI agent to coordinate with other agents or to convey information to the player. It could use a radius argument to specify the maximum allowed distance for the recipients.
+// [ ] Condition Node: A leaf node that checks a specific condition, such as the distance to an object, the presence of an enemy, or the status of a health bar.
+// [ ]     Distance Condition Node: This is a type of condition node that evaluates whether an AI agent is within a specified distance of a target object or location. The node takes two inputs: the current position of the AI agent and the position of the target object or location. If the distance between the two is within a specified range, the node returns success. If the distance is outside of the specified range, the node returns failure. This node can be useful for implementing behaviors that require the AI agent to maintain a certain distance from a target, such as following or avoiding an object. Could use a flag to disambiguate between linear distance and path distance.
+// [ ]     Query Node: This node checks a condition and returns success or failure based on the result. For example, a query node could check whether an enemy is within range or whether a door is locked.
+// [ ]         Query Node: A type of decorator node that retrieves information from a database or external system, such as a web service or file system. The Query node can be used to retrieve data that is not available within the game engine, such as weather or traffic conditions.
+// [ ]     A condition is made of:
+// [ ]     - Optional [!] negate
+// [ ]     - Mandatory Value1(Int/Flt/Bool/VarName/FuncName)
+// [ ]     - Optional operator [< <= > >= == !=] and Value2(Int/Flt/Bool/VarName/FuncName)
+// [ ]     AllConditions(...) : SUCCESS if ( empty array || all conditions met)
+// [ ]     AnyConditions(...) : SUCCESS if (!empty array && one conditions met)
+
+// --- DECORATOR NODES
+
+// [ ] Cooldown Node: Decorator node that adds a cooldown period between the execution of a child node, preventing it from being executed again until the cooldown period has elapsed.
+// [x] Counter Node: Decorator node that limits the number of times that a child node can execute. For example, if the child node has executed a certain number of times, the Counter node will return a failure.
+// [x]     Once Node: Decorator node that triggers a specified action when a condition is met for the first time. This can be useful for triggering a one-time event, such as when an AI agent discovers a hidden item or reaches a new area of the game world.
+// [x] Inverter Node: Decorator node that inverts the result of a child node, returning success if the child node fails and failure if the child node succeeds. This can be useful for negating the outcome of a particular behavior, such as avoiding a certain area of the game world.
+// [x] Repeater Node: Decorator node that repeats the execution of a child node a specified number of times or indefinitely.
+// [x]     Repeat(times=inf): Runs child node given times. These are often used at the very base of the tree, to make the tree to run continuously.
+// [ ]         RepeatIf(strong/weak condition): Runs child node as long as the conditions are met.
+// [ ]         RepeatIfOk(times=inf): Runs child node if it succeedes, max given times.
+// [ ]         RepeatIfFail(times=inf): Runs child node if it fails, max given times.
+// [ ] Branch Node: 2 children [0] for true, [1] for false
+// [ ]     Resource Node: Decorator node that manages a shared resource, such as a limited supply of ammunition or a limited amount of processing power. The Resource node The node can be used to decide when to use or conserve the resource. For example, if the AI agent is low on ammunition, the node may decide to switch to a melee weapon or to retreat to a safer location. This node can be useful for implementing behaviors that require the AI agent to make strategic decisions about resource use.
+// [x] Result Node: Decorator node that tracks the result of a child action node and returns either success or failure depending on the outcome. This can be useful for determining whether an action was successful or not, and then adjusting the AI agent's behavior accordingly.
+// [x]     Succeeder Node: Decorator node that always returns success, regardless of the result of its child node. This can be useful for ensuring that certain behaviors are always executed, regardless of the overall success or failure of the behavior tree.
+// [x]     Success(): FAILURE becomes SUCCESS (TRUE).
+// [x]     Failure(): SUCCESS becomes FAILURE (FALSE).
+// [ ] Throttle Node: Decorator node that limits the rate at which a child node can execute. For example, a Throttle node might ensure that an AI agent can only fire its weapon, or using a special ability, only a certain number of times per second.
+// [x] Delay Node: Decorator node that adds a delay to the execution of a child node. The delay might be configured to sleep before the execution, after the execution, or both.
+// [x]     Defer Delay(duration_ss=1): Runs the child node, then sleeps for given seconds.
+// [ ] Ease(time,name): Clamps child time to [0,1] range, and applies easing function on it.
+// [ ] Dilate(Mul=1,Add=0): Dilates child time
+
+// --- CONTROL NODES
+
+// [x] Root Node: The topmost node in a behavior tree that represents the start of the decision-making process. Returns success if any of its child nodes suceedes.
+// [x] Root-Failure Node: Control node that only returns failure if all of its child nodes fail. This can be useful for ensuring that a behavior tree is not prematurely terminated if one or more child nodes fail.
+
+// [ ] Event(name): When name event is raised, it suspends current tree and calls child. "Incoming projectile" -> Evade. Stimulus types: may be disabled by event, or autodisabled.
+// [ ] Raise(name): Triggers event name.
+
+// [ ] Checkpoint Node: Control node that saves a state in memory and then continues the tree execution from that point the next time the tree is executed. It can be useful in situations where the behavior tree needs to be interrupted and resumed later.
+// [ ] Decision Making Node: Control node that implements a decision-making process for the AI agent. The node takes input specifying the available options for the AI agent and the criteria for evaluating each option. The node then evaluates each option based on the specified criteria and selects the best option. This node can be useful for implementing behaviors that require the AI agent to make strategic decisions, such as choosing a target or selecting a path through the game world.
+// [ ]     Could be extended with GOAP if dynamically inserting the scores on each update then calling a Probability Selector Node (0.2,0.3,0.5)
+// [ ]     https://cdn.cloudflare.steamstatic.com/apps/valve/2012/GDC2012_Ruskin_Elan_DynamicDialog.pdf
+// [ ] Evaluate Node / Recheck():
+// [ ]     Actively rechecks all existing sub-conditions on a regular basis after having made decisions about them.
+// [ ]     Use this feature to dynamically check for risks or opportunities in selected parts of the tree.
+// [ ]     For example, interrupting a patrol with a search behavior if a disturbance is reported.
+// [ ] Interrupt Node: Control node that interrupts the execution of a lower-priority node when a higher-priority node needs to be executed. It can be useful for handling urgent tasks or emergency situations.
+// [ ] Monitor Node: Control node that continuously monitors a condition and triggers a specified action when the condition is met. For example, a Monitor node might monitor the distance between an AI agent and a target and trigger a "retreat" behavior when the distance falls below a certain threshold.
+// [ ]     Observer Node: Control node that monitors the state of the game world and triggers a specified action when certain conditions are met. For example, an Observer node might trigger a "hide" behavior when an enemy is spotted.
+// [ ] Parallel Node: Control node that executes multiple child nodes simultaneously. The Parallel node continues to execute even if some of its child nodes fail.
+// [ ]     Parallel All Node(required_successes=100%): Control node that executes multiple child nodes simultaneously. Returns false when first child fails, and aborts any other running tasks. Returns true if all its children succeed.
+// [ ]     Parallel One Node(required_successes=1): Control node that executes multiple child nodes simultaneously. Returns true when first child suceedes, and aborts any other running tasks. Returns false if all its children fail.
+// [ ]     Subsumption Node: Control node that allows multiple behaviors to be executed simultaneously, with higher-priority behaviors taking precedence over lower-priority ones. This can be useful for implementing complex, multi-level behaviors in autonomous systems.
+// [ ] Semaphore Node: Control node that blocks the execution of its child nodes until a certain condition is met. For example, a Semaphore node might block the execution of a behavior until a certain object is in range or a certain event occurs.
+// [ ] Semaphore Wait Node: Control node that blocks the execution of its child nodes until a resource becomes available. This can be useful for controlling access to shared resources such as a pathfinding system or a communication channel.
+// [ ]     WaitTags(tags=blank,timeout_ss=inf): Stops execution of child node until the cooldown tag(s) do expire. May return earlier if timed out.
+// [ ]     WaitEvent(name=blank,timeout_ss=inf): Stops execution of child node until event is raised. May return earlier if timed out.
+// [x] Sequence Node(reversed,iterator(From,To)): Control node that executes a series of child nodes in order. If any of the child nodes fail, the Sequence node stops executing and returns a failure.
+// [ ]     Dynamic Sequence Node: Control node that dynamically changes the order in which its child nodes are executed based on certain conditions. For example, a Dynamic Sequence node might give higher priority to a child node that has recently failed or that is more likely to succeed.
+// [ ]     Reverse(): iterates children in reversed order (Iterator:(-1,0) equivalent)
+// [ ]     Iterator(from,to): allows negative indexing. increments if (abs from < abs to), decrements otherwise
+// [x] Selector Node: Control node that selects a child node to execute based on a predefined priority or set of conditions. The Selector node stops executing child nodes as soon as one of them succeeds.
+// [ ]     Priority Selector Node: Control node that executes its child nodes in order of priority. If the first child node fails, it moves on to the next child node in the list until a successful node is found. This can be useful for implementing behaviors that require a specific order of execution, such as a patrol route or a search pattern.
+// [ ]     Probability Selector Node: Control node that selects a child node to execute based on a probability distribution. For example, if there are three child nodes with probabilities of 0.2, 0.3, and 0.5, the Probability Selector node will execute the third child node 50% of the time.
+// [ ]     Dynamic Selector Node: Control node that dynamically changes the order in which its child nodes are executed based on certain conditions. For example, a Dynamic Selector node might give higher priority to a child node that has recently succeeded or that is more likely to succeed.
+// [ ]         Dynamic Selector Node: Control node that dynamically changes the order in which child nodes are executed based on certain conditions. For example, it may prioritize certain nodes when health is low, and other nodes when resources are scarce.
+// [ ]         Dynamic Priority Node: Control node that dynamically changes the priority of its child nodes based on certain conditions. For example, if a child node is more likely to result in success, the Dynamic Priority node will give it a higher priority.
+// [ ]     Weighted / Cover Selection Node: This is a type of selector node that evaluates the available cover options in the game world and selects the best cover position for the AI agent. The node takes input specifying the current position of the AI agent and the location of potential cover positions. The node then evaluates the cover positions based on criteria such as distance to enemy positions, line of sight, and available cover points, and selects the best option. This node can be useful for implementing behaviors that require the AI agent to take cover and avoid enemy fire.
+// [ ]     Random Selector Node: Control node that selects a child node to execute at random. This can be useful for introducing variety and unpredictability into the behavior of an AI agent.
+// [ ]     Random Weight / Stochastic Node(0.2,0.3,0.5): Control node that introduces randomness into the decision-making process of an AI agent. For example, a Stochastic node might randomly select a child node to execute, with the probability of each child node being proportional to its likelihood of success.
+// [ ] Break(bool): breaks parent sequence or selector. may return SUCCESS or FAILURE.
+// [ ] Hybrid Node: Control node that combines the functionality of multiple control nodes, such as a sequence node and a selector node. It can be useful for creating complex behavior patterns that require multiple control structures. The Hybrid Node has two modes of operation: strict mode and flexible mode. In strict mode, the child nodes are executed in a fixed order, similar to a Sequence Node. If any child node fails, the entire Hybrid Node fails. In flexible mode, the child nodes can be executed in any order, similar to a Selector Node. If any child node succeeds, the entire Hybrid Node succeeds. The Hybrid Node is often used when you need to create complex behavior patterns that require multiple control structures. For example, you might use a Hybrid Node to implement a search behavior where the AI agent first moves in a fixed direction for a certain distance (strict mode), but then switches to a more exploratory mode where it randomly explores nearby areas (flexible mode).
+// [ ] Subtree Node: Control node that calls another behavior tree as a subroutine. This is useful for breaking down complex behaviors into smaller, more manageable parts.
+// [ ]     Call(name): Calls to the child node with the matching name within behavior tree. Returns FAILURE if name is invalid or if invoked behavior returns FAILURE.
+// [ ]     Return(boolean): Exits current Call.
+// [ ]     AttachTree(Name,bDetachAfterUse=true): Attaches subtree to main tree. When a NPC founds the actor, it attaches the behavior to the tree. Ie, Level specific content: Patrols, Initial setups, Story driven events, etc. Ie, DLCs: Behaviors are added to actors in the DLC level (enticers).
+// [ ]     DetachTree(Name)
+// [ ] Switch Node: Control node that evaluates a condition and then selects one of several possible child nodes to execute based on the result of the condition.
+// [ ]     Switch(name): Jumps to the child node with the matching name within behavior tree. If name is invalid will defer to Fallback child node.
+// [ ] Timeout Node: Control node that aborts the execution of its child node after a certain amount of time has elapsed. This can be useful for preventing an AI agent from getting stuck in a loop or waiting indefinitely for a particular event to occur.
+// [ ]     TimeLimit(timeout_ss=inf): Give the child any amount of time to finish before it gets canceled. The timer is reset every time the node gains focus.
+// [ ] Timer Node: Control node which invokes its child node every XX seconds. The timer can repeat the action any given number of times, or indefinitely.
+
+// ## Proposal -----------------------------------------------------------------------------
+
+// BehaviorTrees as case-insensitive INI files. Then,
+// - INI -> C INTERPRETER, OR
+// - INI -> LUA TRANSPILER -> LUA BYTECODE -> LUA VM.
+
+// ```ini
+// [bt]
+// recheck
+// sequence                                  ;; Approach the player if seen!
+//  conditions=IsPlayerVisible,
+//  action=MoveTowardsPlayer
+// sequence                                  ;; Attack the player if seen!
+//  conditions=IsPlayerInRange,
+//  repeat=3
+//  action=FireAtPlayer
+// sequence                                  ;; Search near last known position
+//  conditions=HaveWeGotASuspectedLocation,
+//  action=MoveToPlayersLastKnownPosition
+//  action=LookAround
+// sequence                                  ;; Randomly scanning nearby
+//  action=MoveToRandomPosition
+//  action=LookAround
+// event=IncomingProjectile
+//  action=Evade
+// ```
+
 map(char*, bt_func) binds;
 
 void bt_addfun(const char *name, int(*func)()){
@@ -22758,7 +26671,7 @@ bt_t bt(const char *ini_file, unsigned flags) {
     array(char*) m = strsplit(vfs_read(ini_file), "\r\n");
 
     bt_t *self = &root;
-    self->type = cc8(root);
+    self->type = cc4(r,o,o,t);
     //self->parent = self;
 
     for( int i = 0; i < array_count(m); ++i ) {
@@ -22794,25 +26707,25 @@ bt_t bt(const char *ini_file, unsigned flags) {
 int bt_run(bt_t *b) {
     int rc = 0;
 
-    /**/ if( b->type == cc8(     run) ) { return b->action ? b->action() : 0; }
-    else if( b->type == cc8(     not) ) { return !bt_run(b->children + 0); }
-    else if( b->type == cc8(   sleep) ) { return sleep_ss(b->argf), bt_run(b->children + 0); }
-    else if( b->type == cc8(   defer) ) { rc = bt_run(b->children + 0); return sleep_ss(b->argf), rc; }
-    else if( b->type == cc8(    loop) ) { int rc; for(int i = 0; i < b->argf; ++i) rc = bt_run(b->children + 0); return rc; }
-    else if( b->type == cc8(    once) ) { return b->argf ? 0 : (b->argf = 1), bt_run(b->children + 0); }
-    else if( b->type == cc8(   count) ) { return b->argf <= 0 ? 0 : --b->argf, bt_run(b->children + 0); }
-    else if( b->type == cc8(    pass) ) { return bt_run(b->children + 0), 1; }
-    else if( b->type == cc8(    fail) ) { return bt_run(b->children + 0), 0; }
-    else if( b->type == cc8(  result) ) { return bt_run(b->children + 0), !!b->argf; }
-    else if( b->type == cc8(     all) ) { for( int i = 0; i < array_count(b->children); ++i ) if(!bt_run(b->children+i)) return 0; return 1; }
-    else if( b->type == cc8(     any) ) { for( int i = 0; i < array_count(b->children); ++i ) if( bt_run(b->children+i)) return 1; return 0; }
-    else if( b->type == cc8(    root) ) { for( int i = 0; i < array_count(b->children); ++i ) rc|=bt_run(b->children+i); return rc; }
-    else if( b->type == cc8(rootfail) ) { rc = 1; for( int i = 0; i < array_count(b->children); ++i ) rc&=~bt_run(b->children+i); return rc; }
+    /**/ if( b->type == cc3(          r,u,n) ) { return b->action ? b->action() : 0; }
+    else if( b->type == cc3(          n,o,t) ) { return !bt_run(b->children + 0); }
+    else if( b->type == cc5(      s,l,e,e,p) ) { return sleep_ss(b->argf), bt_run(b->children + 0); }
+    else if( b->type == cc5(      d,e,f,e,r) ) { rc = bt_run(b->children + 0); return sleep_ss(b->argf), rc; }
+    else if( b->type == cc4(        l,o,o,p) ) { int rc; for(int i = 0; i < b->argf; ++i) rc = bt_run(b->children + 0); return rc; }
+    else if( b->type == cc4(        o,n,c,e) ) { return b->argf ? 0 : (b->argf = 1), bt_run(b->children + 0); }
+    else if( b->type == cc5(      c,o,u,n,t) ) { return b->argf <= 0 ? 0 : --b->argf, bt_run(b->children + 0); }
+    else if( b->type == cc4(        p,a,s,s) ) { return bt_run(b->children + 0), 1; }
+    else if( b->type == cc4(        f,a,i,l) ) { return bt_run(b->children + 0), 0; }
+    else if( b->type == cc6(    r,e,s,u,l,t) ) { return bt_run(b->children + 0), !!b->argf; }
+    else if( b->type == cc3(          a,l,l) ) { for( int i = 0; i < array_count(b->children); ++i ) if(!bt_run(b->children+i)) return 0; return 1; }
+    else if( b->type == cc3(          a,n,y) ) { for( int i = 0; i < array_count(b->children); ++i ) if( bt_run(b->children+i)) return 1; return 0; }
+    else if( b->type == cc4(        r,o,o,t) ) { for( int i = 0; i < array_count(b->children); ++i ) rc|=bt_run(b->children+i); return rc; }
+    else if( b->type == cc8(r,o,o,t,f,a,i,l) ) { rc = 1; for( int i = 0; i < array_count(b->children); ++i ) rc&=~bt_run(b->children+i); return rc; }
 
     return 0;
 }
 
-void ui_bt(bt_t *b) {
+int ui_bt(bt_t *b) {
     if( b ) {
         char *info = bt_funcname(b->action);
         if(!info) info = va("%d", array_count(b->children));
@@ -22824,6 +26737,7 @@ void ui_bt(bt_t *b) {
             ui_collapse_end();
         }
     }
+    return 0;
 }
 #line 0
 
@@ -22831,19 +26745,92 @@ void ui_bt(bt_t *b) {
 // editing:
 // nope > functions: add/rem property
 
+#define ICON_PLAY   ICON_MD_PLAY_ARROW
+#define ICON_PAUSE  ICON_MD_PAUSE
+#define ICON_STOP   ICON_MD_STOP
+#define ICON_CANCEL ICON_MD_CLOSE
+
+#define ICON_WARNING      ICON_MD_WARNING
+#define ICON_BROWSER      ICON_MD_FOLDER_SPECIAL
+#define ICON_OUTLINER     ICON_MD_VIEW_IN_AR
+#define ICON_BUILD        ICON_MD_BUILD
+#define ICON_SCREENSHOT   ICON_MD_PHOTO_CAMERA
+#define ICON_CAMERA_ON    ICON_MD_VIDEOCAM
+#define ICON_CAMERA_OFF   ICON_MD_VIDEOCAM_OFF
+#define ICON_GAMEPAD_ON   ICON_MD_VIDEOGAME_ASSET
+#define ICON_GAMEPAD_OFF  ICON_MD_VIDEOGAME_ASSET_OFF
+#define ICON_AUDIO_ON     ICON_MD_VOLUME_UP
+#define ICON_AUDIO_OFF    ICON_MD_VOLUME_OFF
+#define ICON_WINDOWED     ICON_MD_FULLSCREEN_EXIT
+#define ICON_FULLSCREEN   ICON_MD_FULLSCREEN
+#define ICON_LIGHTS_ON    ICON_MD_LIGHTBULB
+#define ICON_LIGHTS_OFF   ICON_MD_LIGHTBULB_OUTLINE
+#define ICON_RENDER_BASIC ICON_MD_IMAGE_SEARCH
+#define ICON_RENDER_FULL  ICON_MD_INSERT_PHOTO
+
+#define ICON_SIGNAL     ICON_MD_SIGNAL_CELLULAR_ALT
+#define ICON_DISK       ICON_MD_STORAGE
+#define ICON_RATE       ICON_MD_SPEED
+
+#define ICON_CLOCK      ICON_MD_TODAY
+#define ICON_CHRONO     ICON_MD_TIMELAPSE
+
+#define ICON_SETTINGS   ICON_MD_SETTINGS
+#define ICON_LANGUAGE   ICON_MD_G_TRANSLATE
+#define ICON_PERSONA    ICON_MD_FACE
+#define ICON_SOCIAL     ICON_MD_MESSAGE
+#define ICON_GAME       ICON_MD_ROCKET_LAUNCH
+#define ICON_KEYBOARD   ICON_MD_KEYBOARD
+#define ICON_MOUSE      ICON_MD_MOUSE
+#define ICON_GAMEPAD    ICON_MD_GAMEPAD
+#define ICON_MONITOR    ICON_MD_MONITOR
+#define ICON_WIFI       ICON_MD_WIFI
+#define ICON_BUDGET     ICON_MD_SAVINGS
+#define ICON_NEW_FOLDER ICON_MD_CREATE_NEW_FOLDER
+#define ICON_PLUGIN     ICON_MD_EXTENSION
+#define ICON_RESTART    ICON_MD_REPLAY
+#define ICON_QUIT       ICON_MD_CLOSE
+
+#define ICON_POWER            ICON_MD_BOLT // ICON_MD_POWER
+#define ICON_BATTERY_CHARGING ICON_MD_BATTERY_CHARGING_FULL
+#define ICON_BATTERY_LEVELS \
+        ICON_MD_BATTERY_ALERT, \
+        ICON_MD_BATTERY_0_BAR,ICON_MD_BATTERY_1_BAR, \
+        ICON_MD_BATTERY_2_BAR,ICON_MD_BATTERY_3_BAR, \
+        ICON_MD_BATTERY_4_BAR,ICON_MD_BATTERY_5_BAR, \
+        ICON_MD_BATTERY_6_BAR,ICON_MD_BATTERY_FULL
+
 char *editor_path(const char *path) {
     return va("%s/%s", EDITOR, path);
 }
 
 vec3 editor_pick(float mouse_x, float mouse_y) {
+#if 0
     // unproject 2d coord as 3d coord
     camera_t *camera = camera_get_active();
     vec3 out, xyd = vec3(mouse_x,window_height()-mouse_y,1); // usually x:mouse_x,y:window_height()-mouse_y,d:0=znear/1=zfar
     mat44 mvp, model; identity44(model); multiply44x3(mvp, camera->proj, camera->view, model);
     bool ok = unproject44(&out, xyd, vec4(0,0,window_width(),window_height()), mvp);
     return out;
+#else
+    // unproject 2d coord as 3d coord
+    vec2 dpi = ifdef(osx, window_dpi(), vec2(1,1));
+    camera_t *camera = camera_get_active();
+    float x = (2.0f * mouse_x) / (dpi.x * window_width()) - 1.0f;
+    float y = 1.0f - (2.0f * mouse_y) / (dpi.y * window_height());
+    float z = 1.0f;
+    vec3 ray_nds = vec3(x, y, z);
+    vec4 ray_clip = vec4(ray_nds.x, ray_nds.y, -1.0, 1.0);
+    mat44 inv_proj; invert44(inv_proj, camera->proj);
+    mat44 inv_view; invert44(inv_view, camera->view);
+    vec4 p = transform444(inv_proj, ray_clip);
+    vec4 eye = vec4(p.x, p.y, -1.0, 0.0);
+    vec4 wld = norm4(transform444(inv_view, eye));
+    return vec3(wld.x, wld.y, wld.z);
+#endif
 }
 
+#if 0
 int editor_ui_bits8(const char *label, uint8_t *enabled) { // @to deprecate
     int clicked = 0;
     uint8_t copy = *enabled;
@@ -22876,6 +26863,304 @@ int editor_ui_bits8(const char *label, uint8_t *enabled) { // @to deprecate
 
     nk_layout_row_end(ui_ctx);
     return clicked | (copy ^ *enabled);
+}
+#endif
+
+
+typedef union engine_var {
+    int i;
+    float f;
+    char *s;
+} engine_var;
+static map(char*,engine_var) engine_vars;
+float *engine_getf(const char *key) {
+    if(!engine_vars) map_init_str(engine_vars);
+    engine_var *found = map_find_or_add(engine_vars, (char*)key, ((engine_var){0}) );
+    return &found->f;
+}
+int *engine_geti(const char *key) {
+    if(!engine_vars) map_init_str(engine_vars);
+    engine_var *found = map_find_or_add(engine_vars, (char*)key, ((engine_var){0}) );
+    return &found->i;
+}
+char **engine_gets(const char *key) {
+    if(!engine_vars) map_init_str(engine_vars);
+    engine_var *found = map_find_or_add(engine_vars, (char*)key, ((engine_var){0}) );
+    if(!found->s) found->s = stringf("%s","");
+    return &found->s;
+}
+
+int engine_send(const char *cmd, const char *optional_value) {
+    unsigned *gamepads = engine_geti("gamepads"); // 0 off, mask gamepad1(1), gamepad2(2), gamepad3(4), gamepad4(8)...
+    unsigned *renders = engine_geti("renders"); // 0 off, mask: 1=lit, 2=ddraw, 3=whiteboxes
+    float *speed = engine_getf("speed"); // <0 num of frames to advance, 0 paused, [0..1] slomo, 1 play regular speed, >1 fast-forward (x2/x4/x8)
+    unsigned *powersave = engine_geti("powersave");
+
+    char *name;
+    /**/ if( !strcmp(cmd, "key_quit" ))       record_stop(), exit(0);
+    else if( !strcmp(cmd, "key_stop" ))       window_pause(1);
+    else if( !strcmp(cmd, "key_mute" ))       audio_volume_master( 1 ^ !!audio_volume_master(-1) );
+    else if( !strcmp(cmd, "key_pause" ))      window_pause( window_has_pause() ^ 1 );
+    else if( !strcmp(cmd, "key_reload" ))     window_reload();
+    else if( !strcmp(cmd, "key_battery" ))    *powersave = optional_value ? !!atoi(optional_value) : *powersave ^ 1;
+    else if( !strcmp(cmd, "key_browser" ))    ui_show("File Browser", ui_visible("File Browser") ^ true);
+    else if( !strcmp(cmd, "key_outliner" ))   ui_show("Outliner", ui_visible("Outliner") ^ true);
+    else if( !strcmp(cmd, "key_record" ))     if(record_active()) record_stop(), ui_notify(va("Video recorded"), date_string()); else
+                                              app_beep(), name = file_counter(va("%s.mp4",app_name())), window_record(name);
+    else if( !strcmp(cmd, "key_screenshot" )) name = file_counter(va("%s.png",app_name())), window_screenshot(name), ui_notify(va("Screenshot: %s", name), date_string());
+    else if( !strcmp(cmd, "key_profiler" ))   ui_show("Profiler", profiler_enable(ui_visible("Profiler") ^ true));
+    else if( !strcmp(cmd, "key_fullscreen" )) record_stop(), window_fullscreen( window_has_fullscreen() ^ 1 ); // framebuffer resizing corrupts video stream, so stop any recording beforehand
+    else if( !strcmp(cmd, "key_gamepad" ))    *gamepads = (*gamepads & ~1u) | ((*gamepads & 1) ^ 1);
+    else if( !strcmp(cmd, "key_lit" ))        *renders = (*renders & ~1u) | ((*renders & 1) ^ 1);
+    else if( !strcmp(cmd, "key_ddraw" ))      *renders = (*renders & ~2u) | ((*renders & 2) ^ 2);
+    else alert(va("editor could not handle `%s` command.", cmd));
+
+    return 0;
+}
+
+int engine_tick() {
+    enum { engine_hz = 60 };
+    enum { engine_hz_mid = 18 };
+    enum { engine_hz_low = 5 };
+    if( *engine_geti("powersave") ) {
+        // adaptive framerate
+        int app_on_background = !window_has_focus();
+        int hz = app_on_background ? engine_hz_low : engine_hz_mid;
+        window_fps_lock( hz < 5 ? 5 : hz );
+    } else {
+        // window_fps_lock( editor_hz );
+    }
+
+    return 0;
+}
+
+int ui_debug() {
+    static int time_factor = 0;
+    static int playing = 0;
+    static int paused = 0;
+    int advance_frame = 0;
+
+#if 0
+    static int do_filter = 0;
+    static int do_profile = 0;
+    static int do_extra = 0;
+
+    char *EDITOR_TOOLBAR_ICONS = va("%s;%s;%s;%s;%s;%s;%s;%s",
+        do_filter ? ICON_MD_CLOSE : ICON_MD_SEARCH,
+        ICON_MD_PLAY_ARROW,
+        paused ? ICON_MD_SKIP_NEXT : ICON_MD_PAUSE,
+        ICON_MD_FAST_FORWARD,
+        ICON_MD_STOP,
+        ICON_MD_REPLAY,
+        ICON_MD_FACE,
+        ICON_MD_MENU
+    );
+
+    if( input_down(KEY_F) ) if( input(KEY_LCTRL) || input(KEY_RCTRL) ) do_filter ^= 1;
+    int choice = ui_toolbar(EDITOR_TOOLBAR_ICONS);
+    if( choice == 1 ) do_filter ^= 1, do_profile = 0, do_extra = 0;
+    if( choice == 2 ) playing = 1, paused = 0;
+    if( choice == 3 ) advance_frame = !!paused, paused = 1;
+    if( choice == 4 ) paused = 0, time_factor = (++time_factor) % 4;
+    if( choice == 5 ) playing = 0, paused = 0, advance_frame = 0, time_factor = 0;
+    if( choice == 6 ) window_reload();
+    if( choice == 7 ) do_filter = 0, do_profile ^= 1, do_extra = 0;
+    if( choice == 8 ) do_filter = 0, do_profile = 0, do_extra ^= 1;
+
+    if( do_filter ) {
+        char *bak = ui_filter; ui_filter = 0;
+        ui_string(ICON_MD_CLOSE " Filter " ICON_MD_SEARCH, &bak);
+        ui_filter = bak;
+        if( ui_label_icon_clicked_L.x > 0 && ui_label_icon_clicked_L.x <= 24 ) { // if clicked on CANCEL icon (1st icon)
+            do_filter = 0;
+        }
+    } else {
+        if( ui_filter ) ui_filter[0] = '\0';
+    }
+    char *filter_mask = ui_filter && ui_filter[0] ? va("*%s*", ui_filter) : "*";
+
+    static char *username = 0;
+    static char *userpass = 0;
+    if( do_profile ) {
+        ui_string(ICON_MD_FACE " Username", &username);
+        ui_string(ICON_MD_FACE " Password", &userpass);
+    }
+
+    if( do_extra ) {
+        int choice2 = ui_label2_toolbar(NULL,
+            ICON_MD_VIEW_IN_AR
+            ICON_MD_MESSAGE
+            ICON_MD_TIPS_AND_UPDATES ICON_MD_LIGHTBULB ICON_MD_LIGHTBULB_OUTLINE
+            ICON_MD_IMAGE_SEARCH ICON_MD_INSERT_PHOTO
+            ICON_MD_VIDEOGAME_ASSET ICON_MD_VIDEOGAME_ASSET_OFF
+
+            ICON_MD_VOLUME_UP ICON_MD_VOLUME_OFF // audio_volume_master(-1) > 0
+
+            ICON_MD_TROUBLESHOOT ICON_MD_SCHEMA ICON_MD_MENU
+        );
+    }
+#endif
+
+    int open = 0, clicked_or_toggled = 0;
+
+
+    #define EDITOR_UI_COLLAPSE(f,...) \
+    for( int macro(p) = (open = ui_collapse(f,__VA_ARGS__)), macro(dummy) = (clicked_or_toggled = ui_collapse_clicked()); macro(p); ui_collapse_end(), macro(p) = 0)
+
+    EDITOR_UI_COLLAPSE(ICON_MD_VIEW_QUILT " Windows", "Debug.Windows") {
+        int choice = ui_toolbar(ICON_MD_RECYCLING "@Reset layout;" ICON_MD_SAVE_AS "@Save layout");
+        if( choice == 1 ) ui_layout_all_reset("*");
+        if( choice == 2 ) file_delete(WINDOWS_INI), ui_layout_all_save_disk("*");
+
+        for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
+            bool visible = ui_visible(*k);
+            if( ui_bool( *k, &visible ) ) {
+                ui_show( *k, ui_visible(*k) ^ true );
+            }
+        }
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_BUG_REPORT " Bugs 0", "Debug.Bugs") {
+        // @todo. parse /bugs.ini, includes saved screenshots & videos.
+        // @todo. screenshot include parseable level, position screen markers (same info as /bugs.ini)
+    }
+
+
+    // Art and bookmarks
+    EDITOR_UI_COLLAPSE(ICON_MD_FOLDER_SPECIAL " Art", "Debug.Art") {
+        bool inlined = true;
+        const char *file = 0;
+        if( ui_browse(&file, &inlined) ) {
+            const char *sep = ifdef(win32, "\"", "'");
+            app_exec(va("%s %s%s%s", ifdef(win32, "start \"\"", ifdef(osx, "open", "xdg-open")), sep, file, sep));
+        }
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_BOOKMARK " Bookmarks", "Debug.Bookmarks") { /* @todo */ }
+
+
+    // E,C,S,W
+    EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Scene", "Debug.Scene") {
+        EDITOR_UI_COLLAPSE(ICON_MD_BUBBLE_CHART/*ICON_MD_SCATTER_PLOT*/ " Entities", "Debug.Entities") { /* @todo */ }
+        EDITOR_UI_COLLAPSE(ICON_MD_TUNE " Components", "Debug.Components") { /* @todo */ }
+        EDITOR_UI_COLLAPSE(ICON_MD_PRECISION_MANUFACTURING " Systems", "Debug.Systems") { /* @todo */ }
+        EDITOR_UI_COLLAPSE(ICON_MD_PUBLIC " Levels", "Debug.Levels") {
+            //node_edit(editor.edit.down,&editor.edit);
+        }
+
+        //EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Init", "Debug.HierarchyInit") { /* @todo */ }
+        //EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Draw", "Debug.HierarchyDraw") { /* @todo */ }
+        //EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Tick", "Debug.HierarchyTick") { /* @todo */ }
+        //EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Edit", "Debug.HierarchyEdit") { /* @todo */ }
+        //EDITOR_UI_COLLAPSE(ICON_MD_ACCOUNT_TREE " Quit", "Debug.HierarchyQuit") { /* @todo */ }
+
+        // node_edit(&editor.init,&editor.init);
+        // node_edit(&editor.draw,&editor.draw);
+        // node_edit(&editor.tick,&editor.tick);
+        // node_edit(&editor.edit,&editor.edit);
+        // node_edit(&editor.quit,&editor.quit);
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_ROCKET_LAUNCH " AI", "Debug.AI") {
+        // @todo
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_VOLUME_UP " Audio", "Debug.Audio") {
+        ui_audio();
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_VIDEOCAM " Camera", "Debug.Camera") {
+        ui_camera( camera_get_active() );
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_MONITOR " Display", "Debug.Display") {
+        // @todo: fps lock, fps target, aspect ratio, fullscreen
+        char *text = va("%s;%s;%s",
+            window_has_fullscreen() ? ICON_MD_FULLSCREEN_EXIT : ICON_MD_FULLSCREEN,
+            ICON_MD_PHOTO_CAMERA,
+            record_active() ? ICON_MD_VIDEOCAM_OFF : ICON_MD_VIDEOCAM
+        );
+
+        int choice = ui_toolbar(text);
+        if( choice == 1 ) engine_send("key_fullscreen",0);
+        if( choice == 2 ) engine_send("key_screenshot",0);
+        if( choice == 3 ) engine_send("key_record",0);
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_KEYBOARD " Keyboard", "Debug.Keyboard") {
+        ui_keyboard();
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_MOUSE " Mouse", "Debug.Mouse") {
+        ui_mouse();
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_GAMEPAD " Gamepads", "Debug.Gamepads") {
+        for( int q = 0; q < 4; ++q ) {
+            for( int r = (open = ui_collapse(va("Gamepad #%d",q+1), va("Debug.Gamepads%d",q))), dummy = (clicked_or_toggled = ui_collapse_clicked()); r; ui_collapse_end(), r = 0) {
+                ui_gamepad(q);
+            }
+        }
+    }
+
+
+    EDITOR_UI_COLLAPSE(ICON_MD_CONTENT_PASTE " Scripts", "Debug.Scripts") {
+        // @todo
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_STAR_HALF " Shaders", "Debug.Shaders") {
+        ui_shaders();
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_MOVIE " FXs", "Debug.FXs") {
+        ui_fxs();
+    }
+
+
+    EDITOR_UI_COLLAPSE(ICON_MD_SAVINGS " Budgets", "Debug.Budgets") {
+        // @todo. // mem,fps,gfx,net,hdd,... also logging
+    }
+    EDITOR_UI_COLLAPSE(ICON_MD_WIFI/*ICON_MD_SIGNAL_CELLULAR_ALT*/ " Network 0/0 KiB", "Debug.Network") {
+        // @todo
+        // SIGNAL_CELLULAR_1_BAR SIGNAL_CELLULAR_2_BAR
+    }
+    EDITOR_UI_COLLAPSE(va(ICON_MD_SPEED " Profiler %5.2f/%dfps", window_fps(), (int)window_fps_target()), "Debug.Profiler") {
+        ui_profiler();
+    }
+    EDITOR_UI_COLLAPSE(va(ICON_MD_STORAGE " Storage %s", xstats()), "Debug.Storage") {
+        // @todo
+    }
+
+
+
+    // logic: either plug icon (power saving off) or one of the following ones (power saving on):
+    //        if 0% batt (no batt): battery alert
+    //        if discharging:       battery levels [alert,0..6,full]
+    //        if charging:          battery charging
+    int battery_read = app_battery();
+    int battery_level = abs(battery_read);
+    int battery_discharging = battery_read < 0 && battery_level < 100;
+    const char *power_icon_label = ICON_MD_POWER " Power";
+    if( battery_level ) {
+        const char *battery_levels[9] = { // @todo: remap [7%..100%] -> [0..1] ?
+            ICON_MD_BATTERY_ALERT,ICON_MD_BATTERY_0_BAR,ICON_MD_BATTERY_1_BAR,
+            ICON_MD_BATTERY_2_BAR,ICON_MD_BATTERY_3_BAR,ICON_MD_BATTERY_4_BAR,
+            ICON_MD_BATTERY_5_BAR,ICON_MD_BATTERY_6_BAR,ICON_MD_BATTERY_FULL,
+        };
+        power_icon_label = (const char*)va("%s Power %d%%",
+            battery_discharging ? battery_levels[(int)((9-1)*clampf(battery_level/100.f,0,1))] : ICON_MD_BATTERY_CHARGING_FULL,
+            battery_level);
+    }
+
+    EDITOR_UI_COLLAPSE(power_icon_label, "Debug.Power") {
+        int choice = ui_toolbar( ICON_MD_POWER ";" ICON_MD_BOLT );
+        if( choice == 1 ) engine_send("key_battery","0");
+        if( choice == 2 ) engine_send("key_battery","1");
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_WATER " Reflection", "Debug.Reflect") {
+        ui_reflect("*");
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_EXTENSION " Plugins", "Debug.Plugins") {
+        // @todo. include VCS
+        EDITOR_UI_COLLAPSE(ICON_MD_BUILD " Cook", "Debug.Cook") {
+            // @todo
+        }
+    }
+
+    return 0;
 }
 
 static int gizmo__mode;
@@ -22989,29 +27274,9 @@ int gizmo(vec3 *pos, vec3 *rot, vec3 *sca) {
     return modified;
 }
 
-char* dialog_load() {
-    const char *windowTitle = NULL;
-    const char *defaultPathFile = NULL;
-    const char *filterHints = NULL; // "image files"
-    const char *filters[] = { "*.*" };
-    int allowMultipleSelections = 0;
-
-    tinyfd_assumeGraphicDisplay = 1;
-    return tinyfd_openFileDialog( windowTitle, defaultPathFile, countof(filters), filters, filterHints, allowMultipleSelections );
-}
-char* dialog_save() {
-    const char *windowTitle = NULL;
-    const char *defaultPathFile = NULL;
-    const char *filterHints = NULL; // "image files"
-    const char *filters[] = { "*.*" };
-
-    tinyfd_assumeGraphicDisplay = 1;
-    return tinyfd_saveFileDialog( windowTitle, defaultPathFile, countof(filters), filters, filterHints );
-}
-
 // -- localization kit
 
-static const char *kit_lang = "enUS", *kit_langs = 
+static const char *kit_lang = "enUS", *kit_langs =
     "enUS,enGB,"
     "frFR,"
     "esES,esAR,esMX,"
@@ -23026,7 +27291,7 @@ static const char *kit_lang = "enUS", *kit_langs =
 static map(char*,char*) kit_ids;
 static map(char*,char*) kit_vars;
 
-#ifndef KIT_FMT_ID2 
+#ifndef KIT_FMT_ID2
 #define KIT_FMT_ID2 "%s.%s"
 #endif
 
@@ -23164,9 +27429,7 @@ int main() {
 // ----------------------------------------------------------------------------
 
 static void fwk_pre_init() {
-    const char *appname = app_name();
-    window_icon(va("%s.png", appname));
-    ifdef(win32,window_icon(va("%s.ico", appname)));
+    window_icon(va("%s%s.png", app_path(), app_name()));
 
     glfwPollEvents();
 
@@ -23187,21 +27450,19 @@ static void fwk_post_init(float refresh_rate) {
 
     vfs_reload();
 
-    // init more subsystems; beware of VFS mounting, as some of these may need cooked assets at this point
-    int i;
-#if 1 // #ifdef PARALLEL_INIT
-    #pragma omp parallel for
-#endif
-    for( i = 0; i <= 3; ++i) {
-        /**/ if( i == 0 ) ui_init(), scene_init(); // init these on thread #0, since both will be compiling shaders, and shaders need to be compiled from the very same thread than glfwMakeContextCurrent() was set up
-        else if( i == 1 ) audio_init(0); // initialize audio after cooking // reasoning for this: do not launch audio threads while cooks are in progress, so there is more cpu for cooking actually
-        else if( i == 2 ) script_init(), kit_init(), midi_init();
-        else if( i == 3 ) input_init(), network_init();
-    }
+    // init subsystems that depend on cooked assets now
 
-    // @todo
-    // window_icon(vfs_file(va("%s.png", app)));
-    // window_icon(vfs_file(va("%s.ico", app)));
+    int i;
+    #pragma omp parallel for
+    for( i = 0; i <= 3; ++i ) {
+        if(i == 0) scene_init(); // init these on thread #0, since both will be compiling shaders, and shaders need to be compiled from the very same thread than glfwMakeContextCurrent() was set up
+        if(i == 0) ui_init(); // init these on thread #0, since both will be compiling shaders, and shaders need to be compiled from the very same thread than glfwMakeContextCurrent() was set up
+        if(i == 0) window_icon(va("%s.png", app_name())); // init on thread #0, because of glfw
+        if(i == 0) input_init(); // init on thread #0, because of glfw
+        if(i == 1) audio_init(0);
+        if(i == 2) script_init(), kit_init(), midi_init();
+        if(i == 3) network_init();
+    }
 
     // display window
     glfwShowWindow(window);
@@ -23228,7 +27489,7 @@ void fwk_quit(void) {
 void fwk_init() {
     do_once {
         // install signal handlers
-        ifdef(debug, signal_hooks());
+        ifdef(debug, trap_install());
 
         // init panic handler
         panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 1<<20); // 1MiB
@@ -23240,7 +27501,7 @@ void fwk_init() {
         tty_init();
 
         // chdir to root (if invoked as tcc -g -run)
-        chdir(app_path());
+        // chdir(app_path());
 
         // skip tcc argvs (if invoked as tcc file.c fwk.c -g -run) (win)
         if( __argc > 1 ) if( strstr(__argv[0], "/tcc") || strstr(__argv[0], "\\tcc") ) {
@@ -23248,14 +27509,16 @@ void fwk_init() {
         }
 
         // create or update cook.zip file
-        if( /* !COOK_ON_DEMAND && */ file_exist(COOK_INI) && cook_jobs() ) {
+        if( /* !COOK_ON_DEMAND && */ have_tools() && cook_jobs() ) {
             cook_start(COOK_INI, "**", 0|COOK_ASYNC|COOK_CANCELABLE );
         }
 
         atexit(fwk_quit);
     }
 }
+#line 0
 
+#line 1 "fwk_end.c"
 // Enable more performant GPUs on laptops. Does this work into a dll?
 // int NvOptimusEnablement = 1;
 // int AmdPowerXpressRequestHighPerformance = 1;
@@ -23283,4 +27546,13 @@ const struct in6_addr in6addr_any; // = IN6ADDR_ANY_INIT;
 //static const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
 #endif
 
+ifdef(retail, AUTORUN {
+    fclose(stderr);
+    fclose(stdout);
+
+    const char* null_stream = ifdef(win32, "nul:", "/dev/null");
+
+    if (!freopen(null_stream, "a", stdout)) PANIC("cannot recreate standard streams");
+    if (!freopen(null_stream, "a", stderr)) PANIC("cannot recreate standard streams");
+} )
 #line 0

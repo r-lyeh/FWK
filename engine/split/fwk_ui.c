@@ -1,3 +1,120 @@
+// ----------------------------------------------------------------------------------------
+// ui extensions first
+
+static float
+nk_text_width(struct nk_context *ctx, const char *str, unsigned len) {
+    const struct nk_style *style = &ctx->style;
+    const struct nk_user_font *f = style->font;
+    float pixels_width = f->width(f->userdata, f->height, str, len ? (int)len : (int)strlen(str));
+    return pixels_width + 10; // 10 -> internal widget padding
+}
+
+static nk_bool
+nk_hovered_text(struct nk_context *ctx, const char *str, int len,
+    nk_flags align, nk_bool value)
+{
+    struct nk_window *win;
+    struct nk_panel *layout;
+    const struct nk_input *in;
+    const struct nk_style *style;
+
+    enum nk_widget_layout_states state;
+    struct nk_rect bounds;
+
+    NK_ASSERT(ctx);
+    NK_ASSERT(ctx->current);
+    NK_ASSERT(ctx->current->layout);
+    if (!ctx || !ctx->current || !ctx->current->layout)
+        return 0;
+
+    win = ctx->current;
+    layout = win->layout;
+    style = &ctx->style;
+
+    state = nk_widget(&bounds, ctx);
+    if (!state) return 0;
+    in = (state == NK_WIDGET_ROM || layout->flags & NK_WINDOW_ROM) ? 0 : &ctx->input;
+
+    #if 1 //< @r-lyeh: sim button logic
+    struct nk_rect touch;
+    touch.x = bounds.x - style->selectable.touch_padding.x;
+    touch.y = bounds.y - style->selectable.touch_padding.y;
+    touch.w = bounds.w + style->selectable.touch_padding.x * 2;
+    touch.h = bounds.h + style->selectable.touch_padding.y * 2;
+    int clicked = !!nk_button_behavior(&ctx->last_widget_state, touch, in, NK_BUTTON_DEFAULT);
+    in = 0; //< @r-lyeh: do not pass any input
+    #endif
+
+    nk_do_selectable(&ctx->last_widget_state, &win->buffer, bounds,
+                str, len, align, &value, &style->selectable, in, style->font);
+
+    return clicked; //< @r-lyeh: return sim button logic instead of prev function call
+}
+
+#define ui_push_hspace(px) \
+    (int xx = px; xx; xx = 0) \
+    for(struct nk_context *ctx = (struct nk_context*)ui_handle(); ctx; ctx = 0 ) \
+        for(struct nk_panel *layout = ui_ctx->current->layout; layout; ) \
+            for( xx = (layout->at_x += px, layout->bounds.w -= px, 0); layout; layout->at_x -= px, layout->bounds.w += px, layout = 0 )
+
+// helper macros to instance an overlayed toolbar within the regions of an existing widget
+#define UI_TOOLBAR_OVERLAY_DECLARE(...) \
+            __VA_ARGS__; \
+            struct nk_rect toolbar_bounds; nk_layout_peek(&toolbar_bounds, ui_ctx); \
+            struct nk_vec2 item_padding = ui_ctx->style.text.padding; \
+            struct nk_text text; \
+            text.padding.x = item_padding.x; \
+            text.padding.y = item_padding.y; \
+            text.background = ui_ctx->style.window.background;
+#define UI_TOOLBAR_OVERLAY(CHOICE,TEXT,COLOR,ALIGNMENT) \
+            do { \
+            text.text = COLOR; \
+            nk_widget_text(&ui_ctx->current->buffer, toolbar_bounds, TEXT, strlen(TEXT), &text, ALIGNMENT, ui_ctx->style.font); \
+            int clicked_x = input_down(MOUSE_L) && nk_input_is_mouse_hovering_rect(&ui_ctx->input, toolbar_bounds); \
+            if( clicked_x ) clicked_x = (int)((ui_ctx->input.mouse.pos.x - toolbar_bounds.x) - (ALIGNMENT == NK_TEXT_RIGHT ? bounds.w : 0) ); \
+            CHOICE = 1 + (ALIGNMENT == NK_TEXT_RIGHT ? -1 : +1) * clicked_x / (UI_ICON_FONTSIZE + UI_ICON_SPACING_X); /* divided by px per ICON_MD_ glyph approximately */ \
+            int glyphs = strlen(TEXT) / 4 /*3:MD,4:MDI*/; CHOICE *= !!clicked_x * (CHOICE <= glyphs); } while(0)
+
+// menu macros that work not only standalone but also contained within a panel or window
+#define UI_MENU(N, ...) do { \
+    enum { MENUROW_HEIGHT = 25 }; \
+    int embedded = !!ui_ctx->current; \
+    struct nk_rect total_space = {0,0,window_width(),window_height()}; \
+    if( embedded ) total_space = nk_window_get_bounds(ui_ctx), total_space.w -= 10; \
+    int created = !embedded && nk_begin(ui_ctx, "MENU_" STRINGIZE(__COUNTER__), nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR); \
+    if ( embedded || created ) { \
+        int align = NK_TEXT_LEFT, Nth = (N), ITEM_WIDTH = 30, span = 0; \
+        nk_menubar_begin(ui_ctx); \
+        nk_layout_row_begin(ui_ctx, NK_STATIC, MENUROW_HEIGHT, Nth); \
+            __VA_ARGS__; \
+        nk_menubar_end(ui_ctx); \
+        if( created ) nk_end(ui_ctx); \
+    } } while(0)
+#define UI_MENU_POPUP(title, px, ...) { \
+    int hspace = maxi(ITEM_WIDTH, nk_text_width(ui_ctx,(title),0)); \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align, nk_vec2(px.x>1?px.x:px.x*total_space.w,px.y>1?px.y:px.y*total_space.h))) { \
+        __VA_ARGS__; \
+        nk_menu_end(ui_ctx); \
+    }}
+#define UI_MENU_ITEM(title, ...) { \
+    int hspace = maxi(ITEM_WIDTH, nk_text_width(ui_ctx,(title),0)); \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align, nk_vec2(1,1))) { \
+        __VA_ARGS__; \
+        nk_menu_close(ui_ctx); \
+        nk_menu_end(ui_ctx); \
+    }}
+#define UI_MENU_ALIGN_RIGHT(px) { \
+    int hspace = total_space.w - span - (px) - 1.5 * ITEM_WIDTH; \
+    nk_layout_row_push(ui_ctx, hspace); span += hspace; \
+    if (nk_menu_begin_label(ui_ctx, (title), align = NK_TEXT_RIGHT, nk_vec2(1,1))) { \
+        nk_menu_close(ui_ctx); \
+        nk_menu_end(ui_ctx); \
+    }}
+
+// ----------------------------------------------------------------------------------------
+// ui
 
 #ifndef UI_ICONS_SMALL
 //#define UI_ICONS_SMALL 1
@@ -5,10 +122,9 @@
 
 #define UI_FONT_ENUM(carlito,b612) b612 // carlito
 
-#define UI_FONT_ICONS    "MaterialIconsSharp-Regular.otf" // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf" //
-#define UI_FONT_REGULAR  UI_FONT_ENUM("Carlito",     "B612")     "-Regular.ttf"
-#define UI_FONT_HEADING  UI_FONT_ENUM("Carlito",     "B612")     "-BoldItalic.ttf"
-#define UI_FONT_TERMINAL UI_FONT_ENUM("Inconsolata", "B612Mono") "-Regular.ttf"
+#define UI_FONT_REGULAR    UI_FONT_ENUM("Carlito",     "B612")     "-Regular.ttf"
+#define UI_FONT_HEADING    UI_FONT_ENUM("Carlito",     "B612")     "-BoldItalic.ttf"
+#define UI_FONT_TERMINAL   UI_FONT_ENUM("Inconsolata", "B612Mono") "-Regular.ttf"
 
 #if UI_LESSER_SPACING
     enum { UI_SEPARATOR_HEIGHT = 5, UI_MENUBAR_ICON_HEIGHT = 20, UI_ROW_HEIGHT = 22, UI_MENUROW_HEIGHT = 32 };
@@ -64,28 +180,32 @@ static void nk_config_custom_fonts() {
     nk_glfw3_font_stash_begin(&nk_glfw, &atlas); // nk_sdl_font_stash_begin(&atlas);
 
         // Default font(#1)...
-
-        for( char *data = vfs_read(UI_FONT_REGULAR); data; data = 0 ) {
+        int datalen = 0;
+        for( char *data = vfs_load(UI_FONT_REGULAR, &datalen); data; data = 0 ) {
             float font_size = UI_FONT_REGULAR_SIZE;
                 struct nk_font_config cfg = nk_font_config(font_size);
                 cfg.oversample_v = 2;
                 cfg.pixel_snap = 0;
             // win32: struct nk_font *arial = nk_font_atlas_add_from_file(atlas, va("%s/fonts/arial.ttf",getenv("windir")), font_size, &cfg); font = arial ? arial : font;
             // struct nk_font *droid = nk_font_atlas_add_from_file(atlas, "nuklear/extra_font/DroidSans.ttf", font_size, &cfg); font = droid ? droid : font;
-            struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_REGULAR), font_size, &cfg); font = regular ? regular : font;
+            struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg); font = regular ? regular : font;
         }
 
         // ...with icons embedded on it.
-
-        for( char *data = vfs_read(UI_FONT_ICONS); data; data = 0 ) {
-            static const nk_rune icon_range[] = {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0};
-
+        static struct icon_font {
+            const char *file; int yspacing; nk_rune range[3];
+        } icons[] = {
+            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
+            {"materialdesignicons-webfont.ttf", 2, {0xF68C /*ICON_MIN_MDI*/, 0xF1CC7/*ICON_MAX_MDI*/, 0}},
+        };
+        for( int f = 0; f < countof(icons); ++f )
+        for( char *data = vfs_load(icons[f].file, &datalen); data; data = 0 ) {
             struct nk_font_config cfg = nk_font_config(UI_ICON_FONTSIZE);
-            cfg.range = icon_range; // nk_font_default_glyph_ranges();
+            cfg.range = icons[f].range; // nk_font_default_glyph_ranges();
             cfg.merge_mode = 1;
 
             cfg.spacing.x += UI_ICON_SPACING_X;
-            cfg.spacing.y += UI_ICON_SPACING_Y;
+            cfg.spacing.y += icons[f].yspacing;
          // cfg.font->ascent += ICON_ASCENT;
          // cfg.font->height += ICON_HEIGHT;
 
@@ -93,13 +213,13 @@ static void nk_config_custom_fonts() {
             cfg.oversample_v = 1;
             cfg.pixel_snap = 1;
 
-            struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_ICONS), UI_ICON_FONTSIZE, &cfg);
+            struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_ICON_FONTSIZE, &cfg);
         }
 
         // Monospaced font. Used in terminals or consoles.
 
-        for( char *data = vfs_read(UI_FONT_TERMINAL); data; data = 0 ) {
-            const float font_size = UI_FONT_REGULAR_SIZE; 
+        for( char *data = vfs_load(UI_FONT_TERMINAL, &datalen); data; data = 0 ) {
+            const float font_size = UI_FONT_REGULAR_SIZE;
             static const nk_rune icon_range[] = {32, 127, 0};
 
             struct nk_font_config cfg = nk_font_config(font_size);
@@ -110,13 +230,13 @@ static void nk_config_custom_fonts() {
             cfg.pixel_snap = 1;
 
             // struct nk_font *proggy = nk_font_atlas_add_default(atlas, font_size, &cfg);
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_TERMINAL), font_size, &cfg);
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg);
         }
 
         // Extra optional fonts from here...
 
-        for( char *data = vfs_read(UI_FONT_HEADING); data; data = 0 ) {
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, vfs_size(UI_FONT_HEADING), UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
+        for( char *data = vfs_load(UI_FONT_HEADING, &datalen); data; data = 0 ) {
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
         }
 
     nk_glfw3_font_stash_end(&nk_glfw); // nk_sdl_font_stash_end();
@@ -176,6 +296,9 @@ table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = hover_hue; // nk_rgba(255, 0, 0, 255);
     // table[NK_COLOR_SELECT] = nk_rgba(57, 67, 61, 255);
     // table[NK_COLOR_SELECT_ACTIVE] = main;
 
+// table[NK_COLOR_SELECT] = nk_rgba(255,255,255,255);
+table[NK_COLOR_SELECT_ACTIVE] = main_hue;
+
     // @transparent
     #if !is(ems)
     if( glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE ) {
@@ -188,12 +311,28 @@ table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = hover_hue; // nk_rgba(255, 0, 0, 255);
     nk_style_default(ui_ctx);
     nk_style_from_table(ui_ctx, table);
 
+
+    if(1)
+    {
+    struct nk_style_selectable *select;
+    select = &ui_ctx->style.selectable;
+//    nk_zero_struct(*select);
+//    select->hover.data.color     = hover_hue;
+//    select->normal_active   = nk_style_item_color(table[NK_COLOR_SELECT_ACTIVE]);
+    select->text_hover      = nk_rgba(0,192,255,255);
+    select->text_hover_active = select->text_hover;
+    select->text_normal_active = select->text_hover; // nk_style_item_color(table[NK_COLOR_SELECT_ACTIVE]).data.color;
+    select->rounding        = 2.0f;
+    }
+
+
     struct nk_style *s = &ui_ctx->style;
     s->window.spacing = nk_vec2(4,0);
     s->window.combo_border = 0.f;
     s->window.scrollbar_size = nk_vec2(5,5);
     s->property.rounding = 0;
     s->combo.border = 0;
+    s->combo.button_padding.x = -18;
     s->button.border = 1;
     s->edit.border = 0;
 
@@ -294,7 +433,6 @@ vec2 ui_toolbar_(array(ui_item_t) ui_items, vec2 ui_results) {
     // old method: nk_layout_row_dynamic(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/, array_count(ui_items));
     {
         const struct nk_style *style = &ui_ctx->style;
-        const struct nk_user_font *f = style->font;
 
         nk_layout_row_template_begin(ui_ctx, UI_MENUBAR_ICON_HEIGHT/*h*/);
         for(int i = 0; i < array_count(ui_items); ++i) {
@@ -304,7 +442,7 @@ vec2 ui_toolbar_(array(ui_item_t) ui_items, vec2 ui_results) {
             char *tooltip = strchr(first_token, '@');
             int len = tooltip ? (int)(tooltip - first_token /*- 1*/) : strlen(first_token);
 
-            float pixels_width = f->width(f->userdata, f->height, first_token, len);
+            float pixels_width = nk_text_width(ui_ctx, first_token, len);
             pixels_width += style->window.header.label_padding.x * 2 + style->window.header.padding.x * 2;
             if( pixels_width < 5 ) pixels_width = 5;
             nk_layout_row_template_push_static(ui_ctx, pixels_width);
@@ -378,10 +516,10 @@ vec2 ui_toolbar_(array(ui_item_t) ui_items, vec2 ui_results) {
                     if( nk_menu_item_text(ui_ctx, item, lens[j], NK_TEXT_LEFT) ) {
                         ui_results = vec2(i+1, j+1-1);
                     }
-                }                    
+                }
 
                 nk_menu_end(ui_ctx);
-            }            
+            }
         }
     }
 
@@ -763,7 +901,7 @@ int ui_set_enable_(int enabled) {
     static struct nk_input input;
     if (!enabled) {
         ui_alpha_push(0.5);
-        ui_ctx->style = off; // .button = off.button; 
+        ui_ctx->style = off; // .button = off.button;
         input = ui_ctx->input;
         memset(&ui_ctx->input, 0, sizeof(ui_ctx->input));
     } else {
@@ -1074,7 +1212,7 @@ int ui_layout_all_load_disk(const char *mask) {
         const char *title = ui_layout_load_disk(k, mask, i, &out);
         if( title ) {
             struct nk_window *win = nk_window_find(ui_ctx, title);
-            if( win ) {            
+            if( win ) {
                 win->bounds.x = out.x;
                 win->bounds.y = out.y;
                 win->bounds.w = out.w;
@@ -1198,7 +1336,7 @@ if( win ) {
 
     if( group1_any || !group2_interacting || anim_in_progress ) {
         struct nk_rect target = ui_layout_load_mem(idx, desktop, is_panel);
-        float alpha = len2sq(sub2(s->desktop, desktop)) ? 0 : UI_ANIM_ALPHA; // smooth unless we're restoring a desktop change 
+        float alpha = len2sq(sub2(s->desktop, desktop)) ? 0 : UI_ANIM_ALPHA; // smooth unless we're restoring a desktop change
 #if 1
         if( is_window && win->flags & NK_WINDOW_FULLSCREEN ) {
             target.x = 1;
@@ -1214,7 +1352,7 @@ if( win ) {
             target.y = ((desktop.h - workarea_h) - target.h) / 2;
         }
 #endif
-        win->bounds = nk_rect( 
+        win->bounds = nk_rect(
             win->bounds.x * alpha + target.x * (1 - alpha),
             win->bounds.y * alpha + target.y * (1 - alpha),
             win->bounds.w * alpha + target.w * (1 - alpha),
@@ -1269,7 +1407,7 @@ if( is_notify ) {
     if( nk_begin(ui_ctx, title, start_coords, window_flags) ) {
 
 // set width for all inactive panels
-struct nk_rect bounds = nk_window_get_bounds(ui_ctx); 
+struct nk_rect bounds = nk_window_get_bounds(ui_ctx);
 if( mouse_pressed && win && win->is_window_resizing ) {
     edge = vec2(bounds.w, bounds.h);
 
@@ -1291,7 +1429,7 @@ if( mouse_pressed && win && win->is_window_resizing ) {
     } else {
 
 if(is_panel) {
-   ui_panel_end(); 
+   ui_panel_end();
 } else ui_window_end();
 
         return 0;
@@ -1366,7 +1504,7 @@ int ui_panel(const char *title, int flags) {
         if(!ui_window_has_menubar) nk_layout_row_push(ui_ctx, 70);
         ui_window_has_menubar = 1;
 
-        return nk_menu_begin_text_styled(ui_ctx, title, strlen(title), NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, nk_vec2(220, 200), &transparent_style);    
+        return nk_menu_begin_text_styled(ui_ctx, title, strlen(title), NK_TEXT_ALIGN_CENTERED|NK_TEXT_ALIGN_MIDDLE, nk_vec2(220, 200), &transparent_style);
     }
 
     return ui_begin_panel_or_window_(title, flags, false);
@@ -1383,12 +1521,17 @@ int ui_panel_end() {
 
 static unsigned ui_collapse_state = 0;
 int ui_collapse(const char *label, const char *id) { // mask: 0(closed),1(open),2(created)
+    int start_open = label[0] == '!'; label += start_open;
 
     uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
     for(int i = 0; id[i]; ++i) hash = (hash ^ id[i]) * mult;
     ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
 
-    ui_collapse_state = nk_tree_base_(ui_ctx, NK_TREE_NODE, 0, label, NK_MINIMIZED, id, strlen(id), 0);
+    int forced = ui_filter && ui_filter[0];
+    enum nk_collapse_states forced_open = NK_MAXIMIZED;
+
+    ui_collapse_state = nk_tree_base_(ui_ctx, NK_TREE_NODE, 0, label, start_open ? NK_MAXIMIZED : NK_MINIMIZED, forced ? &forced_open : NULL, id, strlen(id), 0);
+
     return ui_collapse_state & 1; // |1 open, |2 clicked, |4 toggled
 }
 int ui_collapse_clicked() {
@@ -1400,11 +1543,16 @@ int ui_collapse_end() {
 
 
 int ui_contextual() {
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+#if 0
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx); // = nk_window_get_bounds(ui_ctx);
     bounds.y -= 25;
     return ui_popups() ? 0 : nk_contextual_begin(ui_ctx, 0, nk_vec2(150, 300), bounds);
+#else
+    return ui_popups() ? 0 : nk_contextual_begin(ui_ctx, 0, nk_vec2(300, 220), nk_window_get_bounds(ui_ctx));
+#endif
 }
-int ui_contextual_end() {
+int ui_contextual_end(int close) {
+    if(close) nk_contextual_close(ui_ctx);
     nk_contextual_end(ui_ctx);
     return 1;
 }
@@ -1415,7 +1563,7 @@ int ui_submenu(const char *options) {
         for( int i = 0; i < array_count(tokens) ; ++i ) {
             if( ui_button_transparent(tokens[i]) ) choice = i + 1;
         }
-        ui_contextual_end();
+        ui_contextual_end(0);
     }
     return choice;
 }
@@ -1503,7 +1651,7 @@ if( !has_icon ) {
 } else {
     char *icon_glyph = va("%.*s", icon_len, icon);
 
-// @todo: implement nk_push_layout() 
+// @todo: implement nk_push_layout()
 //  nk_rect bounds = {..}; nk_panel_alloc_space(bounds, ctx);
     struct nk_window *win = ui_ctx->current;
     struct nk_panel *layout = win->layout, copy = *layout;
@@ -1525,7 +1673,7 @@ if( font )  nk_style_pop_color(ui_ctx);
 if( font )  nk_style_pop_font(ui_ctx);
 
             if (split && is_hovering && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
-                nk_tooltip(ui_ctx, split + 1);
+                nk_tooltip(ui_ctx, split + 1); // @fixme: not working under ui_disable() state
             }
 
     layout->at_x -= spacing;
@@ -1534,41 +1682,53 @@ if( font )  nk_style_pop_font(ui_ctx);
     // old way
     // ui_labeicon_l_icked_L.x = is_hovering ? nk_input_has_mouse_click_down_in_rect(input, NK_BUTTON_LEFT, layout->bounds, nk_true) : 0;
     // new way
-    // this is an ugly hack to detect which icon (within a label) we're clicking on. 
+    // this is an ugly hack to detect which icon (within a label) we're clicking on.
     // @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
     ui_label_icon_clicked_L.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (alignment == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
 
     return ui_label_icon_clicked_L.x;
 }
 
-int ui_label(const char *text) {
-    int align = text[0] == '>' ? (text++, NK_TEXT_RIGHT) : text[0] == '=' ? (text++, NK_TEXT_CENTERED) : text[0] == '<' ? (text++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+int ui_label(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    int align = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
     nk_layout_row_dynamic(ui_ctx, 0, 1);
-    return ui_label_(text, align);
-}
-int ui_label2(const char *label, const char *text_) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-
-    int align1 = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
-    int align2 = text_[0] == '>' ? (text_++, NK_TEXT_RIGHT) : text_[0] == '=' ? (text_++, NK_TEXT_CENTERED) : text_[0] == '<' ? (text_++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
-    ui_label_(label, align1);
-
-const struct nk_input *input = &ui_ctx->input;
-struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
-if( is_hovering ) {
-    struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
-    is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
-    is_hovering &= nk_window_has_focus(ui_ctx);
+    return ui_label_(label, align);
 }
 
-    nk_label(ui_ctx, text_, align2);
+static int nk_label_(struct nk_context *ui_ctx, const char *text_, int align2 ) {
+    const struct nk_input *input = &ui_ctx->input;
+    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
+    int is_hovering = nk_input_is_mouse_hovering_rect(input, bounds) && !ui_has_active_popups;
+    if( is_hovering ) {
+        struct nk_rect winbounds = nk_window_get_bounds(ui_ctx);
+        is_hovering &= nk_input_is_mouse_hovering_rect(input, winbounds);
+        is_hovering &= nk_window_has_focus(ui_ctx);
+    }
 
-// this is an ugly hack to detect which icon (within a label) we're clicking on. 
-// @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
-ui_label_icon_clicked_R.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (align2 == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
+        nk_label(ui_ctx, text_, align2);
+
+    // this is an ugly hack to detect which icon (within a label) we're clicking on.
+    // @todo: figure out a better way to detect this... would it be better to have a ui_label_toolbar(lbl,bar) helper function instead?
+    ui_label_icon_clicked_R.x = is_hovering ? ( (int)((input->mouse.pos.x - bounds.x) - (align2 == NK_TEXT_RIGHT ? bounds.w : 0) ) * nk_input_is_mouse_released(input, NK_BUTTON_LEFT)) : 0;
 
     return ui_label_icon_clicked_R.x;
+}
+
+
+int ui_label2(const char *label, const char *text_) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+
+    int align1 = NK_TEXT_LEFT;
+    int align2 = NK_TEXT_LEFT;
+    if( label ) align1 = label[0] == '>' ? (label++, NK_TEXT_RIGHT) : label[0] == '=' ? (label++, NK_TEXT_CENTERED) : label[0] == '<' ? (label++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+    if( text_ ) align2 = text_[0] == '>' ? (text_++, NK_TEXT_RIGHT) : text_[0] == '=' ? (text_++, NK_TEXT_CENTERED) : text_[0] == '<' ? (text_++, NK_TEXT_LEFT) : NK_TEXT_LEFT;
+    ui_label_(label, align1);
+
+    return nk_label_(ui_ctx, text_, align2);
 }
 int ui_label2_bool(const char *text, bool value) {
     bool b = !!value;
@@ -1592,6 +1752,8 @@ int ui_label2_toolbar(const char *label, const char *icons) {
 }
 
 int ui_notify(const char *title, const char *body) {
+    app_beep();
+
     struct ui_notify n = {0};
     n.title = title && title[0] ? stringf("*%s", title) : 0;
     n.body = body && body[0] ? STRDUP(body) : 0;
@@ -1612,7 +1774,9 @@ int ui_button_transparent(const char *text) {
 #endif
 
 static
-int ui_button_(const char *text) {
+int ui_button_(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     if( 1 ) {
 #if UI_BUTTON_MONOCHROME
         nk_style_push_color(ui_ctx, &ui_ctx->style.button.text_normal, nk_rgba(0,0,0,ui_alpha));
@@ -1643,8 +1807,8 @@ int ui_button_(const char *text) {
 
     struct nk_rect bounds = nk_widget_bounds(ui_ctx);
 
-    const char *split = strchr(text, '@'), *tooltip = split + 1;
-    int ret = nk_button_text(ui_ctx, text, split ? (int)(split - text) : strlen(text) );
+    const char *split = strchr(label, '@'), *tooltip = split + 1;
+    int ret = nk_button_text(ui_ctx, label, split ? (int)(split - label) : strlen(label) );
 
     const struct nk_input *in = &ui_ctx->input;
     if (split && nk_input_is_mouse_hovering_rect(in, bounds) && !ui_has_active_popups && nk_window_has_focus(ui_ctx)) {
@@ -1665,6 +1829,23 @@ int ui_button_(const char *text) {
 }
 
 int ui_buttons(int buttons, ...) {
+    static array(char*) args = 0;
+    array_resize(args, 0);
+
+    int num_skips = 0;
+        va_list list;
+        va_start(list, buttons);
+        for( int i = 0; i < buttons; ++i ) {
+            const char *label = va_arg(list, const char*);
+            int skip = ui_filter && ui_filter[0] && !strstri(label, ui_filter);
+            array_push(args, skip ? NULL : (char*)label);
+            num_skips += skip;
+        }
+        va_end(list);
+
+    if( num_skips == array_count(args) ) return 0;
+    buttons = array_count(args) - num_skips;
+
     nk_layout_row_dynamic(ui_ctx, 0, buttons);
 
     float ui_hue_old = ui_hue;
@@ -1679,10 +1860,8 @@ int ui_buttons(int buttons, ...) {
         layout->bounds.w -= indent;
 
             int rc = 0;
-            va_list list;
-            va_start(list, buttons);
-            for( int i = 0; i < buttons; ++i ) {
-                if( ui_button_( va_arg(list, const char*) ) ) rc = i+1;
+            for( int i = 0, end = array_count(args); i < end; ++i ) {
+                if( args[i] && ui_button_( args[i] ) ) rc = i+1;
                 ui_hue_cycle( 3 );
             }
             va_end(list);
@@ -1699,6 +1878,8 @@ int ui_button(const char *s) {
 }
 
 int ui_toggle(const char *label, bool *value) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1708,6 +1889,8 @@ int ui_toggle(const char *label, bool *value) {
 }
 
 int ui_color4f(const char *label, float *color4) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     float c[4] = { color4[0]*255, color4[1]*255, color4[2]*255, color4[3]*255 };
     int ret = ui_color4(label, c);
     for( int i = 0; i < 4; ++i ) color4[i] = c[i] / 255.0f;
@@ -1717,6 +1900,8 @@ int ui_color4f(const char *label, float *color4) {
 static enum color_mode {COL_RGB, COL_HSV} ui_color_mode = COL_RGB;
 
 int ui_color4(const char *label, float *color4) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1763,6 +1948,8 @@ int ui_color3f(const char *label, float *color3) {
 }
 
 int ui_color3(const char *label, float *color3) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1799,6 +1986,8 @@ int ui_color3(const char *label, float *color3) {
 }
 
 int ui_list(const char *label, const char **items, int num_items, int *selector) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1809,6 +1998,8 @@ int ui_list(const char *label, const char **items, int num_items, int *selector)
 }
 
 int ui_slider(const char *label, float *slider) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     // return ui_slider2(label, slider, va("%.2f ", *slider));
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
@@ -1819,6 +2010,8 @@ int ui_slider(const char *label, float *slider) {
     return chg;
 }
 int ui_slider2(const char *label, float *slider, const char *caption) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1843,6 +2036,8 @@ int ui_slider2(const char *label, float *slider, const char *caption) {
 }
 
 int ui_bool(const char *label, bool *enabled ) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1857,6 +2052,8 @@ int ui_bool(const char *label, bool *enabled ) {
 }
 
 int ui_int(const char *label, int *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1866,6 +2063,8 @@ int ui_int(const char *label, int *v) {
 }
 
 int ui_unsigned(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1875,11 +2074,15 @@ int ui_unsigned(const char *label, unsigned *v) {
 }
 
 int ui_short(const char *label, short *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     int i = *v, ret = ui_int( label, &i );
     return *v = (short)i, ret;
 }
 
 int ui_float(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1888,6 +2091,8 @@ int ui_float(const char *label, float *v) {
 }
 
 int ui_double(const char *label, double *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -1896,6 +2101,8 @@ int ui_double(const char *label, double *v) {
 }
 
 int ui_clampf(const char *label, float *v, float minf, float maxf) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     if( minf > maxf ) return ui_clampf(label, v, maxf, minf);
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
@@ -1905,11 +2112,18 @@ int ui_clampf(const char *label, float *v, float minf, float maxf) {
     return prev != v[0];
 }
 
+static bool ui_float_sign = 0;
+
 int ui_float2(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = va("%.2f, %.2f", v[0], v[1]);
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.3f %+.3f", v[0], v[1]) :
+        va("%.3f, %.3f", v[0], v[1]);
+
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
@@ -1921,10 +2135,15 @@ int ui_float2(const char *label, float *v) {
 }
 
 int ui_float3(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
+        va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
+
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
@@ -1937,10 +2156,15 @@ int ui_float3(const char *label, float *v) {
 }
 
 int ui_float4(const char *label, float *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = va("%.2f, %.2f, %.2f, %.2f", v[0], v[1], v[2], v[3]);
+    char *buffer = ui_float_sign ?
+        --ui_float_sign, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
+        va("%.2f,%.2f,%.2f,%.2f", v[0], v[1], v[2], v[3]);
+
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
@@ -1950,10 +2174,14 @@ int ui_float4(const char *label, float *v) {
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1] || prev2 != v[2] || prev3 != v[3];
     }
+
     return 0;
 }
 
 int ui_mat33(const char *label, float M[9]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float3(NULL, M);
@@ -1962,6 +2190,9 @@ int ui_mat33(const char *label, float M[9]) {
     return changed;
 }
 int ui_mat34(const char *label, float M[12]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -1970,6 +2201,9 @@ int ui_mat34(const char *label, float M[12]) {
     return changed;
 }
 int ui_mat44(const char *label, float M[16]) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    ui_float_sign = 4;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -1980,14 +2214,18 @@ int ui_mat44(const char *label, float M[16]) {
 }
 
 int ui_buffer(const char *label, char *buffer, int buflen) {
-    nk_layout_row_dynamic(ui_ctx, 0, 2);
-    ui_label_(label, NK_TEXT_LEFT);
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 1 + (label && label[0]));
+    if(label && label[0]) ui_label_(label, NK_TEXT_LEFT);
 
     int active = nk_edit_string_zero_terminated(ui_ctx, NK_EDIT_AUTO_SELECT|NK_EDIT_CLIPBOARD|NK_EDIT_FIELD/*NK_EDIT_BOX*/|NK_EDIT_SIG_ENTER, buffer, buflen, nk_filter_default);
     return !!(active & NK_EDIT_COMMITED) ? nk_edit_unfocus(ui_ctx), 1 : 0;
 }
 
 int ui_string(const char *label, char **str) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     char *bak = va("%s%c", *str ? *str : "", '\0');
     int rc = ui_buffer(label, bak, strlen(bak)+2);
     if( *str ) 0[*str] = '\0';
@@ -1996,6 +2234,8 @@ int ui_string(const char *label, char **str) {
 }
 
 int ui_separator() {
+    if( /*label &&*/ ui_filter && ui_filter[0] ) return 0; // if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, UI_SEPARATOR_HEIGHT, 1);
 
     ui_hue_cycle( 1 );
@@ -2012,6 +2252,8 @@ int ui_separator() {
 }
 
 int ui_subimage(const char *label, handle id, unsigned iw, unsigned ih, unsigned sx, unsigned sy, unsigned sw, unsigned sh) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     nk_layout_row_dynamic(ui_ctx, sh < 30 || id == texture_checker().id ? 0 : sh, 1 + (label && label[0]));
     if( label && label[0] ) ui_label_(label, NK_TEXT_LEFT);
 
@@ -2041,31 +2283,35 @@ int ui_subtexture(const char *label, texture_t t, unsigned x, unsigned y, unsign
     return ui_subimage(label, t.id, t.w,t.h, x,y,w,h);
 }
 
-int ui_colormap( const char *map_name, colormap_t *cm ) {
+int ui_colormap( const char *label, colormap_t *cm ) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     int ret = 0;
     if( !cm->texture ) {
-        const char *title = va("%s (no image)", map_name);
+        const char *title = va("%s (no image)", label);
         if( ui_image( title, texture_checker().id, 0,0 ) ) {
             ret = 2;
         }
     } else {
         unsigned w = cm->texture->w, h = cm->texture->h;
-        ui_label(va("%s (%s)", map_name, cm->texture->filename) ); // @fixme: labelf would crash?
+        ui_label(va("%s (%s)", label, cm->texture->filename) ); // @fixme: labelf would crash?
 
         const char *fmt[] = { "", "R", "RG", "RGB", "RGBA" };
-        const char *title = va("%s %dx%d %s", map_name, w, h, fmt[cm->texture->n]);
+        const char *title = va("%s %dx%d %s", label, w, h, fmt[cm->texture->n]);
         if( ui_image( title, cm->texture->id, 128, 128 ) ) {
             ret = 2;
         }
     }
 
-    if( ui_color4f( va("%s Color", map_name), (float *) &cm->color ) ) {
+    if( ui_color4f( va("%s Color", label), (float *) &cm->color ) ) {
         ret = 1;
     }
     return ret;
 }
 
 int ui_radio(const char *label, const char **items, int num_items, int *selector) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     int ret = 0;
     if( label && label[0] ) ui_label(label);
     for( int i = 0; i < num_items; i++ ) {
@@ -2078,20 +2324,24 @@ int ui_radio(const char *label, const char **items, int num_items, int *selector
     return ret;
 }
 
-int ui_section(const char *section) {
+int ui_section(const char *label) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     //ui_separator();
-    return ui_label(va("*%s", section));
+    return ui_label(va("*%s", label));
 }
 
-int ui_dialog(const char *title, const char *text, int choices, bool *show) { // @fixme: return
+int ui_dialog(const char *label, const char *text, int choices, bool *show) { // @fixme: return
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
     ui_has_active_popups = 0;
     if(*show) {
         static struct nk_rect s = {0, 0, 300, 190};
-        if (nk_popup_begin(ui_ctx, NK_POPUP_STATIC, title, NK_WINDOW_BORDER|NK_WINDOW_CLOSABLE, s)) {
+        if (nk_popup_begin(ui_ctx, NK_POPUP_STATIC, label, NK_WINDOW_BORDER|NK_WINDOW_CLOSABLE, s)) {
             nk_layout_row_dynamic(ui_ctx, 20, 1);
-            for( char label[1024]; *text && sscanf(text, "%[^\r\n]", label); ) {
-                nk_label(ui_ctx, label, NK_TEXT_LEFT);
-                text += strlen(label); while(*text && *text < 32) text++;
+            for( char t[1024]; *text && sscanf(text, "%[^\r\n]", t); ) {
+                nk_label(ui_ctx, t, NK_TEXT_LEFT);
+                text += strlen(t); while(*text && *text < 32) text++;
             }
 
             if( choices ) {
@@ -2112,6 +2362,8 @@ int ui_dialog(const char *title, const char *text, int choices, bool *show) { //
 
 #define ui_bitmask_template(X) \
 int ui_bitmask##X(const char *label, uint##X##_t *enabled) { \
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0; \
+\
     /* @fixme: better way to retrieve widget width? nk_layout_row_dynamic() seems excessive */ \
     nk_layout_row_dynamic(ui_ctx, 1, 1); \
     struct nk_rect bounds = nk_widget_bounds(ui_ctx); \
@@ -2196,7 +2448,7 @@ int ui_browse(const char **output, bool *inlined) {
         const int W = 96, H = 96; // 2048x481 px, 21x5 cells
         texture_t i = texture("icons/suru.png", TEXTURE_RGBA|TEXTURE_MIPMAPS);
         browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 16, 3), BROWSER_FOLDER); // default group
-        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  2, 4), BROWSER_HOME); 
+        browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  2, 4), BROWSER_HOME);
         browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H, 17, 3), BROWSER_COMPUTER);
         browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  1, 4), BROWSER_PROJECT);
         browser_config_dir(icon_load_rect(i.id, i.w, i.h, W, H,  0, 4), BROWSER_DESKTOP);
@@ -2239,9 +2491,46 @@ int ui_browse(const char **output, bool *inlined) {
         struct browser *browser = browsers + windowed; // select instance
         char **result = results + windowed; // select instance
 
-        struct nk_rect bounds = {0,0,400,300}; // @fixme: how to retrieve inlined region below? (inlined)
-        if( windowed || (!windowed && *inlined) ) bounds = nk_window_get_content_region(ui_ctx);
-        else { struct nk_rect b; nk_layout_peek(&b, ui_ctx); bounds.w = b.w; }
+        struct nk_rect bounds = {0}; // // {0,0,400,300};
+        // #define P(b) printf(FILELINE " (%3d,%3d) %3d,%3d\n", (int)b.x,(int)b.y, (int)b.w,(int)b.h)
+        // if(ui_ctx->current) bounds = nk_layout_space_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_layout_widget_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_widget_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_window_get_bounds(ui_ctx), P(bounds);
+        // if(ui_ctx->current) bounds = nk_window_get_content_region(ui_ctx), P(bounds);
+        // if(ui_ctx->current) nk_layout_peek(&bounds, ui_ctx), P(bounds);
+        // // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
+        // #undef P
+
+        // panel
+        // fwk_ui.c:2497 (  6, 34) 310, 24
+        // fwk_ui.c:2498 ( 16, 62) 286, 24
+        // fwk_ui.c:2499 ( 16, 86) 296, 24
+        // fwk_ui.c:2500 (  0,  0) 327,613
+        // fwk_ui.c:2501 (  6, 34) 310,572 << ok
+        // fwk_ui.c:2502 ( 16, 86) 296, 24
+        // fwk_ui.c:2503 (316, 62) 297, 24
+
+        // window
+        // fwk_ui.c:2497 (188,152) 711,  4
+        // fwk_ui.c:2498 (188,152) 711,  4
+        // fwk_ui.c:2499 (-2147483648,156) -2147483648,  4
+        // fwk_ui.c:2500 (182,118) 728,409
+        // fwk_ui.c:2501 (188,152) 711,368 << ok
+        // fwk_ui.c:2502 (-2147483648,156) -2147483648,  4
+        // fwk_ui.c:2503 (-2147483648,152) -2147483648,  4
+
+        // popup
+        // fwk_ui.c:2497 (  9, 30) 350, 24
+        // fwk_ui.c:2498 ( 19, 58) 326, 24
+        // fwk_ui.c:2499 ( 19, 82) 336, 24
+        // fwk_ui.c:2500 (  4, 29) 360,460
+        // fwk_ui.c:2501 (  9, 30) 350,458 << ok
+        // fwk_ui.c:2502 ( 19, 82) 336, 24
+        // fwk_ui.c:2503 (359, 58) 336, 24
+
+        bounds = nk_window_get_content_region(ui_ctx);
+        if( !windowed && *inlined ) bounds.h *= 0.80;
 
         clicked = browser_run(ui_ctx, browser, windowed, bounds);
         if( clicked ) {
@@ -2411,7 +2700,7 @@ int ui_demo(int do_windows) {
         struct nk_window *win = nk_window_find(ui_ctx, title);
         if( win ) {
             enum { menubar_height = 65 }; // title bar (~32) + menu bounds (~25)
-            struct nk_rect bounds = win->bounds; bounds.y += menubar_height; bounds.h -= menubar_height; 
+            struct nk_rect bounds = win->bounds; bounds.y += menubar_height; bounds.h -= menubar_height;
 #if 1
             ddraw_flush();
 

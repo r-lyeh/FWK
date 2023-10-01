@@ -1,4 +1,4 @@
-// @fixme: really shutdown audio & related threads before quitting. drwav crashes.
+// @fixme: really shutdown audio & related threads before quitting. ma_dr_wav crashes.
 
 
 #if is(win32) && !is(gcc)
@@ -12,7 +12,7 @@ static AudioUnit midi_out_handle = 0;
 static void midi_init() {
 #if is(win32) && !is(gcc)
     if( midiOutGetNumDevs() != 0 ) {
-        midiOutOpen(&midi_out_handle, 0, 0, 0, 0);        
+        midiOutOpen(&midi_out_handle, 0, 0, 0, 0);
     }
 #elif is(osx)
     AUGraph graph;
@@ -54,15 +54,15 @@ void midi_send(unsigned midi_msg) {
 #endif
 }
 
-// encapsulate drwav,drmp3,stbvorbis and some buffer with the sts_mixer_stream_t
+// encapsulate ma_dr_wav,ma_dr_mp3,stbvorbis and some buffer with the sts_mixer_stream_t
 enum { UNK, WAV, OGG, MP1, MP3 };
 typedef struct {
     int type;
     union {
-        drwav wav;
+        ma_dr_wav wav;
         stb_vorbis *ogg;
         void *opaque;
-        drmp3           mp3_;
+        ma_dr_mp3           mp3_;
     };
     sts_mixer_stream_t  stream;             // mixer stream
     union {
@@ -100,16 +100,16 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
         default:
         break; case WAV: {
             int sl = sample->length / 2; /*sample->channels*/;
-            if( stream->rewind ) stream->rewind = 0, drwav_seek_to_pcm_frame(&stream->wav, 0);
-            if (drwav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
-                drwav_seek_to_pcm_frame(&stream->wav, 0);
+            if( stream->rewind ) stream->rewind = 0, ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
+            if (ma_dr_wav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
+                ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
             }
         }
         break; case MP3: {
             int sl = sample->length / 2; /*sample->channels*/;
-            if( stream->rewind ) stream->rewind = 0, drmp3_seek_to_pcm_frame(&stream->mp3_, 0);
-            if (drmp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
-                drmp3_seek_to_pcm_frame(&stream->mp3_, 0);
+            if( stream->rewind ) stream->rewind = 0, ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
+            if (ma_dr_mp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
+                ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
             }
         }
         break; case OGG: {
@@ -140,14 +140,14 @@ static bool load_stream(mystream_t* stream, const char *filename) {
         stream->stream.sample.frequency = info.sample_rate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_16;
     }
-    if( stream->type == UNK && drwav_init_memory(&stream->wav, data, datalen, NULL)) {
+    if( stream->type == UNK && ma_dr_wav_init_memory(&stream->wav, data, datalen, NULL)) {
         if( stream->wav.channels != 2 ) { puts("cannot stream wav file. stereo required."); goto end; } // @fixme: upsample
         stream->type = WAV;
         stream->stream.sample.frequency = stream->wav.sampleRate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_16;
     }
-    drmp3_config mp3_cfg = { 2, HZ };
-    if( stream->type == UNK && (drmp3_init_memory(&stream->mp3_, data, datalen, NULL/*&mp3_cfg*/) != 0) ) {
+    ma_dr_mp3_config mp3_cfg = { 2, HZ };
+    if( stream->type == UNK && (ma_dr_mp3_init_memory(&stream->mp3_, data, datalen, NULL/*&mp3_cfg*/) != 0) ) {
         stream->type = MP3;
         stream->stream.sample.frequency = stream->mp3_.sampleRate;
         stream->stream.sample.audio_format = STS_MIXER_SAMPLE_FORMAT_FLOAT;
@@ -175,14 +175,14 @@ static bool load_sample(sts_mixer_sample_t* sample, const char *filename) {
     int error;
     int channels = 0;
 
-    if( !channels ) for( drwav w = {0}, *wav = &w; wav && drwav_init_memory(wav, data, datalen, NULL); wav = 0 ) {
+    if( !channels ) for( ma_dr_wav w = {0}, *wav = &w; wav && ma_dr_wav_init_memory(wav, data, datalen, NULL); wav = 0 ) {
         channels = wav->channels;
         sample->frequency = wav->sampleRate;
         sample->audio_format = STS_MIXER_SAMPLE_FORMAT_16;
         sample->length = wav->totalPCMFrameCount;
         sample->data = REALLOC(0, sample->length * sizeof(short) * channels);
-        drwav_read_pcm_frames_s16(wav, sample->length, (short*)sample->data);
-        drwav_uninit(wav);
+        ma_dr_wav_read_pcm_frames_s16(wav, sample->length, (short*)sample->data);
+        ma_dr_wav_uninit(wav);
     }
     if( !channels ) for( stb_vorbis *ogg = stb_vorbis_open_memory((const unsigned char *)data, datalen, &error, NULL); ogg; ogg = 0 ) {
         stb_vorbis_info info = stb_vorbis_get_info(ogg);
@@ -197,9 +197,9 @@ static bool load_sample(sts_mixer_sample_t* sample, const char *filename) {
         stb_vorbis_decode_memory((const unsigned char *)data, datalen, &channels, &sample_rate, (short **)&buffer);
         sample->data = buffer;
     }
-    drmp3_config mp3_cfg = { 2, 44100 };
-    drmp3_uint64 mp3_fc;
-    if( !channels ) for( short *fbuf = drmp3_open_memory_and_read_pcm_frames_s16(data, datalen, &mp3_cfg, &mp3_fc, NULL); fbuf ; fbuf = 0 ) {
+    ma_dr_mp3_config mp3_cfg = { 2, 44100 };
+    ma_uint64 mp3_fc;
+    if( !channels ) for( short *fbuf = ma_dr_mp3_open_memory_and_read_pcm_frames_s16(data, datalen, &mp3_cfg, &mp3_fc, NULL); fbuf ; fbuf = 0 ) {
         channels = mp3_cfg.channels;
         sample->frequency = mp3_cfg.sampleRate;
         sample->audio_format = STS_MIXER_SAMPLE_FORMAT_16;
@@ -249,11 +249,11 @@ static ma_context context;
 static sts_mixer_t mixer;
 
 // This is the function that's used for sending more data to the device for playback.
-static ma_uint32 audio_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+static void audio_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     int len = frameCount;
     sts_mixer_mix_audio(&mixer, pOutput, len / (sizeof(int32_t) / 4));
     (void)pDevice; (void)pInput;
-    return len / (sizeof(int32_t) / 4);
+    // return len / (sizeof(int32_t) / 4);
 }
 
 void audio_drop(void) {
@@ -276,13 +276,14 @@ int audio_init( int flags ) {
         ma_backend_wasapi, // Higest priority.
         ma_backend_dsound,
         ma_backend_winmm,
+        ma_backend_coreaudio,
         ma_backend_pulseaudio,
         ma_backend_alsa,
         ma_backend_oss,
         ma_backend_jack,
         ma_backend_opensl,
-        //ma_backend_webaudio,
-        //ma_backend_openal,
+        // ma_backend_webaudio,
+        // ma_backend_openal,
         //ma_backend_sdl,
         ma_backend_null    // Lowest priority.
 #else
@@ -290,17 +291,17 @@ int audio_init( int flags ) {
         ma_backend_wasapi,      // WASAPI      |  Windows Vista+
         ma_backend_dsound,      // DirectSound |  Windows XP+
         ma_backend_winmm,       // WinMM       |  Windows XP+ (may work on older versions, but untested)
-        ma_backend_coreaudio,   // Core Audio  |  macOS, iOS 
+        ma_backend_coreaudio,   // Core Audio  |  macOS, iOS
         ma_backend_pulseaudio,  // PulseAudio  |  Cross Platform (disabled on Windows, BSD and Android)
-        ma_backend_alsa,        // ALSA        |  Linux 
-        ma_backend_oss,         // OSS         |  FreeBSD 
+        ma_backend_alsa,        // ALSA        |  Linux
+        ma_backend_oss,         // OSS         |  FreeBSD
         ma_backend_jack,        // JACK        |  Cross Platform (disabled on BSD and Android)
         ma_backend_opensl,      // OpenSL ES   |  Android (API level 16+)
         ma_backend_webaudio,    // Web Audio   |  Web (via Emscripten)
-        ma_backend_sndio,       // sndio       |  OpenBSD 
-        ma_backend_audio4,      // audio(4)    |  NetBSD, OpenBSD 
+        ma_backend_sndio,       // sndio       |  OpenBSD
+        ma_backend_audio4,      // audio(4)    |  NetBSD, OpenBSD
         ma_backend_aaudio,      // AAudio      |  Android 8+
-        ma_backend_custom,      // Custom      |  Cross Platform 
+        ma_backend_custom,      // Custom      |  Cross Platform
         ma_backend_null,        // Null        |  Cross Platform (not used on Web)
         // Lowest priority
 #endif
@@ -384,10 +385,17 @@ float audio_volume_master(float gain) {
         mixer.gain = volume_master;
     return sqrt( volume_master );
 }
+int audio_mute(int mute) {
+    static bool muted = 0; do_once muted = flag("--mute") || flag("--muted");
+    if( mute >= 0 && mute <= 1 ) muted = mute;
+    return muted;
+}
+int audio_muted() {
+    return audio_mute(-1);
+}
 
 int audio_play_gain_pitch_pan( audio_t a, int flags, float gain, float pitch, float pan ) {
-    static bool muted = 0; do_once muted = flag("--mute") || flag("--muted");
-    if(muted) return 1;
+    if(audio_muted()) return 1;
 
     if( flags & AUDIO_IGNORE_MIXER_GAIN ) {
         // do nothing, gain used as-is
@@ -545,4 +553,38 @@ int audio_queue( const void *samples, int num_samples, int flags ) {
     while( !thread_queue_produce(&queue_mutex, aq, THREAD_QUEUE_WAIT_INFINITE) ) {}
 
     return audio_queue_voice;
+}
+
+int ui_audio() {
+    int changed = 0;
+
+    float sfx = sqrt(volume_clip), bgm = sqrt(volume_stream), master = sqrt(volume_master);
+    if( ui_slider2("BGM volume", &bgm, va("%.2f", bgm))) changed = 1, audio_volume_stream(bgm);
+    if( ui_slider2("SFX volume", &sfx, va("%.2f", sfx))) changed = 1, audio_volume_clip(sfx);
+    if( ui_slider2("Master volume", &master, va("%.2f", master))) changed = 1, audio_volume_master(master);
+
+    ui_separator();
+
+    int num_voices = sts_mixer_get_active_voices(&mixer);
+    ui_label2("Format", mixer.audio_format == 0 ? "None" : mixer.audio_format == 1 ? "8-bit" : mixer.audio_format == 2 ? "16-bit" : mixer.audio_format == 3 ? "32-bit integer" : "32-bit float");
+    ui_label2("Frequency", va("%4.1f KHz", mixer.frequency / 1000.0));
+    ui_label2("Voices", va("%d/%d", num_voices, STS_MIXER_VOICES));
+    ui_separator();
+
+    for( int i = 0; i < STS_MIXER_VOICES; ++i ) {
+        if( mixer.voices[i].state != STS_MIXER_VOICE_STOPPED ) { // PLAYING || STREAMING
+            ui_label(va("Voice %d", i+1));
+
+            // float mul = mixer.voices[i].state == STS_MIXER_VOICE_STREAMING ? 2 : 1;
+            // float div = mixer.voices[i].state == STS_MIXER_VOICE_STREAMING ? mixer.voices[i].stream->sample.length : mixer.voices[i].sample->length;
+            // float pct = mixer.voices[i].position * mul / div;
+            // if(ui_slider2("Position", &pct, va("%5.2f", pct))) changed = 1;
+            if(ui_slider2("Gain", &mixer.voices[i].gain, va("%5.2f", mixer.voices[i].gain))) changed = 1;
+            if(ui_slider2("Pitch", &mixer.voices[i].pitch, va("%5.2f", mixer.voices[i].pitch))) changed = 1;
+            if(ui_slider2("Pan", &mixer.voices[i].pan, va("%5.2f", mixer.voices[i].pan))) changed = 1;
+            ui_separator();
+        }
+    }
+
+    return changed;
 }

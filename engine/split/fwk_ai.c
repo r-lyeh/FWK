@@ -15,7 +15,7 @@ vec3 rnd3() { // random uniform
 int less3(vec3 *lhs, vec3 *rhs) {
     if(lhs->x != rhs->x) return lhs->x - rhs->x;
     if(lhs->y != rhs->y) return lhs->y - rhs->y;
-    if(lhs->z != rhs->z) return lhs->z - rhs->z;
+    if(lhs->z != rhs->z) return lhs->z - rhs->z; // @testme: remove superfluous if check
     return 0;
 }
 uint64_t hash3(vec3 *v) {
@@ -51,7 +51,7 @@ vec3 get_voxel_for_boid(float perception_radius, const boid_t *b) { // quantize 
 
 static
 void check_voxel_for_boids(float perception_radius, float blindspot_angledeg_compare_value, array(boid_t*) voxel_cached, array(nearby_boid_t) *result, const vec3 voxelPos, const boid_t *b) {
-    for each_array_ptr(voxel_cached, const boid_t*, test) {
+    for each_array_ptr(voxel_cached, boid_t*, test) {
         vec3 p1 = b->position;
         vec3 p2 = (*test)->position;
         vec3 vec = sub3(p2, p1);
@@ -64,7 +64,7 @@ void check_voxel_for_boids(float perception_radius, float blindspot_angledeg_com
             compare_value = dot3(neg3(b->velocity), vec) / (l1 * l2);
         }
 
-        if ((&b) != test && distance <= perception_radius && (blindspot_angledeg_compare_value > compare_value || len3(b->velocity) == 0)) {
+        if (b != (*test) && distance <= perception_radius && (blindspot_angledeg_compare_value > compare_value || len3(b->velocity) == 0)) {
             nearby_boid_t nb;
             nb.boid = (boid_t*)*test;
             nb.distance = distance;
@@ -343,7 +343,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
         #error ASTAR_POS_INDEX(p) should specify macro to map position to index
         #endif
 
-        #ifndef ASTAR_MAX_INDEX 
+        #ifndef ASTAR_MAX_INDEX
         #error ASTAR_MAX_INDEX should specify max count of indices the position can map to
         #endif
 
@@ -434,7 +434,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
                 i = p;                                    \
                 p = (i - 1) / 2;                          \
             }                                             \
-        } while (0) 
+        } while (0)
 
         #define ASTAR_HEAP_POP()                                          \
         do {                                                              \

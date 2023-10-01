@@ -7,8 +7,8 @@ int main() {
     window_create(75, 0); // WINDOW_MSAA8);
 
     array(char*) list = 0;
-    for( const char **dir = file_list("demos/art/shadertoys/", "**.fs"); *dir; dir++ ) {
-        array_push(list, STRDUP(file_name(*dir)));
+    for each_array( vfs_list("demos/art/shadertoys/**.fs"), char*, dir ) {
+        array_push(list, STRDUP(file_name(dir)));
     }
 
     shadertoy_t sh = shadertoy(*list, 0); // 0:no flags

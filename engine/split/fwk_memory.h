@@ -30,6 +30,7 @@ API void*  forget( void *ptr );
 #define REALLOC(p,n)   REALLOC_((p),(n))
 #define CALLOC(m,n)    CALLOC_((m),(n))
 #define STRDUP(s)      STRDUP_(s)
+#define ALLOCA(n)      ifdef(gcc, __builtin_alloca(n), _alloca(n))
 
 static FORCE_INLINE void *(REALLOC_)(void *p, size_t n) { return n ? WATCH(xrealloc(p,n),n) : xrealloc(FORGET(p),0); } ///-
 static FORCE_INLINE void *(CALLOC_)(size_t m, size_t n) { return n *= m, memset(REALLOC(0,n),0,n); } ///-

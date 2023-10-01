@@ -271,6 +271,9 @@ void glNewFrame() {
 }
 
 bool window_create_from_handle(void *handle, float scale, unsigned flags) {
+    // abort run if any test suite failed in unit-test mode
+    ifdef(debug, if( flag("--test") ) exit( test_errors ? -test_errors : 0 ));
+
     glfw_init();
     fwk_init();
     if(!t) t = glfwGetTime();
@@ -360,10 +363,10 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     #endif
 
     glDebugEnable();
-    
+
     // setup nuklear ui
     ui_ctx = nk_glfw3_init(&nk_glfw, window, NK_GLFW3_INSTALL_CALLBACKS);
-   
+
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
@@ -375,6 +378,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     glfwSwapInterval(interval);
 
     const GLFWvidmode *mode = glfwGetVideoMode(monitor ? monitor : glfwGetPrimaryMonitor());
+    PRINTF("Build version: %s\n", BUILD_VERSION);
     PRINTF("Monitor: %s (%dHz, vsync=%d)\n", glfwGetMonitorName(monitor ? monitor : glfwGetPrimaryMonitor()), mode->refreshRate, interval);
     PRINTF("GPU device: %s\n", glGetString(GL_RENDERER));
     PRINTF("GPU driver: %s\n", glGetString(GL_VERSION));
@@ -404,7 +408,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         // display a progress bar meanwhile cook is working in the background
         // Sleep(500);
         if( !COOK_ON_DEMAND )
-        if( file_exist(COOK_INI) && cook_jobs() )
+        if( have_tools() && cook_jobs() )
         while( cook_progress() < 100 ) {
             for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
                 window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
@@ -445,7 +449,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             // set black screen
             glNewFrame();
             window_swap();
+#if !ENABLE_RETAIL
             window_title("");
+#endif
         }
 
     if(cook_cancelling) cook_stop(), exit(-1);
@@ -482,12 +488,16 @@ char* window_stats() {
 
     // @todo: print %used/%avail kib mem, %used/%avail objs as well
     static char buf[256];
-    snprintf(buf, 256, "%s | boot %.2fs | %5.2ffps (%.2fms)%s%s", title, !boot_time ? now : boot_time, fps, (now - prev_frame) * 1000.f, cmdline[0] ? " | ":"", cmdline[0] ? cmdline:"");
+    snprintf(buf, 256, "%s%s%s%s | boot %.2fs | %5.2ffps (%.2fms)%s%s",
+        title, BUILD_VERSION[0] ? " (":"", BUILD_VERSION[0] ? BUILD_VERSION:"", BUILD_VERSION[0] ? ")":"",
+        !boot_time ? now : boot_time,
+        fps, (now - prev_frame) * 1000.f,
+        cmdline[0] ? " | ":"", cmdline[0] ? cmdline:"");
 
     prev_frame = now;
     ++num_frames;
 
-    return buf + 3 * (buf[0] == ' ');
+    return buf + strspn(buf, " ");
 }
 
 int window_frame_begin() {
@@ -495,7 +505,7 @@ int window_frame_begin() {
 
     // we cannot simply terminate threads on some OSes. also, aborted cook jobs could leave temporary files on disc.
     // so let's try to be polite: we will be disabling any window closing briefly until all cook is either done or canceled.
-    static bool has_cook; do_once has_cook = !COOK_ON_DEMAND && file_exist(COOK_INI) && cook_jobs();
+    static bool has_cook; do_once has_cook = !COOK_ON_DEMAND && have_tools() && cook_jobs();
     if( has_cook ) {
         has_cook = cook_progress() < 100;
         if( glfwWindowShouldClose(g->window) ) cook_cancel();
@@ -510,113 +520,33 @@ int window_frame_begin() {
 
     ui_create();
 
-    bool may_render_stats = 1;
+#if !ENABLE_RETAIL
+    bool has_menu = 0; // ui_has_menubar();
+    bool may_render_debug_panel = 1;
 
-    int has_menu = ui_has_menubar();
-    if( !has_menu ) {
-        static int cook_on_demand; do_once cook_on_demand = COOK_ON_DEMAND;
-        if( !cook_on_demand ) {
+    if( have_tools() ) {
+        static int cook_has_progressbar; do_once cook_has_progressbar = !COOK_ON_DEMAND;
+        if( cook_has_progressbar) {
             // render profiler, unless we are in the cook progress screen
             static unsigned frames = 0; if(frames <= 0) frames += cook_progress() >= 100;
-            may_render_stats = (frames > 0);
+            may_render_debug_panel = (frames > 0);
         }
     }
 
-    // @transparent
-    static bool has_transparent_attrib = 0; ifndef(ems, do_once has_transparent_attrib = glfwGetWindowAttrib(window_handle(), GLFW_TRANSPARENT_FRAMEBUFFER) == GLFW_TRUE);
-    if( has_transparent_attrib ) may_render_stats = 0;
-    // @transparent
-
     // generate Debug panel contents
-    if( may_render_stats ) {
+    if( may_render_debug_panel ) {
         if( has_menu ? ui_window("Debug " ICON_MD_SETTINGS, 0) : ui_panel("Debug " ICON_MD_SETTINGS, 0) ) {
-
-#if 1
-            static char *filter = 0;
-            static int do_filter = 0;
-            if( input_down(KEY_F) ) if( input(KEY_LCTRL) || input(KEY_RCTRL) ) do_filter ^= 1;
-            int choice = ui_toolbar(ICON_MD_SEARCH ";");
-            if( choice == 1 ) do_filter = 1;
-            if( do_filter ) {
-                ui_string(ICON_MD_CLOSE " Filter " ICON_MD_SEARCH, &filter);
-                if( ui_label_icon_clicked_L.x > 0 && ui_label_icon_clicked_L.x <= 24 ) { // if clicked on CANCEL icon (1st icon)
-                    do_filter = 0;
-                }
-            } else {
-                if( filter ) filter[0] = '\0';
-            }
-            char *filter_mask = filter && filter[0] ? va("*%s*", filter) : "*";
-#endif
-
-            int open = 0, clicked_or_toggled = 0;
-
-            #define ui_collapse_filtered(lbl,id) (strmatchi(lbl,filter_mask) && ui_collapse(lbl,id))
-
-            for( int p = (open = ui_collapse_filtered(ICON_MD_FOLDER_SPECIAL " Art", "Debug.Art")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                bool inlined = true;
-                const char *file = 0;
-                if( ui_browse(&file, &inlined) ) {
-                    const char *sep = ifdef(win32, "\"", "'");
-                    app_exec(va("%s %s%s%s", ifdef(win32, "start \"\"", ifdef(osx, "open", "xdg-open")), sep, file, sep));
-                }
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_ROCKET_LAUNCH " AI", "Debug.AI")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VOLUME_UP " Audio", "Debug.Audio")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VIDEOCAM " Camera", "Debug.Camera")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_camera( camera_get_active() );
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_BUILD " Cook", "Debug.Cook")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_SIGNAL_CELLULAR_ALT " Network", "Debug.Network")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_CONTENT_PASTE " Scripts", "Debug.Scripts")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                // @todo
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_MOVIE " FXs", "Debug.FXs")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_fxs();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_SPEED " Profiler", "Debug.Profiler")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_profiler();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_STAR_HALF " Shaders", "Debug.Shaders")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_shaders();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_KEYBOARD " Keyboard", "Debug.Keyboard")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_keyboard();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_MOUSE " Mouse", "Debug.Mouse")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                ui_mouse();
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_GAMEPAD " Gamepads", "Debug.Gamepads")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                for( int q = 0; q < 4; ++q ) {
-                    for( int r = (open = ui_collapse(va("Gamepad #%d",q+1), va("Debug.Gamepads%d",q))), dummy = (clicked_or_toggled = ui_collapse_clicked()); r; ui_collapse_end(), r = 0) {
-                        ui_gamepad(q);
-                    }
-                }
-            }
-            for( int p = (open = ui_collapse_filtered(ICON_MD_VIEW_QUILT " UI", "Debug.UI")), dummy = (clicked_or_toggled = ui_collapse_clicked()); p; ui_collapse_end(), p = 0) {
-                int choice = ui_toolbar(ICON_MD_RECYCLING " Reset layout;" ICON_MD_SAVE_AS " Save layout");
-                if( choice == 1 ) ui_layout_all_reset("*");
-                if( choice == 2 ) file_delete(WINDOWS_INI), ui_layout_all_save_disk("*");
-
-                for each_map_ptr_sorted(ui_windows, char*, k, unsigned, v) {
-                    bool visible = ui_visible(*k);
-                    if( ui_bool( *k, &visible ) ) {
-                        ui_show( *k, ui_visible(*k) ^ true );
-                    }
-                }
-            }
+            API int ui_debug();
+            ui_debug();
 
             (has_menu ? ui_window_end : ui_panel_end)();
         }
+
+        API int engine_tick();
+        engine_tick();
     }
- 
+#endif // ENABLE_RETAIL
+
 #if 0 // deprecated
     // run user-defined hooks
     for(int i = 0; i < 64; ++i) {
@@ -628,6 +558,7 @@ int window_frame_begin() {
     dt = now - t;
     t = now;
 
+#if !ENABLE_RETAIL
     char *st = window_stats();
     static double timer = 0;
     timer += window_delta();
@@ -635,6 +566,9 @@ int window_frame_begin() {
         glfwSetWindowTitle(window, st);
         timer = 0;
     }
+#else
+    glfwSetWindowTitle(window, title);
+#endif
 
     void input_update();
     input_update();
@@ -645,7 +579,7 @@ int window_frame_begin() {
 void window_frame_end() {
     // flush batching systems that need to be rendered before frame swapping. order matters.
     {
-        font_goto(0,0);        
+        font_goto(0,0);
         touch_flush();
         sprite_flush();
 
@@ -706,7 +640,7 @@ void window_shutdown() {
 
         #endif
 
-        window_loop_exit(); // finish emscripten loop automatically        
+        window_loop_exit(); // finish emscripten loop automatically
     }
 }
 
@@ -732,7 +666,7 @@ int window_swap() {
 static
 void (*window_render_callback)(void* loopArg);
 
-static vec2 last_canvas_size;
+static vec2 last_canvas_size = {0};
 
 static
 void window_resize() {
@@ -741,14 +675,13 @@ void window_resize() {
     if (g->flags&WINDOW_FIXED) return;
     EM_ASM(canvas.canResize = 1);
     vec2 size = window_canvas();
-    do_once last_canvas_size = size;
     if (size.x != last_canvas_size.x || size.y != last_canvas_size.y) {
         w = size.x;
         h = size.y;
         g->width  = w;
         g->height = h;
-        glfwSetWindowSize(g->window, w, h);
-        // emscripten_set_canvas_size(w, h);
+        last_canvas_size = vec2(w,h);
+        emscripten_set_canvas_size(w, h);
     }
 #endif /* __EMSCRIPTEN__ */
 }
@@ -786,8 +719,8 @@ void window_loop_exit() {
 
 vec2 window_canvas() {
 #if is(ems)
-    int width = EM_ASM_INT_V(return canvas.width || window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth);
-    int height = EM_ASM_INT_V(return canvas.height || window.innerHeight || document.documentElement.clientHeight|| document.body.clientHeight);
+    int width = EM_ASM_INT_V(return canvas.width);
+    int height = EM_ASM_INT_V(return canvas.height);
     return vec2(width, height);
 #else
     glfw_init();
@@ -837,23 +770,28 @@ void window_color(unsigned color) {
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
+static int has_icon;
+int window_has_icon() {
+    return has_icon;
+}
 void window_icon(const char *file_icon) {
-    unsigned len = file_size(file_icon); // len = len ? len : vfs_size(file_icon); // @fixme: reenable this to allow icons to be put in cooked .zipfiles
-    if( len ) {
-        void *data = file_read(file_icon); // data = data ? data : vfs_read(file_icon); // @fixme: reenable this to allow icons to be put in cooked .zipfiles
-        if( data ) {
-            image_t img = image_from_mem(data, len, IMAGE_RGBA);
-            if( img.w && img.h && img.pixels ) {
-                GLFWimage images[1];
-                images[0].width = img.w;
-                images[0].height = img.h;
-                images[0].pixels = img.pixels;
-                glfwSetWindowIcon(window, 1, images);
-                return;
-            }
+    int len = 0;
+    void *data = vfs_load(file_icon, &len);
+    if( !data ) data = file_read(file_icon), len = file_size(file_icon);
+
+    if( data && len ) {
+        image_t img = image_from_mem(data, len, IMAGE_RGBA);
+        if( img.w && img.h && img.pixels ) {
+            GLFWimage images[1];
+            images[0].width = img.w;
+            images[0].height = img.h;
+            images[0].pixels = img.pixels;
+            glfwSetWindowIcon(window, 1, images);
+            has_icon = 1;
+            return;
         }
     }
-#if is(win32)
+#if 0 // is(win32)
     HANDLE hIcon = LoadImageA(0, file_icon, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_LOADFROMFILE);
     if( hIcon ) {
         HWND hWnd = glfwGetWin32Window(window);
@@ -861,6 +799,7 @@ void window_icon(const char *file_icon) {
         SendMessage(hWnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
         SendMessage(GetWindow(hWnd, GW_OWNER), WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
         SendMessage(GetWindow(hWnd, GW_OWNER), WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+        has_icon = 1;
         return;
     }
 #endif
@@ -872,7 +811,7 @@ void* window_handle() {
 void window_reload() {
     // @todo: save_on_exit();
     fflush(0);
-    chdir(app_path());
+    // chdir(app_path());
     execv(__argv[0], __argv);
     exit(0);
 }
@@ -884,6 +823,13 @@ int window_record(const char *outfile_mp4) {
     return record_active();
 }
 
+vec2 window_dpi() {
+    vec2 dpi = vec2(1,1);
+#ifndef __EMSCRIPTEN__
+    glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &dpi.x, &dpi.y);
+#endif
+    return dpi;
+}
 
 // -----------------------------------------------------------------------------
 // fullscreen
@@ -968,9 +914,9 @@ void window_fullscreen(int enabled) {
     }
 #else
     if( enabled )
-    EM_ASM(Module.requestFullscreen(1, 1)); 
+    EM_ASM(Module.requestFullscreen(1, 1));
     else
-    EM_ASM(Module.exitFullscreen()); 
+    EM_ASM(Module.exitFullscreen());
 #endif
 
 #else
@@ -980,7 +926,7 @@ void window_fullscreen(int enabled) {
         /*glfwGetWindowPos(g->window, &g->window_xpos, &g->window_ypos);*/
         glfwGetWindowSize(g->window, &g->width, &g->height);
         glfwSetWindowMonitor(g->window, glfwGetPrimaryMonitor(), 0, 0, g->width, g->height, GLFW_DONT_CARE);
-    } else {            
+    } else {
         glfwSetWindowMonitor(g->window, NULL, 0, 0, g->width, g->height, GLFW_DONT_CARE);
     }
 #else

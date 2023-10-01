@@ -1,5 +1,7 @@
 #include "fwk.h"
 
+bool emscripten_support = false;
+
 void render(void *arg) {
     static int integer = 42;
     static bool toggle = true;
@@ -44,11 +46,14 @@ void render(void *arg) {
         if( ui_image("my image", texture_checker().id, 0, 0) ) { puts("image clicked"); }
         if( ui_button("my button") ) { puts("button clicked"); show_dialog = true; }
         if( ui_dialog("my dialog", __FILE__ "\n" __DATE__ "\n" "Public Domain.", 2/*two buttons*/, &show_dialog) ) {}
+        ui_label2_bool("has emscripten support", emscripten_support);
 
         ui_panel_end();
     }
+}
 
-    input_demo();
+AUTORUN {
+    emscripten_support = true;
 }
 
 int main() {

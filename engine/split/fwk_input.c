@@ -254,6 +254,10 @@ void input_update() {
         any_key |= (bits[i] = glfwGetKeys(win)[ table[i] ]);
 #endif
     }
+    // special cases: plain shift/alt/ctrl enums will also check right counterparts
+    any_key |= (bits[KEY_ALT] |= glfwGetKey(win, table[KEY_RALT] ) == GLFW_PRESS);
+    any_key |= (bits[KEY_CTRL] |= glfwGetKey(win, table[KEY_RCTRL] ) == GLFW_PRESS);
+    any_key |= (bits[KEY_SHIFT] |= glfwGetKey(win, table[KEY_RSHIFT] ) == GLFW_PRESS);
 
 #if is(ems)
     {
@@ -460,6 +464,35 @@ vec2 input_filter_deadzone_4way( vec2 v, float deadzone ) {
     float v0 = v.x*v.x < deadzone*deadzone ? 0 : v.x;
     float v1 = v.y*v.y < deadzone*deadzone ? 0 : v.y;
     return vec2(v0, v1);
+}
+
+int input_enum(const char *vk) {
+    static map(char*,int) m = 0;
+    do_once {
+        map_init_str(m);
+        #define k(VK) map_insert(m, STRINGIZE(KEY_##VK), KEY_##VK); map_insert(m, STRINGIZE(VK), KEY_##VK);
+        k(ESC)
+        k(TICK)  k(1) k(2) k(3) k(4) k(5) k(6) k(7) k(8) k(9) k(0)     k(BS)
+        k(TAB)    k(Q) k(W) k(E) k(R) k(T) k(Y) k(U) k(I) k(O) k(P)
+        k(CAPS)       k(A) k(S) k(D) k(F) k(G) k(H) k(J) k(K) k(L)  k(ENTER)
+        k(LSHIFT)        k(Z) k(X) k(C) k(V) k(B) k(N) k(M)        k(RSHIFT)             k(UP)
+        k(LCTRL) k(LALT)                 k(SPACE)           k(RALT) k(RCTRL)    k(LEFT) k(DOWN) k(RIGHT)
+
+        k(F1) k(F2) k(F3) k(F4) k(F5) k(F6) k(F7) k(F8) k(F9) k(F10) k(F11) k(F12)  k(PRINT) k(PAUSE)
+        k(INS) k(HOME) k(PGUP)  k(DEL) k(END)  k(PGDN)
+
+        k(ALT) k(CTRL) k(SHIFT)
+        #undef k
+    };
+    int *found = map_find(m, (char*)vk);
+    return found ? *found : -1;
+}
+
+int input_eval(const char *expression) {
+    if( expression && expression[0] ) {
+        return eval(expression) > 0;
+    }
+    return 0;
 }
 
 // converts keyboard code to its latin char (if any)

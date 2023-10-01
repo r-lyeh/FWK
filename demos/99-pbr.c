@@ -380,16 +380,14 @@ void camera_fit(camera_t *cam) {
     camera_lookat(cam, vec3(0,0,0));
 }
 
-int main( int argc, const char *argv[] ) {
+int main() {
     window_create( 75, WINDOW_MSAA2 );
     window_title(__FILE__);
 
     // load all fx files in all subdirs
     fx_load("fx**.fs");
 
-    if( !LoadShaderConfig( 0 ) ) {
-        return -4;
-    }
+    LoadShaderConfig( 0 );
 
     brdf_lut();
 
@@ -421,7 +419,7 @@ int main( int argc, const char *argv[] ) {
     unsigned skysphereShader = shader( vfs_read("Skyboxes/skysphere.vs"), vfs_read("Skyboxes/skysphere.fs"), NULL, NULL, NULL );
     Model skysphere = { 0 }; ModelLoad(&skysphere, "Skyboxes/skysphere.fbx"); ModelRebind(&skysphere, skysphereShader);
 
-    if( ModelLoad( &gModel, argc > 1 && argv[1][0] != '-' ? argv[ 1 ] : "damagedhelmet.gltf" ) ) {
+    if( ModelLoad( &gModel, option("--model", "damagedhelmet.gltf") ) ) {
         ModelRebind( &gModel, gShader );
     }
 
@@ -634,15 +632,15 @@ int main( int argc, const char *argv[] ) {
                 pbr_material_t *it = &gModel.materials[i];
                 ui_label(va("Name: %s", it->name));
                 ui_float( "Specular shininess", &it->specular_shininess );
-                ui_separator(); if(ui_colormap( "Albedo",    &it->albedo    )) colormap(&it->albedo   , dialog_load(), 1);
-                ui_separator(); if(ui_colormap( "Ambient",   &it->ambient   )) colormap(&it->ambient  , dialog_load(), 0);
-                ui_separator(); if(ui_colormap( "AO",        &it->ao        )) colormap(&it->ao       , dialog_load(), 0);
-                ui_separator(); if(ui_colormap( "Diffuse",   &it->diffuse   )) colormap(&it->diffuse  , dialog_load(), 1);
-                ui_separator(); if(ui_colormap( "Emissive",  &it->emissive  )) colormap(&it->emissive , dialog_load(), 1);
-                ui_separator(); if(ui_colormap( "Metallic",  &it->metallic  )) colormap(&it->metallic , dialog_load(), 0);
-                ui_separator(); if(ui_colormap( "Normal",    &it->normals   )) colormap(&it->normals  , dialog_load(), 0);
-                ui_separator(); if(ui_colormap( "Roughness", &it->roughness )) colormap(&it->roughness, dialog_load(), 0);
-                ui_separator(); if(ui_colormap( "Specular",  &it->specular  )) colormap(&it->specular , dialog_load(), 0);
+                ui_separator(); if(ui_colormap( "Albedo",    &it->albedo    )) colormap(&it->albedo   , app_loadfile(), 1);
+                ui_separator(); if(ui_colormap( "Ambient",   &it->ambient   )) colormap(&it->ambient  , app_loadfile(), 0);
+                ui_separator(); if(ui_colormap( "AO",        &it->ao        )) colormap(&it->ao       , app_loadfile(), 0);
+                ui_separator(); if(ui_colormap( "Diffuse",   &it->diffuse   )) colormap(&it->diffuse  , app_loadfile(), 1);
+                ui_separator(); if(ui_colormap( "Emissive",  &it->emissive  )) colormap(&it->emissive , app_loadfile(), 1);
+                ui_separator(); if(ui_colormap( "Metallic",  &it->metallic  )) colormap(&it->metallic , app_loadfile(), 0);
+                ui_separator(); if(ui_colormap( "Normal",    &it->normals   )) colormap(&it->normals  , app_loadfile(), 0);
+                ui_separator(); if(ui_colormap( "Roughness", &it->roughness )) colormap(&it->roughness, app_loadfile(), 0);
+                ui_separator(); if(ui_colormap( "Specular",  &it->specular  )) colormap(&it->specular , app_loadfile(), 0);
             }
 
             ui_panel_end();

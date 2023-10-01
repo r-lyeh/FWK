@@ -1,7 +1,7 @@
 //  uniform mat4 view = mat4(1.0);
 uniform vec3 lightPos = vec3(1.0);
 uniform float doTexture = 1.;
-#if VSMCUBE
+#ifdef VSMCUBE
 uniform samplerCube shadowMap; // VSMCUBE
 #else
 uniform sampler2D shadowMap; // !VSMCUBE
@@ -23,7 +23,7 @@ struct light {
     );
     
     // From http://fabiensanglard.net/shadowmappingVSM/index.php
-    #if VSMCUBE
+    #ifdef VSMCUBE
     float chebyshevUpperBound(float distance, vec3 dir) {
         distance = distance/20 ;
         vec2 moments = texture(shadowMap, dir).rg;
@@ -60,7 +60,7 @@ struct light {
             // Convert to eye-space
             vec3 light = vec3(view * vec4(light0.position, 1.0));
             
-            #if VSMCUBE
+            #ifdef VSMCUBE
             // Vectors
             vec3 fragmentToLight     = light - fragment;
             vec3 fragmentToLightDir  = normalize(fragmentToLight);
@@ -82,7 +82,7 @@ struct light {
             #endif
             
             vec4 diffColor = vec4(1,1,1,1);
-            #if VSMCUBE
+            #ifdef VSMCUBE
             if(doTexture != 0) diffColor = vec4(vec3(texture(shadowMap, -fragmentToLight_world.xyz).r), 1.0);
             #else
             if(doTexture != 0) diffColor = vec4(vec3(texture(shadowMap, vec2(uv.x, 1.0 - uv.y)).r), 1.0);

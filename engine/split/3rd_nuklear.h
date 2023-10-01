@@ -8020,7 +8020,7 @@ nk_utf_decode(const char *c, nk_rune *u, int clen)
     *u = NK_UTF_INVALID;
 
     udecoded = nk_utf_decode_byte(c[0], &len);
-    if (!NK_BETWEEN(len, 1, NK_UTF_SIZE))
+    if (!NK_BETWEEN(len, 1, NK_UTF_SIZE+1)) //< @r-lyeh: add +1 for len<=4
         return 1;
 
     for (i = 1, j = 1; i < clen && j < len; ++i, ++j) {
@@ -20155,7 +20155,12 @@ window->is_window_resizing |= layout->flags & NK_WINDOW_SCALE_TOP ? NK_WINDOW_SC
                     }
 
                 }
-                ctx->style.cursor_active = ctx->style.cursors[NK_CURSOR_RESIZE_TOP_RIGHT_DOWN_LEFT];
+                int icon = //< @r-lyeh
+                  ((layout->flags & NK_WINDOW_SCALE_TOP) && !(layout->flags & NK_WINDOW_SCALE_LEFT))
+                  ||
+                  ((layout->flags & NK_WINDOW_SCALE_LEFT) && !(layout->flags & NK_WINDOW_SCALE_TOP))
+                ? NK_CURSOR_RESIZE_TOP_LEFT_DOWN_RIGHT : NK_CURSOR_RESIZE_TOP_RIGHT_DOWN_LEFT;
+                ctx->style.cursor_active = ctx->style.cursors[icon]; //< @r-lyeh
                 in->mouse.buttons[NK_BUTTON_LEFT].clicked_pos.x = scaler.x + scaler.w/2.0f;
                 in->mouse.buttons[NK_BUTTON_LEFT].clicked_pos.y = scaler.y + scaler.h/2.0f;
             }
@@ -20990,6 +20995,9 @@ nk_nonblock_begin(struct nk_context *ctx,
     nk_flags flags, struct nk_rect body, struct nk_rect header,
     enum nk_panel_type panel_type)
 {
+if(body.x < 10) body.x = 0; //< @r-lyeh: popup snapping to the left
+if((body.x+body.w)>window_width()) body.x-=body.w-(window_width()-body.x); //< @r-lyeh: prevent popups to be printed outside of window client / right border
+
     struct nk_window *popup;
     struct nk_window *win;
     struct nk_panel *panel;
@@ -21471,7 +21479,7 @@ nk_menu_begin(struct nk_context *ctx, struct nk_window *win,
     is_active = (popup && (win->popup.name == hash) && win->popup.type == NK_PANEL_MENU);
     if ((is_clicked && is_open && !is_active) || (is_open && !is_active) ||
         (!is_open && !is_active && !is_clicked)) return 0;
-    if (!nk_nonblock_begin(ctx, NK_WINDOW_NO_SCROLLBAR, body, header, NK_PANEL_MENU))
+    if (!nk_nonblock_begin(ctx, NK_WINDOW_NO_SCROLLBAR_X/*|NK_WINDOW_NO_SCROLLBAR*/, body, header, NK_PANEL_MENU)) //< @r-lyeh: our popups are huge. enable Y scrollbars
         return 0;
 
     win->popup.type = NK_PANEL_MENU;
@@ -22705,6 +22713,7 @@ nk_tree_state_base_(struct nk_context *ctx, enum nk_tree_type type,
 NK_INTERN int
 nk_tree_base_(struct nk_context *ctx, enum nk_tree_type type,
     struct nk_image *img, const char *title, enum nk_collapse_states initial_state,
+    enum nk_collapse_states *forced_state, //< @r-lyeh
     const char *hash, int len, int line)
 {
     struct nk_window *win = ctx->current;
@@ -22722,7 +22731,8 @@ nk_tree_base_(struct nk_context *ctx, enum nk_tree_type type,
         state = nk_add_value(ctx, win, tree_hash, 0);
         *state = initial_state;
     }
-    return nk_tree_state_base_(ctx, type, img, title, (enum nk_collapse_states*)state);
+    return nk_tree_state_base_(ctx, type, img, title,
+      forced_state ? forced_state : (enum nk_collapse_states*)state); //< @r-lyeh
 }
 #endif
 NK_API nk_bool
@@ -25265,6 +25275,7 @@ nk_selectable_text(struct nk_context *ctx, const char *str, int len,
     state = nk_widget(&bounds, ctx);
     if (!state) return 0;
     in = (state == NK_WIDGET_ROM || layout->flags & NK_WINDOW_ROM) ? 0 : &ctx->input;
+
     return nk_do_selectable(&ctx->last_widget_state, &win->buffer, bounds,
                 str, len, align, value, &style->selectable, in, style->font);
 }
@@ -29136,7 +29147,7 @@ nk_combo_begin_text(struct nk_context *ctx, const char *selected, int len,
         else
             label.w = header.w - 2 * style->combo.content_padding.x;
         nk_widget_text(&win->buffer, label, selected, len, &text,
-            NK_TEXT_LEFT, ctx->style.font);
+            NK_TEXT_CENTERED, ctx->style.font); //< @r-lyeh NK_TEXT_LEFT>CENTERED
 
         /* draw open/close button */
         if (draw_button_symbol)

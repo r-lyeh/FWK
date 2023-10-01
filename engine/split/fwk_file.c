@@ -79,7 +79,8 @@ bool file_append(const char *name, const void *ptr, int len) {
     }
     return ok;
 }
-static bool file_stat(const char *fname, struct stat *st) {
+static // not exposed
+bool file_stat(const char *fname, struct stat *st) {
     // remove ending slashes. win32+tcc does not like them.
     int l = strlen(fname), m = l;
     while( l && (fname[l-1] == '/' || fname[l-1] == '\\') ) --l;
@@ -200,50 +201,53 @@ char *ext = strrchr(base, '.'); //if (ext) ext[0] = '\0'; // remove all extensio
     }
     return va("%s", buffer);
 }
-const char** file_list(const char *cwd, const char *masks) {
-    ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
-
-    static __thread array(char*) list = 0;
-    const char *arg0 = cwd; // app_path();
-    int larg0 = strlen(arg0);
+array(char*) file_list(const char *pathmasks) {
+    static __thread array(char*) list = 0; // @fixme: add 16 slots
 
     for( int i = 0; i < array_count(list); ++i ) {
         FREE(list[i]);
     }
-    array_resize(list, 0);//array_free(list);
+    array_resize(list, 0);
 
-    for each_substring(masks,";",it) {
-        int recurse = !!strstr(it, "**");
-        #if is(win32)
-        char *glob = va("dir %s/b/o:n \"%s\\%s\" 2> NUL", recurse ? "/s":"", cwd, it);
-        #else // linux, osx
-        char *glob = va("find %s %s -name \"%s\" | sort", cwd, !recurse ? "-maxdepth 1":"-type f", it);
-        #endif
-        for( FILE *in = popen(glob, "r"); in; pclose(in), in = 0) {
-            char buf[1024], *line = buf;
-            while( fgets(buf, sizeof(buf), in) ) {
-                // clean up
-                if( strstr(line, arg0) ) line = buf + larg0;
-                if( !memcmp(line, "./", 2) ) line += 2;
-                int len = strlen(line); while( len > 0 && line[len-1] < 32 ) line[--len] = 0;
-                if( line[0] == '\0' ) continue;
-                // do not insert system folders/files
-                for(int i = 0; i < len; ++i ) if(line[i] == '\\') line[i] = '/';
-                if( line[0] == '.' ) if( !strcmp(line,".git") || !strcmp(line,".vs") || !strcmp(line,".") || !strcmp(line,"..") ) continue;
-                if( strstr(line, "/.") ) continue;
-                // insert copy
-                #if is(win32)
-                char *copy = STRDUP(line); // full path already provided
-                #else
-                // while(line[0] == '/') ++line;
-                char *copy = STRDUP(va("%s%s", cwd, line)); // need to prepend path
-                #endif
-                array_push(list, copy);
+    for each_substring(pathmasks,";",pathmask) {
+        char *cwd = 0, *masks = 0;
+            char *slash = strrchr(pathmask, '/');
+            if( !slash ) cwd = "./", masks = pathmask;
+            else {
+                masks = va("%s", slash+1);
+                cwd = pathmask, slash[1] = '\0';
             }
+            if( !masks[0] ) masks = "*";
+
+        ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
+
+        dir *d = dir_open(cwd, strstr(masks,"**") ? "r" : "");
+        if( d ) {
+            for( int i = 0; i < dir_count(d); ++i ) {
+                if( dir_file(d,i) ) {
+                    // dir_name() should return full normalized paths "C:/prj/fwk/demos/art/fx/fxBloom.fs". should exclude system dirs as well
+                    char *entry = dir_name(d,i);
+                    char *fname = file_name(entry);
+
+                    int allowed = 0;
+                    for each_substring(masks,";",mask) {
+                        allowed |= strmatch(fname, mask);
+                    }
+                    if( !allowed ) continue;
+
+                    // if( strstr(fname, "/.") ) continue; // @fixme: still needed? useful?
+
+                    // insert copy
+                    char *copy = STRDUP(entry);
+                    array_push(list, copy);
+                }
+            }
+            dir_close(d);
         }
     }
-    array_push(list, 0); // terminator
-    return (const char**)list;
+
+    array_sort(list, strcmp);
+    return list;
 }
 
 bool file_move(const char *src, const char *dst) {
@@ -263,7 +267,7 @@ bool file_delete(const char *pathfile) {
 }
 bool file_copy(const char *src, const char *dst) {
     int ok = 0, BUFSIZE = 1 << 20; // 1 MiB
-    static __thread char *buffer = 0; do_once buffer = REALLOC(0, BUFSIZE);
+    static __thread char *buffer = 0; do_once buffer = REALLOC(0, BUFSIZE); // @leak
     for( FILE *in = fopen(src, "rb"); in; fclose(in), in = 0) {
         for( FILE *out = fopen(dst, "wb"); out; fclose(out), out = 0, ok = 1) {
             for( int n; !!(n = fread( buffer, 1, BUFSIZE, in )); ){
@@ -291,7 +295,7 @@ char *file_counter(const char *name) {
     static __thread map(char*, int) ext_counters;
     if(!init) map_init(ext_counters, less_str, hash_str), init = '\1';
 
-    char *base = va("%s",name), *ext = file_ext(name); 
+    char *base = va("%s",name), *ext = file_ext(name);
     if(ext && ext[0]) *strstr(base, ext) = '\0';
 
     int *counter = map_find_or_add(ext_counters, ext, 0);
@@ -371,6 +375,76 @@ void* sha1_mem(const void *ptr, int inlen) { // 20bytes
     unsigned char *hash = va("%.*s", SHA1_HASHLEN, "");
     sha1_done(&hs, hash);
     return hash;
+}
+unsigned crc32_mem(unsigned h, const void *ptr_, unsigned len) {
+    // based on public domain code by Karl Malbrain
+    const uint8_t *ptr = (const uint8_t *)ptr_;
+    if (!ptr) return 0;
+    const unsigned tbl[16] = {
+        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c };
+    for(h = ~h; len--; ) { uint8_t b = *ptr++; h = (h >> 4) ^ tbl[(h & 15) ^ (b & 15)]; h = (h >> 4) ^ tbl[(h & 15) ^ (b >> 4)]; }
+    return ~h;
+}
+uint64_t crc64_mem(uint64_t h, const void *ptr, uint64_t len) {
+    // based on public domain code by Lasse Collin
+    // also, use poly64 0xC96C5795D7870F42 for crc64-ecma
+    static uint64_t crc64_table[256];
+    static uint64_t poly64 = UINT64_C(0x95AC9329AC4BC9B5);
+    if( poly64 ) {
+        for( int b = 0; b < 256; ++b ) {
+            uint64_t r = b;
+            for( int i = 0; i < 8; ++i ) {
+                r = r & 1 ? (r >> 1) ^ poly64 : r >> 1;
+            }
+            crc64_table[ b ] = r;
+            //printf("%016llx\n", crc64_table[b]);
+        }
+        poly64 = 0;
+    }
+    const uint8_t *buf = (const uint8_t *)ptr;
+    uint64_t crc = ~h; // ~crc;
+    while( len != 0 ) {
+        crc = crc64_table[(uint8_t)crc ^ *buf++] ^ (crc >> 8);
+        --len;
+    }
+    return ~crc;
+}
+// https://en.wikipedia.org/wiki/MurmurHash
+static inline uint32_t murmur3_scramble(uint32_t k) {
+    return k *= 0xcc9e2d51, k = (k << 15) | (k >> 17), k *= 0x1b873593;
+}
+uint32_t murmur3_mem(const uint8_t* key, size_t len, uint32_t seed) {
+    uint32_t h = seed;
+    uint32_t k;
+    /* Read in groups of 4. */
+    for (size_t i = len >> 2; i; i--) {
+        // Here is a source of differing results across endiannesses.
+        // A swap here has no effects on hash properties though.
+        k = *((uint32_t*)key);
+        key += sizeof(uint32_t);
+        h ^= murmur3_scramble(k);
+        h = (h << 13) | (h >> 19);
+        h = h * 5 + 0xe6546b64;
+    }
+    /* Read the rest. */
+    k = 0;
+    for (size_t i = len & 3; i; i--) {
+        k <<= 8;
+        k |= key[i - 1];
+    }
+    // A swap is *not* necessary here because the preceeding loop already
+    // places the low bytes in the low places according to whatever endianness
+    // we use. Swaps only apply when the memory is copied in a chunk.
+    h ^= murmur3_scramble(k);
+    /* Finalize. */
+    h ^= len;
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
 }
 #endif
 
@@ -492,7 +566,7 @@ typedef struct archive_dir {
 } archive_dir;
 
 static archive_dir *dir_mount;
-static archive_dir *dir_cache; 
+static archive_dir *dir_cache;
 
 #ifndef MAX_CACHED_FILES    // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
 #define MAX_CACHED_FILES 32 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
@@ -503,8 +577,8 @@ struct vfs_entry {
     const char *id;
     unsigned size;
 };
-array(struct vfs_entry) vfs_hints;   // mounted raw assets
-array(struct vfs_entry) vfs_entries; // mounted cooked assets
+static array(struct vfs_entry) vfs_hints;   // mounted raw assets
+static array(struct vfs_entry) vfs_entries; // mounted cooked assets
 
 static bool vfs_mount_hints(const char *path);
 static
@@ -518,27 +592,53 @@ void vfs_reload() {
 #if defined(EMSCRIPTEN)
     vfs_mount("index.zip");
 #else
-    /* // old way
-    for( int i = 0; i < JOBS_MAX; ++i) {
-        if( vfs_mount(va(".art[%02x].zip", i)) ) continue;
-        if( vfs_mount(va("%s[%02x].zip", app, i)) ) continue;
-        if( vfs_mount(va("%s%02x.zip", app, i)) ) continue;
-        // if( vfs_mount(va("%s.%02x", app, i)) ) continue;
-    } */
-    // faster way
-    for( const char **file = file_list("./","*.zip"); *file; ++file) vfs_mount(*file);
+    // mount fused executables
+    vfs_mount(va("%s%s%s", app_path(), app_name(), ifdef(win32, ".exe", "")));
+    // mount all zipfiles
+    for each_array( file_list("*.zip"), char*, file ) vfs_mount(file);
 #endif
 
     // vfs_resolve() will use these art_folder locations as hints when cook-on-demand is in progress.
     // cook-on-demand will not be able to resolve a virtual pathfile if there are no cooked assets on disk,
     // unless there is a record of what's actually on disk somewhere, and that's where the hints belong to.
+    if( COOK_ON_DEMAND )
     for each_substring(ART,",",art_folder) {
         vfs_mount_hints(art_folder);
     }
 }
 
+
+
+#define ARK1         0x41724B31 // 'ArK1' in le, 0x314B7241 41 72 4B 31 otherwise
+#define ARK1_PADDING (512 - 40) // 472
+#define ARK_PRINTF(f,...) 0 // printf(f,__VA_ARGS__)
+#define ARK_SWAP32(x) (x)
+#define ARK_SWAP64(x) (x)
+#define ARK_REALLOC   REALLOC
+static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 1, 8, in ); return ARK_SWAP64(v); }
+void ark_list( const char *infile, zip **z ) {
+    for( FILE *in = fopen(infile, "rb"); in; fclose(in), in = 0 )
+    while(!feof(in)) {
+        if( 0 != (ftell(in) % ARK1_PADDING) ) fseek(in, ARK1_PADDING - (ftell(in) % ARK1_PADDING), SEEK_CUR);
+        ARK_PRINTF("Reading at #%d\n", (int)ftell(in));
+        uint64_t mark = ark_fget64(in);
+        if( mark != ARK1 ) continue;
+        uint64_t stamp = ark_fget64(in);
+        uint64_t datalen = ark_fget64(in);
+        uint64_t datahash = ark_fget64(in);
+        uint64_t namelen = ark_fget64(in);
+
+        *z = zip_open_handle(in, "rb");
+        return;
+    }
+}
+
+
+
 static
 bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
+    const char *path_bak = path;
+
     zip *z = NULL; tar *t = NULL; pak *p = NULL; dir *d = NULL;
     int is_folder = ('/' == path[strlen(path)-1]);
     if( is_folder ) d = dir_open(path, "rb");
@@ -546,6 +646,7 @@ bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
     if( !is_folder ) z = zip_open(path, "rb");
     if( !is_folder && !z ) t = tar_open(path, "rb");
     if( !is_folder && !z && !t ) p = pak_open(path, "rb");
+    if( !is_folder && !z && !t && !p ) ark_list(path, &z); // last resort. try as .ark
     if( !is_folder && !z && !t && !p ) return 0;
 
     // normalize input -> "././" to ""
@@ -581,6 +682,8 @@ bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
             // append to list
             array_push(*entries, (struct vfs_entry){filename, fileid, filesize});
         }
+
+        PRINTF("Mounted VFS volume '%s' (%u entries)\n", path_bak, fn_count[dir->type](dir->archive) );
     }
 
     return 1;
@@ -592,19 +695,19 @@ bool vfs_mount_hints(const char *path) {
 bool vfs_mount(const char *path) {
     return vfs_mount_(path, &vfs_entries);
 }
-const char** vfs_list(const char *masks) {
-    static __thread array(char*) list = 0;
+array(char*) vfs_list(const char *masks) {
+    static __thread array(char*) list = 0; // @fixme: add 16 slots
 
     for( int i = 0; i < array_count(list); ++i ) {
         FREE(list[i]);
     }
-    array_free(list);
+    array_resize(list, 0);
 
     for each_substring(masks,";",it) {
         if( COOK_ON_DEMAND ) // edge case: any game using only vfs api + cook-on-demand flag will never find any file
-        for(const char **items = file_list("./", it); *items; items++) {
+        for each_array(file_list(it), char*, item) {
             // insert copy
-            char *copy = STRDUP(*items);
+            char *copy = STRDUP(item);
             array_push(list, copy);
         }
 
@@ -624,12 +727,11 @@ const char** vfs_list(const char *masks) {
     array_sort(list, strcmp);
     array_unique(list, strcmp_qsort);
 
-    array_push(list, 0); // terminator
-    return (const char**)list;
+    return list;
 }
 
 static
-char *vfs_unpack(const char *pathfile, int *size) { // must free() after use
+char *vfs_unpack(const char *pathfile, int *size) { // must FREE() after use
     // @todo: add cache here
     char *data = NULL;
     for(archive_dir *dir = dir_mount; dir && !data; dir = dir->next) {
@@ -708,12 +810,14 @@ if( found && *found == 0 ) {
     base = file_name(pathfile);
     if(base[0] == '\0') return 0; // it's a dir
     folder = file_path(pathfile);
-        // make folder variable easier to read in logs: /home/rlyeh/prj/fwk/art/demos/audio/coin.wav -> demos/audio/coin.wav 
-        // static int ART_LEN = 0; do_once ART_LEN = strlen(ART);
-        // if( !strncmp(folder, ART, ART_LEN) ) {
-        //     folder += ART_LEN;
-        // }
-        char* pretty_folder = folder && strlen(folder) >= ART_LEN ? folder + ART_LEN : "";
+        // ease folders reading by shortening them: /home/rlyeh/prj/fwk/art/demos/audio/coin.wav -> demos/audio/coin.wav
+        // or C:/prj/fwk/engine/art/fonts/B612-BoldItalic.ttf -> fonts/B612-BoldItalic.ttf
+        static __thread array(char*) art_paths = 0;
+        if(!art_paths) for each_substring(ART,",",stem) array_push(art_paths, STRDUP(stem));
+        char* pretty_folder = "";
+        if( folder ) for( int i = 0; i < array_count(art_paths); ++i ) {
+            if( strbeg(folder, art_paths[i]) ) { pretty_folder = folder + strlen(art_paths[i]); break; }
+        }
     //}
 
     int size = 0;
@@ -728,9 +832,9 @@ if( found && *found == 0 ) {
     const char *lookup_id = /*file_normalize_with_folder*/(pathfile);
 
     // search (last item)
-    static char last_item[256] = { 0 };
-    static void *last_ptr = 0;
-    static int   last_size = 0;
+    static __thread char  last_item[256] = { 0 };
+    static __thread void *last_ptr = 0;
+    static __thread int   last_size = 0;
     if( !strcmpi(lookup_id, last_item)) {
         ptr = last_ptr;
         size = last_size;
@@ -760,7 +864,7 @@ if( found && *found == 0 ) {
 // this block saves some boot time (editor --cook-on-demand: boot 1.50s -> 0.90s)
 #if 1 // EXPERIMENTAL_DONT_COOK_NON_EXISTING_ASSETS
             static set(char*) disk = 0;
-            if(!disk) { set_init_str(disk); for each_substring(ART,",",art_folder) for( const char **list = file_list(art_folder,"**"); *list; ++list) set_insert(disk, STRDUP(*list)); }
+            if(!disk) { set_init_str(disk); for each_substring(ART,",",art_folder) for each_array(file_list(va("%s**", art_folder)), char*, item) set_insert(disk, STRDUP(item)); } // art_folder ends with '/'
             int found = !!set_find(disk, (char*)pathfile);
             if( found )
 #endif
@@ -808,8 +912,7 @@ if( found && *found == 0 ) {
     // yet another last resort: redirect vfs_load() calls to file_load()
     // (for environments without tools or cooked assets)
     if(!ptr) {
-        static bool have_tools; do_once have_tools = file_exist(COOK_INI);
-        if( !have_tools ) {
+        if( !have_tools() ) {
             ptr = file_load(pathfile, size_out);
         }
     }
@@ -873,47 +976,60 @@ const char *vfs_extract(const char *pathfile) { // extract a vfs file into the l
 // -----------------------------------------------------------------------------
 // cache
 
+static thread_mutex_t cache_mutex; AUTORUN{ thread_mutex_init(&cache_mutex); }
+
 void* cache_lookup(const char *pathfile, int *size) { // find key->value
     if( !MAX_CACHED_FILES ) return 0;
+    void* data = 0;
+    thread_mutex_lock(&cache_mutex);
     for(archive_dir *dir = dir_cache; dir; dir = dir->next) {
         if( !strcmp(dir->path, pathfile) ) {
             if(size) *size = dir->size;
-            return dir->data;
+            data = dir->data;
+            break;
         }
     }
-    return 0;
+    thread_mutex_unlock(&cache_mutex);
+    return data;
 }
 void* cache_insert(const char *pathfile, void *ptr, int size) { // append key/value; return LRU or NULL
     if( !MAX_CACHED_FILES ) return 0;
     if( !ptr || !size ) return 0;
 
-    // append to cache
-    archive_dir zero = {0}, *old = dir_cache;
-    *(dir_cache = REALLOC(0, sizeof(archive_dir))) = zero;
-    dir_cache->next = old;
-    dir_cache->path = STRDUP(pathfile);
-    dir_cache->size = size;
-    dir_cache->data = REALLOC(0, size+1);
-    memcpy(dir_cache->data, ptr, size); size[(char*)dir_cache->data] = 0; // copy+terminator
-
     // keep cached files within limits
-    static int added = 0;
-    if( added < MAX_CACHED_FILES ) {
-        ++added;
-    } else {
-        // remove oldest cache entry
-        for( archive_dir *prev = dir_cache, *dir = prev; dir ; prev = dir, dir = dir->next ) {
-            if( !dir->next ) {
-                prev->next = 0; // break link
-                void *data = dir->data;
-                dir->path = REALLOC(dir->path, 0);
-                dir->data = REALLOC(dir->data, 0);
-                dir = REALLOC(dir, 0);
-                return data;
+    thread_mutex_lock(&cache_mutex);
+
+        // append to cache
+        archive_dir zero = {0}, *old = dir_cache;
+        *(dir_cache = REALLOC(0, sizeof(archive_dir))) = zero;
+        dir_cache->next = old;
+        dir_cache->path = STRDUP(pathfile);
+        dir_cache->size = size;
+        dir_cache->data = REALLOC(0, size+1);
+        memcpy(dir_cache->data, ptr, size); size[(char*)dir_cache->data] = 0; // copy+terminator
+
+        void *found = 0;
+
+        static int added = 0;
+        if( added < MAX_CACHED_FILES ) {
+            ++added;
+        } else {
+            // remove oldest cache entry
+            for( archive_dir *prev = dir_cache, *dir = prev; dir ; prev = dir, dir = dir->next ) {
+                if( !dir->next ) {
+                    prev->next = 0; // break link
+                    found = dir->data;
+                    dir->path = REALLOC(dir->path, 0);
+                    dir->data = REALLOC(dir->data, 0);
+                    dir = REALLOC(dir, 0);
+                    break;
+                }
             }
         }
-    }
-    return 0;
+
+    thread_mutex_unlock(&cache_mutex);
+
+    return found;
 }
 
 // ----------------------------------------------------------------------------
@@ -1010,7 +1126,7 @@ ini_t ini_from_mem(const char *data) {
 }
 
 ini_t ini(const char *filename) {
-    return ini_from_mem(file_read(filename));    
+    return ini_from_mem(file_read(filename));
 }
 
 bool ini_write(const char *filename, const char *section, const char *key, const char *value) {

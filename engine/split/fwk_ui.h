@@ -13,6 +13,7 @@ API int ui_notify(const char *title, const char *body);
 API int ui_window(const char *title, int *enabled);
 API int  ui_panel(const char *title, int flags); // may be embedded inside a window, or standalone
 API int   ui_collapse(const char *label, const char *id);
+API int   ui_collapseo(const char *label, const char *id);
 API int   ui_contextual();
 API int    ui_section(const char *title);
 API int    ui_int(const char *label, int *value);
@@ -60,7 +61,7 @@ API int    ui_label2_float(const char *label, float value);
 API int    ui_label2_toolbar(const char *label, const char *icons);
 API int    ui_slider(const char *label, float *value);
 API int    ui_slider2(const char *label, float *value, const char *caption);
-API int   ui_contextual_end();
+API int   ui_contextual_end(int close);
 API int   ui_collapse_clicked();
 API int   ui_collapse_end();
 API int  ui_panel_end();
@@ -85,3 +86,4 @@ API int ui_hover(); // ui_is_hover()?
 API int ui_active(); // ui_is_active()?
 
 API int ui_demo(int do_windows);
+API void *ui_handle();

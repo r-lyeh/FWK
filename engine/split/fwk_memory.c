@@ -15,7 +15,7 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 
 // xrealloc --------------------------------------------------------------------
 
-static __thread uint64_t xstats_current = 0, xstats_total = 0;
+static __thread uint64_t xstats_current = 0, xstats_total = 0, xstats_allocs = 0;
 
 void* xrealloc(void* oldptr, size_t size) {
     // for stats
@@ -34,8 +34,10 @@ void* xrealloc(void* oldptr, size_t size) {
     // for stats
     if( oldptr ) {
         xstats_current += (int64_t)size - (int64_t)oldsize;
+        xstats_allocs -= !size;
     } else {
         xstats_current += size;
+        xstats_allocs += !!size;
     }
     if( xstats_current > xstats_total ) {
         xstats_total = xstats_current;
@@ -48,7 +50,8 @@ size_t xsize(void* p) {
     return 0;
 }
 char *xstats(void) {
-    return va("%03u/%03uMB", (unsigned)xstats_current / 1024 / 1024, (unsigned)xstats_total / 1024 / 1024);
+    uint64_t xtra = 0; // xstats_allocs * 65536; // assumes 64K pagesize for every alloc
+    return va("%03u/%03uMB", (unsigned)((xstats_current+xtra) / 1024 / 1024), (unsigned)((xstats_total+xtra) / 1024 / 1024));
 }
 
 // stack -----------------------------------------------------------------------

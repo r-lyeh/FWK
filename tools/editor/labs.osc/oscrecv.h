@@ -42,7 +42,7 @@ typedef struct osc_message {
     const char *s[8];   // for blobs and strings
     float f[8];         // floating point interpretation of first 8 params
 #else
-    union variant {
+    union /*variant*/ {
         int64_t i;
         const char *s;
         double f;

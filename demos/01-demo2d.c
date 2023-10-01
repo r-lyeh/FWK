@@ -128,10 +128,6 @@ int main() {
 
         // ui
         if( ui_panel("Audio", 0)) {
-            static float bgm = 1, sfx = 1, master = 1;
-            if( ui_slider2("BGM", &bgm, va("%.2f", bgm))) audio_volume_stream(bgm);
-            if( ui_slider2("SFX", &sfx, va("%.2f", sfx))) audio_volume_clip(sfx);
-            if( ui_slider2("Master", &master, va("%.2f", master))) audio_volume_master(master);
             if( ui_label2_toolbar("BGM: Track #1", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = stream1, AUDIO_SINGLE_INSTANCE);
             if( ui_label2_toolbar("BGM: Track #2", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = stream2, AUDIO_SINGLE_INSTANCE);
             if( ui_label2_toolbar("SFX: Coin", ICON_MD_VOLUME_UP)) audio_play(clip1, 0);

@@ -95,6 +95,53 @@
   - [ ] Document everything.
 
 <!--
+## Rationale
+- Fun, direct, minimalist API style
+- Focused on eliminating any friction to end-users, at the cost of implementation details.
+- Consistency: same naming conventions can be found within the whole codebase.
+- Less is more, DOD, KISS.
+- Heap allocations under control.
+- No installation, no makefiles, fast compilation times.
+- Generic 3D editor, that can be decoupled from the project.
+- Generic asset pipeline, that can be decoupled from the project.
+- JSON5 workflow: still mergeable, still human-readable, still binary-convertible (via mpack).
+- Inspiration from: ands, bitsquid, ccxvii, jo, krig, ocornut, procedural, rjm, rlk, sgorsten, stb, vurtun.
+
+## Roadmap ᕕ(ᐛ)ᕗ
+- [x] 00 Project structure, build system and makefiles.
+- [x] 01 Debug, callstacks, console, leaks, cvars and profiling.
+- [x] 02 Window, rendering contexts and game loop.
+- [x] 03 File formats, hashing, encryption and compression.
+- [x] 04 Timers, easings and interpolation.
+- [*] 05 Input bindings, digital+analog buttons, filters, gestures, chords and combos.
+- [x] 06 Linear math, geometry, volumes and collisions.
+- [x] 07 Cameras and frustum culling.
+- [ ] 08 Regions, triggers, trees and spatial partioning.
+- [*] 09 Data pipeline and asset journaling.
+- [ ] 10 World streaming and level loading.
+- [x] 11 2D/2.5D/3D/VR renderer and post-effects.
+- [x] 12 Fonts, atlases and text rendering.
+- [x] 13 Debug draw and debug UI.
+- [ ] 14 Procedural content, brushes, voxels, noise and CSG.
+- [*] 15 Static meshes, decals, skyboxes and skydomes.
+- [*] 16 Sprites, sheets and spines.
+- [ ] 17 Particles, billboards, emitters, trails and paths.
+- [*] 18 Skeletal animation, blending, blendspaces, IKs.
+- [*] 19 LODs, mesh instancing and scenegraphs.
+- [ ] 20 Server/client architecture.
+- [ ] 21 Message pipeline and serialization.
+- [ ] 22 Digital signals, message buffering and event polling.
+- [ ] 23 Entity/component/systems and world replication.
+- [*] 24 Scripting, bindings and game modules.
+- [*] 25 Navpoints, navmesh traversal and pathfinding.
+- [*] 26 AI, H/FSM, behavior trees and flocking.
+- [ ] 27 Game flow and game UI.
+- [*] 28 Localization, subtitles and unicode.
+- [*] 29 2D/3D audio, HRTF, FFT, filtering and sound occlusion.
+- [ ] 30 Dialogue, quests and inventory.
+- [*] 31 Full Motion Video and integrated cinematics.
+- [*] 32 Editor, gizmos, properties, timeline and data tracks.
+
 Nice to have/extend (engine dependant):
 - Animation pass: playlists, additive, blend/shapes, ik/bones, animgraph/controllers.
 // 6) anims, I (playlist: ~~forward/backwards/loop/rewind)~~, II (~~blend~~/shapes), III (ik/bone), IV (graph/controller)
@@ -264,6 +311,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 - Assets need to be cooked before being consumed in your application. The [tools/](tools/) folder contains all the related binaries to perform any asset processing plus the [cookbook](tools/cook.ini) to do so.
 - Your game will cook all your assets as long as the [`tools/`](tools/) folder is next to your executable. Alternatively, cook them all just by invoking supplied [`tools/cook` standalone binary](tools/). 
 - In both cases, assets will be cooked and packed into .zipfiles next to your executable, then mounted before entering game loop. These .zipfiles plus your executable are the only required files when releasing your game.
+- Optionally, you could also run `MAKE.bat fuse` and merge your binaries and their .zipfiles all together. Redist ready.
 
 ## Extra tips
 - Any ico/png file named after the executable name will be automatically used as app icon.
@@ -351,6 +399,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Stefan Gustavson](https://github.com/stegu/perlin-noise "for simplex noise (PD)"),
 [Sterling Orsten](https://github.com/sgorsten "for their math library (UNLICENSE)"),
 [Tor Andersson](https://github.com/ccxvii/minilibs "for xml.c (PD)"),
+[Werner Stoop](engine/split/3rd_eval.h "for their expression evaluator (PD)"),
 [Wolfgang Draxinger](https://github.com/datenwolf "for their math library (WTFPL2)"), 
 
 <!--

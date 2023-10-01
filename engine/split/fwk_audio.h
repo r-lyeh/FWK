@@ -24,9 +24,14 @@ API int     audio_play_gain_pitch( audio_t a, int flags, float gain, float pitch
 API int     audio_play_gain_pitch_pan( audio_t a, int flags, float gain, float pitch, float pan/*0*/ );
 API int     audio_stop( audio_t a );
 
-API float   audio_volume_clip(float gain);   // set     fx volume if gain is in [0..1] range. return current     fx volume in any case
-API float   audio_volume_stream(float gain); // set    bgm volume if gain is in [0..1] range. return current    bgm volume in any case
-API float   audio_volume_master(float gain); // set master volume if gain is in [0..1] range. return current master volume in any case
+API float   audio_volume_clip(float gain);   // set     fx volume if gain is in [0..1] range. returns current     fx volume in any case
+API float   audio_volume_stream(float gain); // set    bgm volume if gain is in [0..1] range. returns current    bgm volume in any case
+API float   audio_volume_master(float gain); // set master volume if gain is in [0..1] range. returns current master volume in any case
+
+API int     audio_mute(int mute);
+API int     audio_muted();
+
+API int ui_audio();
 
 enum AUDIO_FLAGS {
     AUDIO_1CH = 0, // default

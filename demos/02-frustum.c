@@ -12,16 +12,16 @@ int main() {
         // controls
         if(input_down(KEY_SPACE)) spin^=1;
 
-        // setup scene
-        cam.fov = 30;
-        cam.position = vec3(180,180,180);
-        camera_enable(&cam);
-
         // spin 2nd camera
         double t = window_time(), c = cos(t), s = sin(t);
         if(spin)
         camera_teleport(&cam2, vec3(c * 100, 100, s * 100));
         camera_lookat(&cam2, vec3(0,0,0));
+
+        // setup scene
+        cam.fov = 30;
+        cam.position = vec3(180,180,180);
+        camera_enable(&cam);
 
         // render world (ground and cubes only in frustum of cam2)
         mat44 projview; multiply44x2(projview, cam2.proj, cam2.view);

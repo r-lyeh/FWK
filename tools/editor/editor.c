@@ -1022,8 +1022,8 @@ void editor_render_menubar() {
     }
 }
 
-int do_context_cmd = 0;
-void *do_context_obj = 0;
+uint64_t do_context_cmd = 0;
+void    *do_context_obj = 0;
 
 void editor_obj_render_properties_recursively(void *obj, const char *mask) {
     array(void*) *found = map_find(editor_children, obj);
@@ -1040,13 +1040,13 @@ void editor_obj_render_properties_recursively(void *obj, const char *mask) {
 
         // contextual menu (open)
         if( ui_contextual() ) {
-            if( ui_button_transparent("<Load" ) ) do_context_obj = obj, do_context_cmd = cc4(load);
-            if( ui_button_transparent("<Save" ) ) do_context_obj = obj, do_context_cmd = cc4(save);
-            if( ui_button_transparent("<Merge") ) do_context_obj = obj, do_context_cmd = cc4(merge);
-            if( ui_button_transparent("<Cut"  ) ) do_context_obj = obj, do_context_cmd = cc4(cut);
-            if( ui_button_transparent("<Copy" ) ) do_context_obj = obj, do_context_cmd = cc4(copy);
-            if( ui_button_transparent("<Paste") ) do_context_obj = obj, do_context_cmd = cc4(paste);
-            ui_contextual_end();
+            if( ui_button_transparent("<Load" ) ) do_context_obj = obj, do_context_cmd = cc4(l,o,a,d);
+            if( ui_button_transparent("<Save" ) ) do_context_obj = obj, do_context_cmd = cc4(s,a,v,e);
+            if( ui_button_transparent("<Merge") ) do_context_obj = obj, do_context_cmd = cc5(m,e,r,g,e);
+            if( ui_button_transparent("<Cut"  ) ) do_context_obj = obj, do_context_cmd = cc3(c,u,t);
+            if( ui_button_transparent("<Copy" ) ) do_context_obj = obj, do_context_cmd = cc4(c,o,p,y);
+            if( ui_button_transparent("<Paste") ) do_context_obj = obj, do_context_cmd = cc5(p,a,s,t,e);
+            ui_contextual_end(0);
         }
 
         for( int i = 0; i < num_subobjects; ++i ) {
@@ -1061,13 +1061,13 @@ void editor_obj_render_properties_recursively(void *obj, const char *mask) {
 
     // contextual menu (close)
     if( !open && ui_contextual() ) {
-        if( ui_button_transparent("<Load" ) ) do_context_obj = obj, do_context_cmd = cc4(load);
-        if( ui_button_transparent("<Save" ) ) do_context_obj = obj, do_context_cmd = cc4(save);
-        if( ui_button_transparent("<Merge") ) do_context_obj = obj, do_context_cmd = cc4(merge);
-        if( ui_button_transparent("<Cut"  ) ) do_context_obj = obj, do_context_cmd = cc4(cut);
-        if( ui_button_transparent("<Copy" ) ) do_context_obj = obj, do_context_cmd = cc4(copy);
-        if( ui_button_transparent("<Paste") ) do_context_obj = obj, do_context_cmd = cc4(paste);
-        ui_contextual_end();
+        if( ui_button_transparent("<Load" ) ) do_context_obj = obj, do_context_cmd = cc4(l,o,a,d);
+        if( ui_button_transparent("<Save" ) ) do_context_obj = obj, do_context_cmd = cc4(s,a,v,e);
+        if( ui_button_transparent("<Merge") ) do_context_obj = obj, do_context_cmd = cc5(m,e,r,g,e);
+        if( ui_button_transparent("<Cut"  ) ) do_context_obj = obj, do_context_cmd = cc3(c,u,t);
+        if( ui_button_transparent("<Copy" ) ) do_context_obj = obj, do_context_cmd = cc4(c,o,p,y);
+        if( ui_button_transparent("<Paste") ) do_context_obj = obj, do_context_cmd = cc5(p,a,s,t,e);
+        ui_contextual_end(0);
     }
 
     if( clicked_or_toggled & 1 ) {
@@ -1218,7 +1218,7 @@ void editor_render_windows() {
             void *k = *o;
             editor_obj_render_properties_recursively(k, mask);
         }
-        if( do_context_cmd == cc4(list) && do_context_obj ) {
+        if( do_context_cmd == cc4(l,i,s,t) && do_context_obj ) {
             printf("list [%p]\n", do_context_obj);
         }
         // draw: depth + state (alpha0=off)
@@ -1573,7 +1573,7 @@ int main() {
             if( GAME_JUMP_DOWN ) if( jump_timer == 0 ) jump_timer = editor_ss();
             jump_delta = clampf(editor_ss() - jump_timer, 0, jump_ss) * (1.0/jump_ss);
             if( jump_delta >= 1 ) { jump_timer = 0; }
-            float y = ease_ping_pong( jump_delta, ease_out_expo, ease_out_circ);
+            float y = ease_ping_pong( jump_delta, EASE_OUT|EASE_EXPO, EASE_OUT|EASE_CIRC);
             girl_p.y = y * jump_h;
 
             // punch controller

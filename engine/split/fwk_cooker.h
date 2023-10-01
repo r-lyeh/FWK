@@ -29,3 +29,5 @@ API void cook_cancel();
 API int  cook_jobs();     // [0..N]
 API int  cook_progress(); // [0..100]
 
+// utils
+API bool have_tools();

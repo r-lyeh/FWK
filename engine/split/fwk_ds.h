@@ -74,7 +74,7 @@ static __thread unsigned array_n_;
 #define array_vlen_(t)  ( vlen(t) - 0 )
 #define array_realloc_(t,n)  ( (t) = array_cast(t) vrealloc((t), ((n)+0) * sizeof(0[t])) )
 #define array_free(t) array_clear(t)
-#else // new: with reserve support (bugs?)
+#else // new: with reserve support (@todo: check for bugs?)
 #define array_reserve(t, n) ( array_realloc_((t),(n)), array_clear(t) )
 #define array_clear(t) ( array_realloc_((t),0) ) // -1
 #define array_vlen_(t)  ( vlen(t) - sizeof(0[t]) ) // -1
@@ -90,14 +90,16 @@ static __thread unsigned array_n_;
     } while(0)
 
 #define array_foreach(t,val_t,v) for each_array(t,val_t,v)
-#define each_array(t,val_t,v) \
-    ( int __it = 0, __end = array_count(t); __it < __end; ++__it ) \
-        for( val_t v = __it[t], *on__ = &v; on__; on__ = 0 )
+#define each_array(a,val_t,v) \
+    ( array(val_t) a_ = (a); a_; a_ = 0 ) \
+    for( int i_ = 0, e_ = array_count(a_); i_ < e_; ++i_ ) \
+        for( val_t v = i_[a_], *v_ = (void*)(uintptr_t)&v; v_; v_ = 0 )
 
 #define array_foreach_ptr(t,val_t,v) for each_array_ptr(t,val_t,v)
-#define each_array_ptr(t,val_t,v) \
-    ( int __it = 0, __end = array_count(t); __it < __end; ++__it ) \
-        for( val_t *v = (val_t*)&__it[t]; v; v = 0 )
+#define each_array_ptr(a,val_t,v) \
+    ( array(val_t) a_ = (a); a_; a_ = 0 ) \
+    for( int i_ = 0, e_ = array_count(a_); i_ < e_; ++i_ ) \
+        for( val_t *v = (val_t*)&i_[a_]; v; v = 0 )
 
 #define array_search(t, key, cmpfn) /* requires sorted array beforehand */ \
     bsearch(&key, t, array_count(t), sizeof(t[0]), cmpfn )
@@ -113,14 +115,19 @@ static __thread unsigned array_n_;
     } \
 } while(0)
 
-#define array_copy(t, src) do { /*todo: review old vrealloc call!*/ \
+#define array_copy(t, src) do { \
     array_free(t); \
-    (t) = vrealloc( (t), array_count(src) * sizeof(0[t])); \
+    (t) = array_realloc_( (t), array_count(src)); \
     memcpy( (t), src, array_count(src) * sizeof(0[t])); \
 } while(0)
 
-#define array_erase(t, i) do { /*may alter ordering*/ \
+#define array_erase_fast(t, i) do { /*alters ordering*/ \
     memcpy( &(t)[i], &(t)[array_count(t) - 1], sizeof(0[t])); \
+    array_pop(t); \
+} while(0)
+
+#define array_erase_slow(t, i) do { /*preserves ordering*/ \
+    memmove( &(t)[i], &(t)[i + 1], sizeof(0[t])*(array_count(t) - i - 1)); \
     array_pop(t); \
 } while(0)
 
@@ -426,15 +433,3 @@ API int   (map_count)(map *m);
 API void  (map_gc)(map *m); // only if using MAP_DONT_ERASE
 API bool  (map_sort)(map* m);
 API void  (map_clear)(map* m);
-
-// -----------------------------------------------------------------------------
-// four-cc, eight-cc
-
-API unsigned cc4(const char *id);
-API uint64_t cc8(const char *id);
-API char *cc4str(unsigned cc);
-API char *cc8str(uint64_t cc);
-
-// fast path
-#define cc4(abcd)      ( *(unsigned*) #abcd     "    "     ) // lil32() ?
-#define cc8(abcdefgh)  ( *(uint64_t*) #abcdefgh "        " ) // lil64() ?

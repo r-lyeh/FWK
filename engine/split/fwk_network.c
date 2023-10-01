@@ -95,19 +95,6 @@ int portname( const char *service_name, unsigned retries ) {
     return ((hash & 0xFFF) * 677 / 100 + 5001);
 }
 
-static
-void netdump( const void *ptr, int len ) {
-    char hexbuf[256] = {0}, strbuf[256] = {0}, *data = (char*)ptr, width = 16;
-    for( int jt = 0; jt < len; jt += width ) {
-        char *hex = hexbuf, *str = strbuf;
-        for( int it = jt, next = it + width; it < len && it < next; ++it, ++data ) {
-            hex += sprintf( hex, "%02x ", (unsigned char)*data);
-            str += sprintf( str, "%c", *data >= 32 && *data != '\\' ? *data : '.');
-        }
-        printf("%06x %-*s%s\n", jt, width*3, hexbuf, strbuf);
-    }
-}
-
 // -----------------------------------------------------------------------------
 
 #define UDP_DEBUG 0
@@ -152,7 +139,7 @@ int udp_send( int fd, const void *buf, int len ) { // returns bytes sent, or -1 
         int rc2 = swrapAddressInfo(&sa, host, 128, serv, 128 );
         if( rc2 != 0 ) PANIC("swrapAddressInfo error");
         printf("udp_send: %d bytes to %s:%s : %.*s\n", rc, host, serv, rc, buf );
-        netdump(buf, rc);
+        hexdump(buf, rc);
     }
 #endif
     return rc;
@@ -206,7 +193,7 @@ int udp_recv( int fd, void *buf, int len ) { // <0 error, 0 orderly shutdown, >0
     int rc2 = swrapAddressInfo(&sa, host, 128, serv, 128 );
     if( rc2 != 0 ) PANIC("swrapAddressInfo error");
     printf("udp_recv: %d bytes from %s:%s : %.*s\n", rc, host, serv, rc, buf );
-    netdump(buf, rc);
+    hexdump(buf, rc);
 #endif
 
     return rc;
@@ -250,7 +237,7 @@ int tcp_send(int fd, const void *buf, int len) {
 #if TCP_DEBUG
     if( set_find(tcp_set, fd) ) {
         printf("send -> %11d (status: %d) %s:%s\n", len, rc, tcp_host(fd), tcp_port(fd));
-        if( rc > 0 ) netdump(buf, rc);
+        if( rc > 0 ) hexdump(buf, rc);
     }
 #endif
     return rc;
@@ -260,7 +247,7 @@ int tcp_recv(int fd, void *buf, int len) {
 #if TCP_DEBUG
     if( rc != 0 && set_find(tcp_set, fd) ) {
         printf("recv <- %11d (status: %d) %s:%s\n", len, rc, tcp_host(fd), tcp_port(fd));
-        if( rc > 0 ) netdump(buf, rc);
+        if( rc > 0 ) hexdump(buf, rc);
     }
 #endif
     return rc;
