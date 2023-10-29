@@ -17378,10 +17378,10 @@ extern const ltc_math_descriptor gmp_desc;
 
 /* ---- LTC_BASE64 Routines ---- */
 #ifdef LTC_BASE64
-int base64_encode(const unsigned char *in, unsigned long len,
+int base64_encodex(const unsigned char *in, unsigned long len, //< @r-lyeh +x
                   unsigned char *out, unsigned long *outlen);
 
-int base64_decode(const unsigned char *in, unsigned long len,
+int base64_decodex(const unsigned char *in, unsigned long len, //< @r-lyeh +x
                   unsigned char *out, unsigned long *outlen);
 #endif
 
@@ -30099,7 +30099,7 @@ static int _base64_decode_internal(const unsigned char *in,  unsigned long inlen
    @param outlen   [in/out] The max size and resulting size of the decoded data
    @return CRYPT_OK if successful
 */
-int base64_decode(const unsigned char *in,  unsigned long inlen,
+int base64_decodex(const unsigned char *in,  unsigned long inlen,
                         unsigned char *out, unsigned long *outlen)
 {
     return _base64_decode_internal(in, inlen, out, outlen, map_base64, relaxed);

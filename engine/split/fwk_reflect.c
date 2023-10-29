@@ -15,74 +15,87 @@ AUTORUN {
     reflect_init();
 }
 
-static
-const char* symbol(const char *s) {
+const char* symbol_naked(const char *s) {
     if( strbeg(s, "const ") ) s += 6;
     if( strbeg(s, "union ") ) s += 6;
     if( strbeg(s, "struct ") ) s += 7;
     if(!strstr(s, " *") ) return s;
     char *copy = va("%s", s);
     do strswap(copy," *","*"); while( strstr(copy, " *") ); // char  * -> char*
-    return (const char *)copy;
+    return (const char*)copy;
 }
 
 void type_inscribe(const char *TY,unsigned TYsz,const char *infos) {
     reflect_init();
-    unsigned TYid = intern(TY = symbol(TY));
-    map_find_or_add(reflects, TYid, ((reflect_t){TYid, 0, TYsz, TY, infos}));
+    unsigned TYid = intern(TY = symbol_naked(TY));
+    map_find_or_add(reflects, TYid, ((reflect_t){TYid, 0, TYsz, STRDUP(TY), infos})); // @leak
 }
 void enum_inscribe(const char *E,unsigned Eval,const char *infos) {
     reflect_init();
-    unsigned Eid = intern(E = symbol(E));
-    map_find_or_add(reflects, Eid, ((reflect_t){Eid,0, Eval, E,infos}));
+    unsigned Eid = intern(E = symbol_naked(E));
+    map_find_or_add(reflects, Eid, ((reflect_t){Eid,0, Eval, STRDUP(E),infos})); // @leak
 }
 unsigned enum_find(const char *E) {
     reflect_init();
-    E = symbol(E);
+    E = symbol_naked(E);
     return map_find(reflects, intern(E))->sz;
 }
 void function_inscribe(const char *F,void *func,const char *infos) {
     reflect_init();
-    unsigned Fid = intern(F = symbol(F));
-    map_find_or_add(reflects, Fid, ((reflect_t){Fid,0, 0, F,infos, func}));
+    unsigned Fid = intern(F = symbol_naked(F));
+    map_find_or_add(reflects, Fid, ((reflect_t){Fid,0, 0, STRDUP(F),infos, func})); // @leak
     reflect_t *found = map_find(reflects,Fid);
 }
 void *function_find(const char *F) {
     reflect_init();
-    F = symbol(F);
+    F = symbol_naked(F);
     return map_find(reflects, intern(F))->addr;
 }
 void struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos) {
     reflect_init();
-    unsigned Tid = intern(T = symbol(T));
-    map_find_or_add(reflects, Tid, ((reflect_t){Tid, OBJTYPEid, Tsz, T, infos}));
+    unsigned Tid = intern(T = symbol_naked(T));
+    map_find_or_add(reflects, Tid, ((reflect_t){Tid, OBJTYPEid, Tsz, STRDUP(T), infos})); // @leak
 }
-void member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes) {
+void member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *TYPE, unsigned bytes) {
     reflect_init();
-    unsigned Tid = intern(T = symbol(T));
-    unsigned Mid = intern(M = symbol(M));
-    type = symbol(type);
-    map_find_or_add(reflects, (Mid<<16)|Tid, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type }));
+    unsigned Tid = intern(T = symbol_naked(T));
+    unsigned Mid = intern(M = symbol_naked(M));
+    unsigned Xid = intern(TYPE = symbol_naked(TYPE));
+    map_find_or_add(reflects, (Mid<<16)|Tid, ((reflect_t){Mid, 0, Msz, STRDUP(M), infos, NULL, Tid, STRDUP(TYPE) })); // @leak
     // add member separately as well
     if(!members) map_init_int(members);
     array(reflect_t) *found = map_find_or_add(members, Tid, 0);
-    array_push(*found, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type, bytes }));
+    reflect_t data = {Mid, 0, Msz, STRDUP(M), infos, NULL, Tid, STRDUP(TYPE), bytes }; // @leak
+    // ensure member has not been added previously
+#if 1
+    // works, without altering member order
+    reflect_t *index = 0;
+    for(int i = 0, end = array_count(*found); i < end; ++i) {
+        if( (*found)[i].id == Mid ) { index = (*found)+i; break; }
+    }
+    if( index ) *index = data; else array_push(*found, data);
+#else
+    // works, although members get sorted
+    array_push(*found, data);
+    array_sort(*found, less_unsigned_ptr); //< first member type in reflect_t is `unsigned id`, so less_unsigned_ptr works
+    array_unique(*found, less_unsigned_ptr); //< first member type in reflect_t is `unsigned id`, so less_unsigned_ptr works
+#endif
 }
 reflect_t member_find(const char *T, const char *M) {
     reflect_init();
-    T = symbol(T);
-    M = symbol(M);
+    T = symbol_naked(T);
+    M = symbol_naked(M);
     return *map_find(reflects, (intern(M)<<16)|intern(T));
 }
 void *member_findptr(void *obj, const char *T, const char *M) {
     reflect_init();
-    T = symbol(T);
-    M = symbol(M);
+    T = symbol_naked(T);
+    M = symbol_naked(M);
     return (char*)obj + member_find(T,M).sz;
 }
 array(reflect_t)* members_find(const char *T) {
     reflect_init();
-    T = symbol(T);
+    T = symbol_naked(T);
     return map_find(members, intern(T));
 }
 
@@ -97,9 +110,17 @@ void ui_reflect_(const reflect_t *R, const char *filter, int mask) {
         if( buf ) *buf = '\0';
 
         struct nk_context *ui_ctx = (struct nk_context *)ui_handle();
-        /*for ui_push_hspace(16)*/ {
+        for ui_push_hspace(16) {
             array(reflect_t) *T = map_find(members, intern(R->name));
-            /**/ if( T )         {ui_label(strcatf(&buf,"S struct %s@%s", R->name, R->info+1)); for each_array_ptr(*T, reflect_t, it) if(strmatchi(it->name,filter)) ui_reflect_(it,filter,'M'); }
+            /**/ if( T )         {ui_label(strcatf(&buf,"S struct %s@%s", R->name, R->info+1));
+            for each_array_ptr(*T, reflect_t, it)
+                if(strmatchi(it->name,filter)) {
+                    if( !R->type && !strcmp(it->name,R->name) ) // avoid recursion
+                        ui_label(strcatf(&buf,"M %s %s@%s", it->type, it->name, it->info+1));
+                    else
+                        ui_reflect_(it,filter,'M');
+                }
+            }
             else if( R->addr )    ui_label(strcatf(&buf,"F func %s()@%s", R->name, R->info+1));
             else if( !R->parent ) ui_label(strcatf(&buf,"E enum %s = %d@%s", R->name, R->sz, R->info+1));
             else                  ui_label(strcatf(&buf,"M %s %s@%s", R->type, R->name, R->info+1));

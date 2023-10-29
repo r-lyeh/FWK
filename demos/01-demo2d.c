@@ -29,10 +29,10 @@ void demo_kids(vec3 offs) {
         float position[3] = {pos[i].x,pos[i].y,pos[i].y}, offset[2]={0,0}, scale[2]={0.5,0.5};
         float spritesheet[3]={num_frame,4,4};
         sprite_sheet(kids,
-            spritesheet,        // num_frame in a 4x4 spritesheet
-            position, 0,        // position(x,y,depth:sort-by-Y), angle
-            offset, scale,      // offset(x,y), scale(x,y)
-            false, WHITE, false // is_additive, tint color, resolution-independent
+            spritesheet,   // num_frame in a 4x4 spritesheet
+            position, 0,   // position(x,y,depth:sort-by-Y), angle
+            offset, scale, // offset(x,y), scale(x,y)
+            WHITE, 0       // tint_color, no flags
         );
     }
 }
@@ -43,7 +43,7 @@ void demo_hud() {
     float spritesheet[3] = {17,34,24}, offset[2] = {0, - 2*absf(sin(window_time()*5))}; // sprite cell and animation
     float scale[2] = {3, 3}, tile_w = 16 * scale[0], tile_h = 16 * scale[1]; // scaling
     float position[3] = {window_width() - tile_w, window_height() - tile_h, window_height() }; // position in screen-coordinates (x,y,z-index)
-    sprite_sheet(inputs, spritesheet, position, 0/*deg*/, offset, scale, false, WHITE, 1);
+    sprite_sheet(inputs, spritesheet, position, 0/*deg*/, offset, scale, WHITE, SPRITE_RESOLUTION_INDEPENDANT);
 }
 
 int main() {
@@ -136,11 +136,11 @@ int main() {
         }
         if( ui_panel("Tiled", 0)) {
             ui_float("Zoom in", &cam.position.z);
-            tiled_ui(&tmx);
+            ui_tiled(&tmx);
             ui_panel_end();
         }
         /*if( ui_panel("Spine", 0)) {
-            spine_ui(spn);
+            ui_spine(spn);
             ui_panel_end();
         }*/
     }

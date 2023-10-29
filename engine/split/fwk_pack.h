@@ -1,10 +1,100 @@
+// ----------------------------------------------------------------------------
+// compression api
+
+enum COMPRESS_FLAGS {
+    COMPRESS_RAW     = 0,
+    COMPRESS_PPP     = (1<<4),
+    COMPRESS_ULZ     = (2<<4),
+    COMPRESS_LZ4     = (3<<4),
+    COMPRESS_CRUSH   = (4<<4),
+    COMPRESS_DEFLATE = (5<<4),
+    COMPRESS_LZP1    = (6<<4),
+    COMPRESS_LZMA    = (7<<4),
+    COMPRESS_BALZ    = (8<<4),
+    COMPRESS_LZW3    = (9<<4),
+    COMPRESS_LZSS    = (10<<4),
+    COMPRESS_BCM     = (11<<4),
+    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
+};
+
+API unsigned zbounds(unsigned inlen, unsigned flags);
+API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+API unsigned zexcess(unsigned flags);
+API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+
+// ----------------------------------------------------------------------------
+// array de/interleaving
+//
+// results:
+// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
+// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
+
+API void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
+
+// ----------------------------------------------------------------------------
+// cobs en/decoder
+
+API unsigned cobs_bounds(unsigned len);
+API unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
+API unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// base92 en/decoder
+
+API unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_bounds(unsigned inlen);
+
+// ----------------------------------------------------------------------------
+// netstring en/decoder
+
+API unsigned netstring_bounds(unsigned inlen);
+API unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
+API unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// delta en/decoder
+
+API void delta8_encode(void *buffer, unsigned count);
+API void delta8_decode(void *buffer, unsigned count);
+
+API void delta16_encode(void *buffer, unsigned count);
+API void delta16_decode(void *buffer, unsigned count);
+
+API void delta32_encode(void *buffer, unsigned count);
+API void delta32_decode(void *buffer, unsigned count);
+
+API void delta64_encode(void *buffer, unsigned count);
+API void delta64_decode(void *buffer, unsigned count);
+
+// ----------------------------------------------------------------------------
+// zigzag en/decoder
+
+API uint64_t zig64( int64_t value ); // convert sign|magnitude to magnitude|sign
+API int64_t zag64( uint64_t value ); // convert magnitude|sign to sign|magnitude
+
+API uint32_t enczig32u( int32_t n);
+API uint64_t enczig64u( int64_t n);
+API  int32_t deczig32i(uint32_t n);
+API  int64_t deczig64i(uint64_t n);
+
+// ----------------------------------------------------------------------------
+// arc4 en/decryptor
+
+API void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
+
+// ----------------------------------------------------------------------------
+// crc64
+
+API uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
+
+// ----------------------------------------------------------------------------
+// entropy encoder
+
+API void entropy( void *buf, unsigned n );
+
 // -----------------------------------------------------------------------------
 // semantic versioning in a single byte (octal)
-// - rlyeh, public domain.
-//
-// - single octal byte that represents semantic versioning (major.minor.patch).
-// - allowed range [0000..0377] ( <-> [0..255] decimal )
-// - comparison checks only major.minor tuple as per convention.
 
 API int semver( int major, int minor, int patch );
 API int semvercmp( int v1, int v2 );
@@ -36,25 +126,25 @@ typedef struct double2 { double x,y; } double2;
 typedef struct double3 { double x,y,z; } double3;
 typedef struct double4 { double x,y,z,w; } double4;
 
-#define byte2(x,y)       M_CAST(byte2, (uint8_t)(x), (uint8_t)(y) )
-#define byte3(x,y,z)     M_CAST(byte3, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z) )
-#define byte4(x,y,z,w)   M_CAST(byte4, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z), (uint8_t)(w) )
+#define byte2(x,y)       C_CAST(byte2, (uint8_t)(x), (uint8_t)(y) )
+#define byte3(x,y,z)     C_CAST(byte3, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z) )
+#define byte4(x,y,z,w)   C_CAST(byte4, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z), (uint8_t)(w) )
 
-#define int2(x,y)        M_CAST(int2, (int)(x), (int)(y) )
-#define int3(x,y,z)      M_CAST(int3, (int)(x), (int)(y), (int)(z) )
-#define int4(x,y,z,w)    M_CAST(int4, (int)(x), (int)(y), (int)(z), (int)(w) )
+#define int2(x,y)        C_CAST(int2, (int)(x), (int)(y) )
+#define int3(x,y,z)      C_CAST(int3, (int)(x), (int)(y), (int)(z) )
+#define int4(x,y,z,w)    C_CAST(int4, (int)(x), (int)(y), (int)(z), (int)(w) )
 
-#define uint2(x,y)       M_CAST(uint2, (unsigned)(x), (unsigned)(y) )
-#define uint3(x,y,z)     M_CAST(uint3, (unsigned)(x), (unsigned)(y), (unsigned)(z) )
-#define uint4(x,y,z,w)   M_CAST(uint4, (unsigned)(x), (unsigned)(y), (unsigned)(z), (unsigned)(w) )
+#define uint2(x,y)       C_CAST(uint2, (unsigned)(x), (unsigned)(y) )
+#define uint3(x,y,z)     C_CAST(uint3, (unsigned)(x), (unsigned)(y), (unsigned)(z) )
+#define uint4(x,y,z,w)   C_CAST(uint4, (unsigned)(x), (unsigned)(y), (unsigned)(z), (unsigned)(w) )
 
-#define float2(x,y)      M_CAST(float2, (float)(x), (float)(y) )
-#define float3(x,y,z)    M_CAST(float3, (float)(x), (float)(y), (float)(z) )
-#define float4(x,y,z,w)  M_CAST(float4, (float)(x), (float)(y), (float)(z), (float)(w) )
+#define float2(x,y)      C_CAST(float2, (float)(x), (float)(y) )
+#define float3(x,y,z)    C_CAST(float3, (float)(x), (float)(y), (float)(z) )
+#define float4(x,y,z,w)  C_CAST(float4, (float)(x), (float)(y), (float)(z), (float)(w) )
 
-#define double2(x,y)     M_CAST(double2, (double)(x), (double)(y) )
-#define double3(x,y,z)   M_CAST(double3, (double)(x), (double)(y), (double)(z) )
-#define double4(x,y,z,w) M_CAST(double4, (double)(x), (double)(y), (double)(z), (double)(w) )
+#define double2(x,y)     C_CAST(double2, (double)(x), (double)(y) )
+#define double3(x,y,z)   C_CAST(double3, (double)(x), (double)(y), (double)(z) )
+#define double4(x,y,z,w) C_CAST(double4, (double)(x), (double)(y), (double)(z), (double)(w) )
 
 // -----------------------------------------------------------------------------
 // compile-time fourcc, eightcc
@@ -296,3 +386,4 @@ API int saveb(unsigned char *buf, const char *format, ...);
 
 API int loadf(FILE *file, const char *format, ...);
 API int loadb(const unsigned char *buf, const char *format, ...);
+

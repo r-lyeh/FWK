@@ -16,17 +16,18 @@
 
 int main() {
     // options
+    unsigned no_flags = 0;
     bool do_debugdraw = 0;
 
     // window (80% sized, MSAA x4 flag)
     window_create(80, WINDOW_MSAA4);
     window_title(__FILE__);
 
-    // load skybox: launch with --mie for rayleigh/mie scattering (no flags)
-    skybox_t sky = skybox(flag("--mie") ? 0 : "cubemaps/stardust", 0);
+    // load skybox: launch with --mie for rayleigh/mie scattering
+    skybox_t sky = skybox(flag("--mie") ? 0 : "cubemaps/stardust", no_flags);
 
-    // animated models loading (no flags)
-    model_t girl = model("kgirl/kgirls01.fbx", 0);
+    // animated models loading
+    model_t girl = model("kgirl/kgirls01.fbx", no_flags);
     compose44( girl.pivot, vec3(0,0,0), eulerq(vec3(-90,0,0)), vec3(2,2,2)); // position, rotation, scale
 
     // camera
@@ -38,8 +39,8 @@ int main() {
     // audio (both clips & streams)
     audio_t SFX1 = audio_clip( "coin.wav" ), SFX2 = audio_clip( "pew.sfxr" );
     audio_t BGM1 = audio_stream( "waterworld-map.fur" ), BGM2 = audio_stream( "larry.mid" ), BGM = BGM1;
-    audio_play(SFX1, 0);
-    audio_play(BGM, 0);
+    audio_play(SFX1, no_flags);
+    audio_play(BGM, no_flags);
 
     // demo loop
     while (window_swap())
@@ -76,7 +77,7 @@ int main() {
             girl.curframe = model_animate(girl, girl.curframe + delta);
 
             // draw girl
-            model_render(girl, cam.proj, cam.view, girl.pivot, 0);
+            model_render(girl, cam.proj, cam.view, girl.pivot, no_flags);
 
         // post-fxs end here
         fx_end();
@@ -97,10 +98,10 @@ int main() {
             if( ui_button("Test Lua") ) script_run("ui_notify(nil, \"Hello from Lua! Version: \" .. _VERSION)");
 
             ui_section("Audio");
-            if( ui_label2_toolbar("BGM: Waterworld Map", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM1, 0);
-            if( ui_label2_toolbar("BGM: Leisure Suit Larry", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM2, 0);
-            if( ui_label2_toolbar("SFX: Coin", ICON_MD_VOLUME_UP)) audio_play(SFX1, 0);
-            if( ui_label2_toolbar("SFX: Pew", ICON_MD_VOLUME_UP)) audio_play(SFX2, 0);
+            if( ui_label2_toolbar("BGM: Waterworld Map", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM1, no_flags);
+            if( ui_label2_toolbar("BGM: Leisure Suit Larry", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM2, no_flags);
+            if( ui_label2_toolbar("SFX: Coin", ICON_MD_VOLUME_UP)) audio_play(SFX1, no_flags);
+            if( ui_label2_toolbar("SFX: Pew", ICON_MD_VOLUME_UP)) audio_play(SFX2, no_flags);
 
             ui_panel_end();
         }

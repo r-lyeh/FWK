@@ -13,7 +13,7 @@ char* tempvl(const char *fmt, va_list vl) {
     static __thread char buf[STACK_ALLOC];
 #else
     int heap = 1;
-    static __thread int STACK_ALLOC = 128*1024;
+    static __thread int STACK_ALLOC = 512*1024;
     static __thread char *buf = 0; if(!buf) buf = REALLOC(0, STACK_ALLOC); // @leak
 #endif
     static __thread int cur = 0; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
@@ -261,11 +261,12 @@ const char *strlerp(unsigned numpairs, const char **pairs, const char *str) { //
 }
 
 array(char*) strsplit(const char *str, const char *separators) {
+    enum { SLOTS = 32 };
     static __thread int slot = 0;
-    static __thread char *buf[16] = {0};
-    static __thread array(char*) list[16] = {0};
+    static __thread char *buf[SLOTS] = {0};
+    static __thread array(char*) list[SLOTS] = {0};
 
-    slot = (slot+1) % 16;
+    slot = (slot+1) % SLOTS;
     array_resize(list[slot], 0);
     *(buf[slot] = REALLOC(buf[slot], strlen(str)*2+1)) = '\0'; // *2 to backup pathological case where input str is only separators && include == 1
 
@@ -297,10 +298,11 @@ array(char*) strsplit(const char *str, const char *separators) {
     return list[slot];
 }
 char* strjoin(array(char*) list, const char *separator) {
+    enum { SLOTS = 16 };
     static __thread int slot = 0;
-    static __thread char* mems[16] = {0};
+    static __thread char* mems[SLOTS] = {0};
 
-    slot = (slot+1) % 16;
+    slot = (slot+1) % SLOTS;
 
     int num_list = array_count(list);
     int len = 0, inc = 0, seplen = strlen(separator);
@@ -325,7 +327,7 @@ const char *extract_utf32(const char *s, uint32_t *out) {
     /**/ if( (s[0] & 0x80) == 0x00 ) return *out = (s[0]), s + 1;
     else if( (s[0] & 0xe0) == 0xc0 ) return *out = (s[0] & 31) <<  6 | (s[1] & 63), s + 2;
     else if( (s[0] & 0xf0) == 0xe0 ) return *out = (s[0] & 15) << 12 | (s[1] & 63) <<  6 | (s[2] & 63), s + 3;
-    else if( (s[0] & 0xf8) != 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
+    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
     return *out = 0, s + 0;
 }
 array(uint32_t) string32( const char *utf8 ) {
@@ -339,6 +341,16 @@ array(uint32_t) string32( const char *utf8 ) {
         array_push(out[slot], unicode);
     }
     return out[slot];
+}
+
+const char* codepoint_to_utf8(unsigned c) { //< @r-lyeh
+    static char s[4+1];
+    memset(s, 0, 5);
+    /**/ if (c <     0x80) s[0] = c, s[1] = 0;
+    else if (c <    0x800) s[0] = 0xC0 | ((c >>  6) & 0x1F), s[1] = 0x80 | ( c        & 0x3F), s[2] = 0;
+    else if (c <  0x10000) s[0] = 0xE0 | ((c >> 12) & 0x0F), s[1] = 0x80 | ((c >>  6) & 0x3F), s[2] = 0x80 | ( c        & 0x3F), s[3] = 0;
+    else if (c < 0x110000) s[0] = 0xF0 | ((c >> 18) & 0x07), s[1] = 0x80 | ((c >> 12) & 0x3F), s[2] = 0x80 | ((c >>  6) & 0x3F), s[3] = 0x80 | (c & 0x3F), s[4] = 0;
+    return s;
 }
 
 // -----------------------------------------------------------------------------
@@ -416,3 +428,152 @@ AUTORUN {
     test( !strcmp("Hello happy world.", buf) );
 }
 #endif
+
+// ----------------------------------------------------------------------------
+// localization kit
+
+static const char *kit_lang = "enUS", *kit_langs =
+    "enUS,enGB,"
+    "frFR,"
+    "esES,esAR,esMX,"
+    "deDE,deCH,deAT,"
+    "itIT,itCH,"
+    "ptBR,ptPT,"
+    "zhCN,zhSG,zhTW,zhHK,zhMO,"
+    "ruRU,elGR,trTR,daDK,noNB,svSE,nlNL,plPL,fiFI,jaJP,"
+    "koKR,csCZ,huHU,roRO,thTH,bgBG,heIL"
+;
+
+static map(char*,char*) kit_ids;
+static map(char*,char*) kit_vars;
+
+#ifndef KIT_FMT_ID2
+#define KIT_FMT_ID2 "%s.%s"
+#endif
+
+void kit_init() {
+    do_once map_init(kit_ids, less_str, hash_str);
+    do_once map_init(kit_vars, less_str, hash_str);
+}
+
+void kit_insert( const char *id, const char *translation) {
+    char *id2 = va(KIT_FMT_ID2, kit_lang, id);
+
+    char **found = map_find_or_add_allocated_key(kit_ids, STRDUP(id2), NULL);
+    if(*found) FREE(*found);
+    *found = STRDUP(translation);
+}
+
+bool kit_merge( const char *filename ) {
+    // @todo: xlsx2ini
+    return false;
+}
+
+void kit_clear() {
+    map_clear(kit_ids);
+}
+
+bool kit_load( const char *filename ) {
+    return kit_clear(), kit_merge( filename );
+}
+
+void kit_set( const char *key, const char *value ) {
+    value = value && value[0] ? value : "";
+
+    char **found = map_find_or_add_allocated_key(kit_vars, STRDUP(key), NULL );
+    if(*found) FREE(*found);
+    *found = STRDUP(value);
+}
+
+void kit_reset() {
+    map_clear(kit_vars);
+}
+
+char *kit_translate2( const char *id, const char *lang ) {
+    char *id2 = va(KIT_FMT_ID2, lang, id);
+
+    char **found = map_find(kit_ids, id2);
+
+    // return original [[ID]] if no translation is found
+    if( !found ) return va("[[%s]]", id);
+
+    // return translation if no {{moustaches}} are found
+    if( !strstr(*found, "{{") ) return *found;
+
+    // else replace all found {{moustaches}} with context vars
+    {
+        // make room
+        static __thread char *results[16] = {0};
+        static __thread unsigned counter = 0; counter = (counter+1) % 16;
+
+        char *buffer = results[ counter ];
+        if( buffer ) FREE(buffer), buffer = 0;
+
+        // iterate moustaches
+        const char *begin, *end, *text = *found;
+        while( NULL != (begin = strstr(text, "{{")) ) {
+            end = strstr(begin+2, "}}");
+            if( end ) {
+                char *var = va("%.*s", (int)(end - (begin+2)), begin+2);
+                char **found_var = map_find(kit_vars, var);
+
+                if( found_var && 0[*found_var] ) {
+                    strcatf(&buffer, "%.*s%s", (int)(begin - text), text, *found_var);
+                } else {
+                    strcatf(&buffer, "%.*s{{%s}}", (int)(begin - text), text, var);
+                }
+
+                text = end+2;
+            } else {
+                strcatf(&buffer, "%.*s", (int)(begin - text), text);
+
+                text = begin+2;
+            }
+        }
+
+        strcatf(&buffer, "%s", text);
+        return buffer;
+    }
+}
+
+char *kit_translate( const char *id ) {
+    return kit_translate2( id, kit_lang );
+}
+
+void kit_locale( const char *lang ) {
+    kit_lang = STRDUP(lang); // @leak
+}
+
+void kit_dump_state( FILE *fp ) {
+    for each_map(kit_ids, char *, k, char *, v) {
+        fprintf(fp, "[ID ] %s=%s\n", k, v);
+    }
+    for each_map(kit_vars, char *, k, char *, v) {
+        fprintf(fp, "[VAR] %s=%s\n", k, v);
+    }
+}
+
+/*
+int main() {
+    kit_init();
+
+    kit_locale("enUS");
+    kit_insert("HELLO_PLAYERS", "Hi {{PLAYER1}} and {{PLAYER2}}!");
+    kit_insert("GREET_PLAYERS", "Nice to meet you.");
+
+    kit_locale("esES");
+    kit_insert("HELLO_PLAYERS", "Hola {{PLAYER1}} y {{PLAYER2}}!");
+    kit_insert("GREET_PLAYERS", "Un placer conoceros.");
+
+    kit_locale("enUS");
+    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hi {{PLAYER1}} and {{PLAYER2}}! Nice to meet you.
+
+    kit_locale("esES");
+    kit_set("PLAYER1", "John");
+    kit_set("PLAYER2", "Karl");
+    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hola John y Karl! Un placer conoceros.
+
+    assert( 0 == strcmp(kit_translate("NON_EXISTING"), "[[NON_EXISTING]]")); // [[NON_EXISTING]]
+    assert(~puts("Ok"));
+}
+*/

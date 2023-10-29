@@ -114,3 +114,5 @@ int main(int argc, char* argv[]) {
 
     return raw.size() ? 0 : -1;
 }
+
+// cl mod2wav.cc -I ..\engine\split /EHsc /O2 /Oy /DNDEBUG /MT

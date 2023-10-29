@@ -64,7 +64,7 @@ void fwk_init() {
         ifdef(debug, trap_install());
 
         // init panic handler
-        panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 1<<20); // 1MiB
+        panic_oom_reserve = SYS_MEM_REALLOC(panic_oom_reserve, 1<<20); // 1MiB
 
         // init glfw
         glfw_init();

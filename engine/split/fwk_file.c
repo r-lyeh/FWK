@@ -221,7 +221,10 @@ array(char*) file_list(const char *pathmasks) {
 
         ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
 
-        dir *d = dir_open(cwd, strstr(masks,"**") ? "r" : "");
+        int recurse = strstr(cwd, "**") || strstr(masks, "**");
+        strswap(cwd, "**", "./");
+
+        dir *d = dir_open(cwd, recurse ? "r" : "");
         if( d ) {
             for( int i = 0; i < dir_count(d); ++i ) {
                 if( dir_file(d,i) ) {
@@ -318,7 +321,7 @@ void* file_sha1(const char *file) { // 20bytes
     sha1_init(&hs);
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             sha1_process(&hs, (const unsigned char *)buf, inlen);
         }
     }
@@ -332,7 +335,7 @@ void* file_md5(const char *file) { // 16bytes
     md5_init(&hs);
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             md5_process(&hs, (const unsigned char *)buf, inlen);
         }
     }
@@ -345,7 +348,7 @@ void* file_crc32(const char *file) { // 4bytes
     unsigned crc = 0;
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             crc = zip__crc32(crc, buf, inlen); // unsigned int stbiw__crc32(unsigned char *buffer, int len)
         }
     }
@@ -615,7 +618,7 @@ void vfs_reload() {
 #define ARK_SWAP32(x) (x)
 #define ARK_SWAP64(x) (x)
 #define ARK_REALLOC   REALLOC
-static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 1, 8, in ); return ARK_SWAP64(v); }
+static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 8, 1, in ); return ARK_SWAP64(v); }
 void ark_list( const char *infile, zip **z ) {
     for( FILE *in = fopen(infile, "rb"); in; fclose(in), in = 0 )
     while(!feof(in)) {
@@ -841,7 +844,7 @@ if( found && *found == 0 ) {
     }
 
     // search (cache)
-    if( !ptr ) {
+    if( !ptr && !is(osx) ) { // @todo: remove silicon mac M1 hack
         ptr = cache_lookup(lookup_id, &size);
     }
 
@@ -884,7 +887,7 @@ if( found && *found == 0 ) {
                 char *cmd = va("%scook" ifdef(osx,".osx",ifdef(linux,".linux",".exe"))" %s %s --cook-ini=%s --cook-additive --cook-jobs=1 --quiet", TOOLS, group1, group2, COOK_INI);
 
                 // cook groups
-                int rc = system(cmd);
+                int rc = system(cmd); // atoi(app_exec(cmd));
                 if(rc < 0) PANIC("cannot invoke `%scook` (return code %d)", TOOLS, rc);
 
                 vfs_reload(); // @todo: optimize me. it is waaay inefficent to reload the whole VFS layout after cooking a single asset
@@ -1126,7 +1129,9 @@ ini_t ini_from_mem(const char *data) {
 }
 
 ini_t ini(const char *filename) {
-    return ini_from_mem(file_read(filename));
+    char *kv = file_read(filename);
+    if(!kv) kv = vfs_read(filename);
+    return ini_from_mem(kv);
 }
 
 bool ini_write(const char *filename, const char *section, const char *key, const char *value) {

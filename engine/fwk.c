@@ -107,7 +107,7 @@
     for( int lock_ = (thread_mutex_lock( mutexptr ), 1); lock_; lock_ = (thread_mutex_unlock( mutexptr ), 0) )
 
 #define AS_NKCOLOR(color) \
-    ((struct nk_color){ ((color>>16))&255,((color>>8))&255,((color>>0))&255,((color>>24))&255 })
+    ((struct nk_color){ ((color>>0))&255,((color>>8))&255,((color>>16))&255,((color>>24))&255 })
 #line 0
 
 #line 1 "fwk_ds.c"
@@ -115,8 +115,11 @@
 // -----------------------------------------------------------------------------
 // sort/less
 
-int sort_64(const void *a, const void *b) {
+int less_64_ptr(const void *a, const void *b) {
     return 0[(uint64_t*)a] - 0[(uint64_t*)b];
+}
+int less_int_ptr(const void *a, const void *b) {
+    return 0[(int*)a] - 0[(int*)b];
 }
 
 int less_int(int a, int b) {
@@ -513,7 +516,7 @@ char* tempvl(const char *fmt, va_list vl) {
     static __thread char buf[STACK_ALLOC];
 #else
     int heap = 1;
-    static __thread int STACK_ALLOC = 128*1024;
+    static __thread int STACK_ALLOC = 512*1024;
     static __thread char *buf = 0; if(!buf) buf = REALLOC(0, STACK_ALLOC); // @leak
 #endif
     static __thread int cur = 0; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
@@ -761,11 +764,12 @@ const char *strlerp(unsigned numpairs, const char **pairs, const char *str) { //
 }
 
 array(char*) strsplit(const char *str, const char *separators) {
+    enum { SLOTS = 32 };
     static __thread int slot = 0;
-    static __thread char *buf[16] = {0};
-    static __thread array(char*) list[16] = {0};
+    static __thread char *buf[SLOTS] = {0};
+    static __thread array(char*) list[SLOTS] = {0};
 
-    slot = (slot+1) % 16;
+    slot = (slot+1) % SLOTS;
     array_resize(list[slot], 0);
     *(buf[slot] = REALLOC(buf[slot], strlen(str)*2+1)) = '\0'; // *2 to backup pathological case where input str is only separators && include == 1
 
@@ -797,10 +801,11 @@ array(char*) strsplit(const char *str, const char *separators) {
     return list[slot];
 }
 char* strjoin(array(char*) list, const char *separator) {
+    enum { SLOTS = 16 };
     static __thread int slot = 0;
-    static __thread char* mems[16] = {0};
+    static __thread char* mems[SLOTS] = {0};
 
-    slot = (slot+1) % 16;
+    slot = (slot+1) % SLOTS;
 
     int num_list = array_count(list);
     int len = 0, inc = 0, seplen = strlen(separator);
@@ -825,7 +830,7 @@ const char *extract_utf32(const char *s, uint32_t *out) {
     /**/ if( (s[0] & 0x80) == 0x00 ) return *out = (s[0]), s + 1;
     else if( (s[0] & 0xe0) == 0xc0 ) return *out = (s[0] & 31) <<  6 | (s[1] & 63), s + 2;
     else if( (s[0] & 0xf0) == 0xe0 ) return *out = (s[0] & 15) << 12 | (s[1] & 63) <<  6 | (s[2] & 63), s + 3;
-    else if( (s[0] & 0xf8) != 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
+    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
     return *out = 0, s + 0;
 }
 array(uint32_t) string32( const char *utf8 ) {
@@ -839,6 +844,16 @@ array(uint32_t) string32( const char *utf8 ) {
         array_push(out[slot], unicode);
     }
     return out[slot];
+}
+
+const char* codepoint_to_utf8(unsigned c) { //< @r-lyeh
+    static char s[4+1];
+    memset(s, 0, 5);
+    /**/ if (c <     0x80) s[0] = c, s[1] = 0;
+    else if (c <    0x800) s[0] = 0xC0 | ((c >>  6) & 0x1F), s[1] = 0x80 | ( c        & 0x3F), s[2] = 0;
+    else if (c <  0x10000) s[0] = 0xE0 | ((c >> 12) & 0x0F), s[1] = 0x80 | ((c >>  6) & 0x3F), s[2] = 0x80 | ( c        & 0x3F), s[3] = 0;
+    else if (c < 0x110000) s[0] = 0xF0 | ((c >> 18) & 0x07), s[1] = 0x80 | ((c >> 12) & 0x3F), s[2] = 0x80 | ((c >>  6) & 0x3F), s[3] = 0x80 | (c & 0x3F), s[4] = 0;
+    return s;
 }
 
 // -----------------------------------------------------------------------------
@@ -916,6 +931,155 @@ AUTORUN {
     test( !strcmp("Hello happy world.", buf) );
 }
 #endif
+
+// ----------------------------------------------------------------------------
+// localization kit
+
+static const char *kit_lang = "enUS", *kit_langs =
+    "enUS,enGB,"
+    "frFR,"
+    "esES,esAR,esMX,"
+    "deDE,deCH,deAT,"
+    "itIT,itCH,"
+    "ptBR,ptPT,"
+    "zhCN,zhSG,zhTW,zhHK,zhMO,"
+    "ruRU,elGR,trTR,daDK,noNB,svSE,nlNL,plPL,fiFI,jaJP,"
+    "koKR,csCZ,huHU,roRO,thTH,bgBG,heIL"
+;
+
+static map(char*,char*) kit_ids;
+static map(char*,char*) kit_vars;
+
+#ifndef KIT_FMT_ID2
+#define KIT_FMT_ID2 "%s.%s"
+#endif
+
+void kit_init() {
+    do_once map_init(kit_ids, less_str, hash_str);
+    do_once map_init(kit_vars, less_str, hash_str);
+}
+
+void kit_insert( const char *id, const char *translation) {
+    char *id2 = va(KIT_FMT_ID2, kit_lang, id);
+
+    char **found = map_find_or_add_allocated_key(kit_ids, STRDUP(id2), NULL);
+    if(*found) FREE(*found);
+    *found = STRDUP(translation);
+}
+
+bool kit_merge( const char *filename ) {
+    // @todo: xlsx2ini
+    return false;
+}
+
+void kit_clear() {
+    map_clear(kit_ids);
+}
+
+bool kit_load( const char *filename ) {
+    return kit_clear(), kit_merge( filename );
+}
+
+void kit_set( const char *key, const char *value ) {
+    value = value && value[0] ? value : "";
+
+    char **found = map_find_or_add_allocated_key(kit_vars, STRDUP(key), NULL );
+    if(*found) FREE(*found);
+    *found = STRDUP(value);
+}
+
+void kit_reset() {
+    map_clear(kit_vars);
+}
+
+char *kit_translate2( const char *id, const char *lang ) {
+    char *id2 = va(KIT_FMT_ID2, lang, id);
+
+    char **found = map_find(kit_ids, id2);
+
+    // return original [[ID]] if no translation is found
+    if( !found ) return va("[[%s]]", id);
+
+    // return translation if no {{moustaches}} are found
+    if( !strstr(*found, "{{") ) return *found;
+
+    // else replace all found {{moustaches}} with context vars
+    {
+        // make room
+        static __thread char *results[16] = {0};
+        static __thread unsigned counter = 0; counter = (counter+1) % 16;
+
+        char *buffer = results[ counter ];
+        if( buffer ) FREE(buffer), buffer = 0;
+
+        // iterate moustaches
+        const char *begin, *end, *text = *found;
+        while( NULL != (begin = strstr(text, "{{")) ) {
+            end = strstr(begin+2, "}}");
+            if( end ) {
+                char *var = va("%.*s", (int)(end - (begin+2)), begin+2);
+                char **found_var = map_find(kit_vars, var);
+
+                if( found_var && 0[*found_var] ) {
+                    strcatf(&buffer, "%.*s%s", (int)(begin - text), text, *found_var);
+                } else {
+                    strcatf(&buffer, "%.*s{{%s}}", (int)(begin - text), text, var);
+                }
+
+                text = end+2;
+            } else {
+                strcatf(&buffer, "%.*s", (int)(begin - text), text);
+
+                text = begin+2;
+            }
+        }
+
+        strcatf(&buffer, "%s", text);
+        return buffer;
+    }
+}
+
+char *kit_translate( const char *id ) {
+    return kit_translate2( id, kit_lang );
+}
+
+void kit_locale( const char *lang ) {
+    kit_lang = STRDUP(lang); // @leak
+}
+
+void kit_dump_state( FILE *fp ) {
+    for each_map(kit_ids, char *, k, char *, v) {
+        fprintf(fp, "[ID ] %s=%s\n", k, v);
+    }
+    for each_map(kit_vars, char *, k, char *, v) {
+        fprintf(fp, "[VAR] %s=%s\n", k, v);
+    }
+}
+
+/*
+int main() {
+    kit_init();
+
+    kit_locale("enUS");
+    kit_insert("HELLO_PLAYERS", "Hi {{PLAYER1}} and {{PLAYER2}}!");
+    kit_insert("GREET_PLAYERS", "Nice to meet you.");
+
+    kit_locale("esES");
+    kit_insert("HELLO_PLAYERS", "Hola {{PLAYER1}} y {{PLAYER2}}!");
+    kit_insert("GREET_PLAYERS", "Un placer conoceros.");
+
+    kit_locale("enUS");
+    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hi {{PLAYER1}} and {{PLAYER2}}! Nice to meet you.
+
+    kit_locale("esES");
+    kit_set("PLAYER1", "John");
+    kit_set("PLAYER2", "Karl");
+    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hola John y Karl! Un placer conoceros.
+
+    assert( 0 == strcmp(kit_translate("NON_EXISTING"), "[[NON_EXISTING]]")); // [[NON_EXISTING]]
+    assert(~puts("Ok"));
+}
+*/
 #line 0
 
 #line 1 "fwk_compat.c"
@@ -1116,6 +1280,7 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
             int glyphs = strlen(TEXT) / 4 /*3:MD,4:MDI*/; CHOICE *= !!clicked_x * (CHOICE <= glyphs); } while(0)
 
 // menu macros that work not only standalone but also contained within a panel or window
+static int ui_using_v2_menubar = 0;
 #define UI_MENU(N, ...) do { \
     enum { MENUROW_HEIGHT = 25 }; \
     int embedded = !!ui_ctx->current; \
@@ -1123,6 +1288,7 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
     if( embedded ) total_space = nk_window_get_bounds(ui_ctx), total_space.w -= 10; \
     int created = !embedded && nk_begin(ui_ctx, "MENU_" STRINGIZE(__COUNTER__), nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR); \
     if ( embedded || created ) { \
+        ui_using_v2_menubar = 1; \
         int align = NK_TEXT_LEFT, Nth = (N), ITEM_WIDTH = 30, span = 0; \
         nk_menubar_begin(ui_ctx); \
         nk_layout_row_begin(ui_ctx, NK_STATIC, MENUROW_HEIGHT, Nth); \
@@ -1145,10 +1311,11 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
         nk_menu_close(ui_ctx); \
         nk_menu_end(ui_ctx); \
     }}
-#define UI_MENU_ALIGN_RIGHT(px) { \
+#define UI_MENU_ALIGN_RIGHT(px, ...) { \
     int hspace = total_space.w - span - (px) - 1.5 * ITEM_WIDTH; \
     nk_layout_row_push(ui_ctx, hspace); span += hspace; \
     if (nk_menu_begin_label(ui_ctx, (title), align = NK_TEXT_RIGHT, nk_vec2(1,1))) { \
+        __VA_ARGS__; \
         nk_menu_close(ui_ctx); \
         nk_menu_end(ui_ctx); \
     }}
@@ -1186,6 +1353,10 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
     #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
 #endif
 
+    #define UI_FONT_REGULAR_SAMPLING  UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+    #define UI_FONT_HEADING_SAMPLING  UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+    #define UI_FONT_TERMINAL_SAMPLING UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+
 #if UI_ICONS_SMALL
     #define UI_ICON_FONTSIZE        UI_FONT_ENUM(16.5f,16.5f)
     #define UI_ICON_SPACING_X       UI_FONT_ENUM(-2,-2)
@@ -1207,9 +1378,9 @@ void* ui_handle() {
 }
 
 static void nk_config_custom_fonts() {
-    #define UI_ICON_MIN ICON_MIN_MD
-    #define UI_ICON_MED ICON_MAX_16_MD
-    #define UI_ICON_MAX ICON_MAX_MD
+    #define UI_ICON_MIN ICON_MD_MIN
+    #define UI_ICON_MED ICON_MD_MAX_16
+    #define UI_ICON_MAX ICON_MD_MAX
 
     #define ICON_BARS        ICON_MD_MENU
     #define ICON_FILE        ICON_MD_INSERT_DRIVE_FILE
@@ -1224,8 +1395,12 @@ static void nk_config_custom_fonts() {
         for( char *data = vfs_load(UI_FONT_REGULAR, &datalen); data; data = 0 ) {
             float font_size = UI_FONT_REGULAR_SIZE;
                 struct nk_font_config cfg = nk_font_config(font_size);
-                cfg.oversample_v = 2;
-                cfg.pixel_snap = 0;
+                cfg.oversample_h = UI_FONT_REGULAR_SAMPLING.x;
+                cfg.oversample_v = UI_FONT_REGULAR_SAMPLING.y;
+                cfg.pixel_snap   = UI_FONT_REGULAR_SAMPLING.z;
+                #if UI_LESSER_SPACING
+                cfg.spacing.x -= 1.0;
+                #endif
             // win32: struct nk_font *arial = nk_font_atlas_add_from_file(atlas, va("%s/fonts/arial.ttf",getenv("windir")), font_size, &cfg); font = arial ? arial : font;
             // struct nk_font *droid = nk_font_atlas_add_from_file(atlas, "nuklear/extra_font/DroidSans.ttf", font_size, &cfg); font = droid ? droid : font;
             struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg); font = regular ? regular : font;
@@ -1233,10 +1408,10 @@ static void nk_config_custom_fonts() {
 
         // ...with icons embedded on it.
         static struct icon_font {
-            const char *file; int yspacing; nk_rune range[3];
+            const char *file; int yspacing; vec3 sampling; nk_rune range[3];
         } icons[] = {
-            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
-            {"materialdesignicons-webfont.ttf", 2, {0xF68C /*ICON_MIN_MDI*/, 0xF1CC7/*ICON_MAX_MDI*/, 0}},
+            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {1,1,1}, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
+            {"materialdesignicons-webfont.ttf", 2, {1,1,1}, {0xF68C /*ICON_MDI_MIN*/, 0xF1CC7/*ICON_MDI_MAX*/, 0}},
         };
         for( int f = 0; f < countof(icons); ++f )
         for( char *data = vfs_load(icons[f].file, &datalen); data; data = 0 ) {
@@ -1249,9 +1424,13 @@ static void nk_config_custom_fonts() {
          // cfg.font->ascent += ICON_ASCENT;
          // cfg.font->height += ICON_HEIGHT;
 
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
+            cfg.oversample_h = icons[f].sampling.x;
+            cfg.oversample_v = icons[f].sampling.y;
+            cfg.pixel_snap   = icons[f].sampling.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
 
             struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_ICON_FONTSIZE, &cfg);
         }
@@ -1259,15 +1438,19 @@ static void nk_config_custom_fonts() {
         // Monospaced font. Used in terminals or consoles.
 
         for( char *data = vfs_load(UI_FONT_TERMINAL, &datalen); data; data = 0 ) {
-            const float font_size = UI_FONT_REGULAR_SIZE;
+            const float font_size = UI_FONT_TERMINAL_SIZE;
             static const nk_rune icon_range[] = {32, 127, 0};
 
             struct nk_font_config cfg = nk_font_config(font_size);
             cfg.range = icon_range;
 
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
+            cfg.oversample_h = UI_FONT_TERMINAL_SAMPLING.x;
+            cfg.oversample_v = UI_FONT_TERMINAL_SAMPLING.y;
+            cfg.pixel_snap   = UI_FONT_TERMINAL_SAMPLING.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
 
             // struct nk_font *proggy = nk_font_atlas_add_default(atlas, font_size, &cfg);
             struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg);
@@ -1276,7 +1459,17 @@ static void nk_config_custom_fonts() {
         // Extra optional fonts from here...
 
         for( char *data = vfs_load(UI_FONT_HEADING, &datalen); data; data = 0 ) {
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
+            struct nk_font_config cfg = nk_font_config(UI_FONT_HEADING_SIZE);
+            cfg.oversample_h = UI_FONT_HEADING_SAMPLING.x;
+            cfg.oversample_v = UI_FONT_HEADING_SAMPLING.y;
+            cfg.pixel_snap   = UI_FONT_HEADING_SAMPLING.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
+
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, &cfg);
+            // font = bold ? bold : font;
         }
 
     nk_glfw3_font_stash_end(&nk_glfw); // nk_sdl_font_stash_end();
@@ -1431,7 +1624,7 @@ int ui_menu_editbox(char *buf, int bufcap) {
 }
 
 int ui_has_menubar() {
-    return !!ui_items; // array_count(ui_items) > 0;
+    return ui_using_v2_menubar || !!ui_items; // ? UI_MENUROW_HEIGHT + 8 : 0; // array_count(ui_items) > 0;
 }
 
 static
@@ -1723,6 +1916,7 @@ int ui_set_enable_(int enabled) {
 
         off.text.color.a *= alpha;
 
+#if 0
         off.button.normal.data.color.a *= alpha;
         off.button.hover.data.color.a *= alpha;
         off.button.active.data.color.a *= alpha;
@@ -1740,7 +1934,7 @@ int ui_set_enable_(int enabled) {
         off.contextual_button.text_normal.a *= alpha;
         off.contextual_button.text_hover.a *= alpha;
         off.contextual_button.text_active.a *= alpha;
-
+#endif
         off.menu_button.normal.data.color.a *= alpha;
         off.menu_button.hover.data.color.a *= alpha;
         off.menu_button.active.data.color.a *= alpha;
@@ -1749,7 +1943,7 @@ int ui_set_enable_(int enabled) {
         off.menu_button.text_normal.a *= alpha;
         off.menu_button.text_hover.a *= alpha;
         off.menu_button.text_active.a *= alpha;
-
+#if 0
         off.option.normal.data.color.a *= alpha;
         off.option.hover.data.color.a *= alpha;
         off.option.active.data.color.a *= alpha;
@@ -1822,7 +2016,7 @@ int ui_set_enable_(int enabled) {
         off.progress.cursor_hover.data.color.a *= alpha;
         off.progress.cursor_active.data.color.a *= alpha;
         off.progress.cursor_border_color.a *= alpha;
-
+#endif
         off.property.normal.data.color.a *= alpha;
         off.property.hover.data.color.a *= alpha;
         off.property.active.data.color.a *= alpha;
@@ -1877,7 +2071,7 @@ int ui_set_enable_(int enabled) {
         off.edit.selected_hover.a *= alpha;
         off.edit.selected_text_normal.a *= alpha;
         off.edit.selected_text_hover.a *= alpha;
-
+#if 0
         off.chart.background.data.color.a *= alpha;
         off.chart.border_color.a *= alpha;
         off.chart.selected_color.a *= alpha;
@@ -1904,7 +2098,7 @@ int ui_set_enable_(int enabled) {
         off.tab.background.data.color.a *= alpha;
         off.tab.border_color.a *= alpha;
         off.tab.text.a *= alpha;
-
+#endif
         off.combo.normal.data.color.a *= alpha;
         off.combo.hover.data.color.a *= alpha;
         off.combo.active.data.color.a *= alpha;
@@ -1923,7 +2117,7 @@ int ui_set_enable_(int enabled) {
         off.combo.button.text_normal.a *= alpha;
         off.combo.button.text_hover.a *= alpha;
         off.combo.button.text_active.a *= alpha;
-
+#if 0
         off.window.fixed_background.data.color.a *= alpha;
         off.window.background.a *= alpha;
         off.window.border_color.a *= alpha;
@@ -1937,6 +2131,7 @@ int ui_set_enable_(int enabled) {
         off.window.header.normal.data.color.a *= alpha;
         off.window.header.hover.data.color.a *= alpha;
         off.window.header.active.data.color.a *= alpha;
+#endif
     }
     static struct nk_input input;
     if (!enabled) {
@@ -2928,24 +3123,60 @@ int ui_toggle(const char *label, bool *value) {
     return rc ? (*value ^= 1), rc : rc;
 }
 
-int ui_color4f(const char *label, float *color4) {
-    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
-
-    float c[4] = { color4[0]*255, color4[1]*255, color4[2]*255, color4[3]*255 };
-    int ret = ui_color4(label, c);
-    for( int i = 0; i < 4; ++i ) color4[i] = c[i] / 255.0f;
-    return ret;
-}
-
 static enum color_mode {COL_RGB, COL_HSV} ui_color_mode = COL_RGB;
 
-int ui_color4(const char *label, float *color4) {
+int ui_color4f(const char *label, float *color) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color4[0]*ui_alpha/255, color4[1]*ui_alpha/255, color4[2]*ui_alpha/255, color4[3]/255 }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), clampf(after.a,0,1) };
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGB);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", -FLT_MAX, after.r, FLT_MAX, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", -FLT_MAX, after.g, FLT_MAX, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", -FLT_MAX, after.b, FLT_MAX, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", -FLT_MAX, hsva[0], FLT_MAX, 0.01f,0.005f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", -FLT_MAX, hsva[1], FLT_MAX, 0.01f,0.005f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", -FLT_MAX, hsva[2], FLT_MAX, 0.01f,0.005f);
+            after = nk_hsva_colorfv(hsva);
+        }
+        nk_label(ui_ctx, va("#%02X%02X%02X", (unsigned)clampf(after.r*255,0,255), (unsigned)clampf(after.g*255,0,255), (unsigned)clampf(after.b*255,0,255)), NK_TEXT_CENTERED);
+
+        color[0] = after.r;
+        color[1] = after.g;
+        color[2] = after.b;
+        color[3] = after.a;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+int ui_color4(const char *label, unsigned *color) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    unsigned a = *color >> 24;
+    unsigned b =(*color >> 16)&255;
+    unsigned g =(*color >> 8)&255;
+    unsigned r = *color & 255;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { r*ui_alpha/255, g*ui_alpha/255, b*ui_alpha/255, a*ui_alpha/255 }, before = after;
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
         after = nk_color_picker(ui_ctx, after, NK_RGBA);
@@ -2956,44 +3187,83 @@ int ui_color4(const char *label, float *color4) {
 
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
-            after.a = nk_propertyf(ui_ctx, "#A:", 0, after.a, 1.0f, 0.01f,0.005f);
+            after.r = nk_propertyi(ui_ctx, "#R:", 0, after.r * 255, 255, 1,1) / 255.f;
+            after.g = nk_propertyi(ui_ctx, "#G:", 0, after.g * 255, 255, 1,1) / 255.f;
+            after.b = nk_propertyi(ui_ctx, "#B:", 0, after.b * 255, 255, 1,1) / 255.f;
+            after.a = nk_propertyi(ui_ctx, "#A:", 0, after.a * 255, 255, 1,1) / 255.f;
         } else {
             float hsva[4];
             nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
-            hsva[3] = nk_propertyf(ui_ctx, "#A:", 0, hsva[3], 1.0f, 0.01f,0.05f);
+            hsva[0] = nk_propertyi(ui_ctx, "#H:", 0, hsva[0] * 255, 255, 1,1) / 255.f;
+            hsva[1] = nk_propertyi(ui_ctx, "#S:", 0, hsva[1] * 255, 255, 1,1) / 255.f;
+            hsva[2] = nk_propertyi(ui_ctx, "#V:", 0, hsva[2] * 255, 255, 1,1) / 255.f;
+            hsva[3] = nk_propertyi(ui_ctx, "#A:", 0, hsva[3] * 255, 255, 1,1) / 255.f;
             after = nk_hsva_colorfv(hsva);
         }
+        r = after.r * 255;
+        g = after.g * 255;
+        b = after.b * 255;
+        a = after.a * 255;
+        *color = rgba(r,g,b,a);
 
-        color4[0] = after.r * 255;
-        color4[1] = after.g * 255;
-        color4[2] = after.b * 255;
-        color4[3] = after.a * 255;
+        nk_label(ui_ctx, va("#%02X%02X%02X%02X", r, g, b, a), NK_TEXT_CENTERED);
 
         nk_combo_end(ui_ctx);
     }
     return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
 }
 
-int ui_color3f(const char *label, float *color3) {
-    float c[3] = { color3[0]*255, color3[1]*255, color3[2]*255 };
-    int ret = ui_color3(label, c);
-    for( int i = 0; i < 3; ++i ) color3[i] = c[i] / 255.0f;
-    return ret;
-}
-
-int ui_color3(const char *label, float *color3) {
+int ui_color3f(const char *label, float *color) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color3[0]*ui_alpha/255, color3[1]*ui_alpha/255, color3[2]*ui_alpha/255, 1 }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), ui_alpha };
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGB);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", -FLT_MAX, after.r, FLT_MAX, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", -FLT_MAX, after.g, FLT_MAX, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", -FLT_MAX, after.b, FLT_MAX, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", -FLT_MAX, hsva[0], FLT_MAX, 0.01f,0.005f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", -FLT_MAX, hsva[1], FLT_MAX, 0.01f,0.005f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", -FLT_MAX, hsva[2], FLT_MAX, 0.01f,0.005f);
+            after = nk_hsva_colorfv(hsva);
+        }
+        nk_label(ui_ctx, va("#%02X%02X%02X", (unsigned)clampf(after.r*255,0,255), (unsigned)clampf(after.g*255,0,255), (unsigned)clampf(after.b*255,0,255)), NK_TEXT_CENTERED);
+
+        color[0] = after.r;
+        color[1] = after.g;
+        color[2] = after.b;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+int ui_color3(const char *label, unsigned *color) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    unsigned a = *color >> 24;
+    unsigned b =(*color >> 16)&255;
+    unsigned g =(*color >> 8)&255;
+    unsigned r = *color & 255;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { r*ui_alpha/255, g*ui_alpha/255, b*ui_alpha/255, ui_alpha }, before = after;
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
         after = nk_color_picker(ui_ctx, after, NK_RGB);
@@ -3004,21 +3274,23 @@ int ui_color3(const char *label, float *color3) {
 
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
+            after.r = nk_propertyi(ui_ctx, "#R:", 0, after.r * 255, 255, 1,1) / 255.f;
+            after.g = nk_propertyi(ui_ctx, "#G:", 0, after.g * 255, 255, 1,1) / 255.f;
+            after.b = nk_propertyi(ui_ctx, "#B:", 0, after.b * 255, 255, 1,1) / 255.f;
         } else {
             float hsva[4];
             nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
+            hsva[0] = nk_propertyi(ui_ctx, "#H:", 0, hsva[0] * 255, 255, 1,1) / 255.f;
+            hsva[1] = nk_propertyi(ui_ctx, "#S:", 0, hsva[1] * 255, 255, 1,1) / 255.f;
+            hsva[2] = nk_propertyi(ui_ctx, "#V:", 0, hsva[2] * 255, 255, 1,1) / 255.f;
             after = nk_hsva_colorfv(hsva);
         }
+        r = after.r * 255;
+        g = after.g * 255;
+        b = after.b * 255;
+        *color = rgba(r,g,b,a);
 
-        color3[0] = after.r * 255;
-        color3[1] = after.g * 255;
-        color3[2] = after.b * 255;
+        nk_label(ui_ctx, va("#%02X%02X%02X", r, g, b), NK_TEXT_CENTERED);
 
         nk_combo_end(ui_ctx);
     }
@@ -3091,6 +3363,8 @@ int ui_bool(const char *label, bool *enabled ) {
     return chg;
 }
 
+static int ui_num_signs = 0;
+
 int ui_int(const char *label, int *v) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
@@ -3111,6 +3385,45 @@ int ui_unsigned(const char *label, unsigned *v) {
     unsigned prev = *v;
     *v = (unsigned)nk_propertyd(ui_ctx, "#", 0, *v, UINT_MAX, 1,1);
     return prev != *v;
+}
+int ui_unsigned2(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+2u %+2u", v[0], v[1]) :
+        va("%2u, %2u", v[0], v[1]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        unsigned prev0 = v[0]; nk_property_int(ui_ctx, "#X:", 0, &v[0], INT_MAX, 1,0.5f);
+        unsigned prev1 = v[1]; nk_property_int(ui_ctx, "#Y:", 0, &v[1], INT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1];
+    }
+    return 0;
+}
+int ui_unsigned3(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+2u %+2u %+2u", v[0], v[1], v[2]) :
+        va("%2u, %2u, %2u", v[0], v[1], v[2]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        unsigned prev0 = v[0]; nk_property_int(ui_ctx, "#X:", 0, &v[0], INT_MAX, 1,0.5f);
+        unsigned prev1 = v[1]; nk_property_int(ui_ctx, "#Y:", 0, &v[1], INT_MAX, 1,0.5f);
+        unsigned prev2 = v[2]; nk_property_int(ui_ctx, "#Z:", 0, &v[2], INT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
+    }
+    return 0;
 }
 
 int ui_short(const char *label, short *v) {
@@ -3152,16 +3465,14 @@ int ui_clampf(const char *label, float *v, float minf, float maxf) {
     return prev != v[0];
 }
 
-static bool ui_float_sign = 0;
-
 int ui_float2(const char *label, float *v) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.3f %+.3f", v[0], v[1]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.3f %+.3f", v[0], v[1]) :
         va("%.3f, %.3f", v[0], v[1]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -3180,8 +3491,8 @@ int ui_float3(const char *label, float *v) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
         va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -3201,8 +3512,8 @@ int ui_float4(const char *label, float *v) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
         va("%.2f,%.2f,%.2f,%.2f", v[0], v[1], v[2], v[3]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -3221,7 +3532,7 @@ int ui_float4(const char *label, float *v) {
 int ui_mat33(const char *label, float M[9]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 3;
+    ui_num_signs = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float3(NULL, M);
@@ -3232,7 +3543,7 @@ int ui_mat33(const char *label, float M[9]) {
 int ui_mat34(const char *label, float M[12]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 3;
+    ui_num_signs = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -3243,7 +3554,7 @@ int ui_mat34(const char *label, float M[12]) {
 int ui_mat44(const char *label, float M[16]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 4;
+    ui_num_signs = 4;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -3539,7 +3850,7 @@ int ui_browse(const char **output, bool *inlined) {
         // if(ui_ctx->current) bounds = nk_window_get_bounds(ui_ctx), P(bounds);
         // if(ui_ctx->current) bounds = nk_window_get_content_region(ui_ctx), P(bounds);
         // if(ui_ctx->current) nk_layout_peek(&bounds, ui_ctx), P(bounds);
-        // // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
+        // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
         // #undef P
 
         // panel
@@ -3614,8 +3925,10 @@ int ui_demo(int do_windows) {
     static float float2[2] = {1,2};
     static float float3[3] = {1,2,3};
     static float float4[4] = {1,2,3,4};
-    static float rgb[3] = {0.84,0.67,0.17};
-    static float rgba[4] = {0.67,0.90,0.12,1};
+    static float rgbf[3] = {0.84,0.67,0.17};
+    static float rgbaf[4] = {0.67,0.90,0.12,1};
+    static unsigned rgb = CYAN;
+    static unsigned rgba = PINK;
     static float slider = 0.5f;
     static float slider2 = 0.5f;
     static char string[64] = "hello world 123";
@@ -3659,8 +3972,10 @@ int ui_demo(int do_windows) {
         if( ui_list("my list", list, 3, &item ) ) puts("list changed");
 
         if( ui_section("Colors")) {}
-        if( ui_color3f("my color3", rgb) ) puts("color3 changed");
-        if( ui_color4f("my color4@this is a tooltip", rgba) ) puts("color4 changed");
+        if( ui_color3("my color3", &rgb) ) puts("color3 changed");
+        if( ui_color4("my color4@this is a tooltip", &rgba) ) puts("color4 changed");
+        if( ui_color3f("my color3f", rgbf) ) puts("color3f changed");
+        if( ui_color4f("my color4f@this is a tooltip", rgbaf) ) puts("color4f changed");
 
         if( ui_section("Sliders")) {}
         if( ui_slider("my slider", &slider)) puts("slider changed");
@@ -4364,762 +4679,6 @@ int ui_audio() {
 
     return changed;
 }
-#line 0
-
-#line 1 "fwk_buffer.c"
-// ----------------------------------------------------------------------------
-// compression api
-
-static struct zcompressor {
-    // id of compressor
-    unsigned enumerator;
-    // name of compressor
-    const char name1, *name4, *name;
-    // returns worst case compression estimation for selected flags
-    unsigned (*bounds)(unsigned bytes, unsigned flags);
-    // returns number of bytes written. 0 if error.
-    unsigned (*encode)(const void *in, unsigned inlen, void *out, unsigned outcap, unsigned flags);
-    // returns number of excess bytes that will be overwritten when decoding.
-    unsigned (*excess)(unsigned flags);
-    // returns number of bytes written. 0 if error.
-    unsigned (*decode)(const void *in, unsigned inlen, void *out, unsigned outcap);
-} zlist[] = {
-    { COMPRESS_RAW,     '0', "raw",  "raw",     raw_bounds, raw_encode, raw_excess, raw_decode },
-    { COMPRESS_PPP,     'p', "ppp",  "ppp",     ppp_bounds, ppp_encode, ppp_excess, ppp_decode },
-    { COMPRESS_ULZ,     'u', "ulz",  "ulz",     ulz_bounds, ulz_encode, ulz_excess, ulz_decode },
-    { COMPRESS_LZ4,     '4', "lz4x", "lz4x",    lz4x_bounds, lz4x_encode, lz4x_excess, lz4x_decode },
-    { COMPRESS_CRUSH,   'c', "crsh", "crush",   crush_bounds, crush_encode, crush_excess, crush_decode },
-    { COMPRESS_DEFLATE, 'd', "defl", "deflate", deflate_bounds, deflate_encode, deflate_excess, deflate_decode },
-    { COMPRESS_LZP1,    '1', "lzp1", "lzp1",    lzp1_bounds, lzp1_encode, lzp1_excess, lzp1_decode },
-    { COMPRESS_LZMA,    'm', "lzma", "lzma",    lzma_bounds, lzma_encode, lzma_excess, lzma_decode },
-    { COMPRESS_BALZ,    'b', "balz", "balz",    balz_bounds, balz_encode, balz_excess, balz_decode },
-    { COMPRESS_LZW3,    'w', "lzw3", "lzrw3a",  lzrw3a_bounds, lzrw3a_encode, lzrw3a_excess, lzrw3a_decode },
-    { COMPRESS_LZSS,    's', "lzss", "lzss",    lzss_bounds, lzss_encode, lzss_excess, lzss_decode },
-    { COMPRESS_BCM,     'B', "bcm",  "bcm",     bcm_bounds, bcm_encode, bcm_excess, bcm_decode },
-    { COMPRESS_ZLIB,    'z', "zlib", "zlib",    deflate_bounds, deflatez_encode, deflate_excess, deflatez_decode },
-};
-
-enum { COMPRESS_NUM = 14 };
-
-static char *znameof(unsigned flags) {
-    static __thread char buf[16];
-    snprintf(buf, 16, "%4s.%c", zlist[(flags>>4)&0x0F].name4, "0123456789ABCDEF"[flags&0xF]);
-    return buf;
-}
-unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].encode(in, inlen, (uint8_t*)out, outlen, flags & 0x0F);
-}
-unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].decode((uint8_t*)in, inlen, out, outlen);
-}
-unsigned zbounds(unsigned inlen, unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].bounds(inlen, flags & 0x0F);
-}
-unsigned zexcess(unsigned flags) {
-    return zlist[(flags >> 4) % COMPRESS_NUM].excess(flags & 0x0F);
-}
-
-// ----------------------------------------------------------------------------
-// BASE92 en/decoder
-// THE BEERWARE LICENSE (Revision 42):
-// <thenoviceoof> wrote this file. As long as you retain this notice you
-// can do whatever you want with this stuff. If we meet some day, and you
-// think this stuff is worth it, you can buy me a beer in return
-// - Nathan Hwang (thenoviceoof)
-
-unsigned base92_bounds(unsigned inlen) {
-    unsigned size = (inlen * 8) % 13, extra_null = 1;
-    if(size == 0) return 2 * ((inlen * 8) / 13) + extra_null;
-    if(size  < 7) return 2 * ((inlen * 8) / 13) + extra_null + 1;
-                  return 2 * ((inlen * 8) / 13) + extra_null + 2;
-}
-
-unsigned base92_encode(const void* in, unsigned inlen, void *out, unsigned size) {
-    char *res = (char *)out;
-    const unsigned char *str = (const unsigned char *)in;
-    unsigned int j = 0;          // j for encoded
-    unsigned long workspace = 0; // bits holding bin
-    unsigned short wssize = 0;   // number of good bits in workspace
-    unsigned char c;
-    const unsigned char ENCODE_MAPPING[256] = {
-        33, 35, 36, 37, 38, 39, 40, 41, 42, 43,
-        44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
-        54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-        64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
-        74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
-        84, 85, 86, 87, 88, 89, 90, 91, 92, 93,
-        94, 95, 97, 98, 99, 100, 101, 102, 103, 104,
-        105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
-        115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
-        125, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0
-    };
-    if (inlen) {
-        for (unsigned i = 0; i < inlen; i++) {
-            workspace = workspace << 8 | str[i];
-            wssize += 8;
-            if (wssize >= 13) {
-                int tmp = (workspace >> (wssize - 13)) & 8191;
-                c = ENCODE_MAPPING[(tmp / 91)];
-                if (c == 0) return 0; // illegal char
-                res[j++] = c;
-                c = ENCODE_MAPPING[(tmp % 91)];
-                if (c == 0) return 0; // illegal char
-                res[j++] = c;
-                wssize -= 13;
-            }
-        }
-        // encode a last byte
-        if (0 < wssize && wssize < 7) {
-            int tmp = (workspace << (6 - wssize)) & 63;  // pad the right side
-            c = ENCODE_MAPPING[(tmp)];
-            if (c == 0) return 0; // illegal char
-            res[j++] = c;
-        } else if (7 <= wssize) {
-            int tmp = (workspace << (13 - wssize)) & 8191; // pad the right side
-            c = ENCODE_MAPPING[(tmp / 91)];
-            if (c == 0) return 0; // illegal char
-            res[j++] = c;
-            c = ENCODE_MAPPING[(tmp % 91)];
-            if (c == 0) return 0; // illegal char
-            res[j++] = c;
-        }
-    } else {
-        res[j++] = '~';
-    }
-    // add null byte
-    res[j] = 0;
-    return j;
-}
-
-// this guy expects a null-terminated string
-// gives back a non-null terminated string, and properly filled len
-unsigned base92_decode(const void* in, unsigned size, void *out, unsigned outlen_unused) {
-    const char* str = (const char*)in;
-    unsigned char *res = (unsigned char *)out;
-    int i, j = 0, b1, b2;
-    unsigned long workspace = 0;
-    unsigned short wssize = 0;
-    const unsigned char DECODE_MAPPING[256] = {
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 0, 255, 1, 2, 3, 4, 5,
-        6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-        16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-        36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
-        46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
-        56, 57, 58, 59, 60, 61, 255, 62, 63, 64,
-        65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
-        75, 76, 77, 78, 79, 80, 81, 82, 83, 84,
-        85, 86, 87, 88, 89, 90, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255
-    };
-
-    // handle small cases first
-    if (size == 0 || (str[0] == '~' && str[1] == '\0')) {
-        res[0] = 0;
-        return 1;
-    }
-    // calculate size
-    int len = ((size/2 * 13) + (size%2 * 6)) / 8;
-    // handle pairs of chars
-    for (i = 0; i + 1 < size; i += 2) {
-        b1 = DECODE_MAPPING[(str[i])];
-        b2 = DECODE_MAPPING[(str[i+1])];
-        workspace = (workspace << 13) | (b1 * 91 + b2);
-        wssize += 13;
-        while (wssize >= 8) {
-            res[j++] = (workspace >> (wssize - 8)) & 255;
-            wssize -= 8;
-        }
-    }
-    // handle single char
-    if (size % 2 == 1) {
-        workspace = (workspace << 6) | DECODE_MAPPING[(str[size - 1])];
-        wssize += 6;
-        while (wssize >= 8) {
-            res[j++] = (workspace >> (wssize - 8)) & 255;
-            wssize -= 8;
-        }
-    }
-    //assert(j == len);
-    return j;
-}
-
-// ----------------------------------------------------------------------------
-// COBS en/decoder
-// Based on code by Jacques Fortier.
-// "Redistribution and use in source and binary forms are permitted, with or without modification."
-//
-// Consistent Overhead Byte Stuffing is an encoding that removes all 0 bytes from arbitrary binary data.
-// The encoded data consists only of bytes with values from 0x01 to 0xFF. This is useful for preparing data for
-// transmission over a serial link (RS-232 or RS-485 for example), as the 0 byte can be used to unambiguously indicate
-// packet boundaries. COBS also has the advantage of adding very little overhead (at least 1 byte, plus up to an
-// additional byte per 254 bytes of data). For messages smaller than 254 bytes, the overhead is constant.
-//
-// This implementation is designed to be both efficient and robust.
-// The decoder is designed to detect malformed input data and report an error upon detection.
-//
-
-unsigned cobs_bounds( unsigned len ) {
-    return len + ceil(len / 254.0) + 1;
-}
-unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen) {
-    const uint8_t *src = (const uint8_t *)in;
-    uint8_t *dst = (uint8_t*)out;
-    size_t srclen = inlen;
-
-    uint8_t code = 1;
-    size_t read_index = 0, write_index = 1, code_index = 0;
-
-    while( read_index < srclen ) {
-        if( src[ read_index ] == 0) {
-            dst[ code_index ] = code;
-            code = 1;
-            code_index = write_index++;
-            read_index++;
-        } else {
-            dst[ write_index++ ] = src[ read_index++ ];
-            code++;
-            if( code == 0xFF ) {
-                dst[ code_index ] = code;
-                code = 1;
-                code_index = write_index++;
-            }
-        }
-    }
-
-    dst[ code_index ] = code;
-    return write_index;
-}
-unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen) {
-    const uint8_t *src = (const uint8_t *)in;
-    uint8_t *dst = (uint8_t*)out;
-    size_t srclen = inlen;
-
-    uint8_t code, i;
-    size_t read_index = 0, write_index = 0;
-
-    while( read_index < srclen ) {
-        code = src[ read_index ];
-
-        if( ((read_index + code) > srclen) && (code != 1) ) {
-            return 0;
-        }
-
-        read_index++;
-
-        for( i = 1; i < code; i++ ) {
-            dst[ write_index++ ] = src[ read_index++ ];
-        }
-        if( (code != 0xFF) && (read_index != srclen) ) {
-            dst[ write_index++ ] = '\0';
-        }
-    }
-
-    return write_index;
-}
-
-#if 0
-static
-void cobs_test( const char *buffer, int buflen ) {
-    char enc[4096];
-    int enclen = cobs_encode( buffer, buflen, enc, 4096 );
-
-    char dec[4096];
-    int declen = cobs_decode( enc, enclen, dec, 4096 );
-
-    test( enclen >= buflen );
-    test( declen == buflen );
-    test( memcmp(dec, buffer, buflen) == 0 );
-
-    printf("%d->%d->%d (+%d extra bytes)\n", declen, enclen, declen, enclen - declen);
-}
-AUTORUN {
-    const char *null = 0;
-    cobs_test( null, 0 );
-
-    const char empty[] = "";
-    cobs_test( empty, sizeof(empty) );
-
-    const char text[] = "hello world\n";
-    cobs_test( text, sizeof(text) );
-
-    const char bintext[] = "hello\0\0\0world\n";
-    cobs_test( bintext, sizeof(bintext) );
-
-    const char blank[512] = {0};
-    cobs_test( blank, sizeof(blank) );
-
-    char longbintext[1024];
-    for( int i = 0; i < 1024; ++i ) longbintext[i] = (unsigned char)i;
-    cobs_test( longbintext, sizeof(longbintext) );
-
-    assert(~puts("Ok"));
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// netstring en/decoder
-// - rlyeh, public domain.
-
-unsigned netstring_bounds(unsigned inlen) {
-    return 5 + inlen + 3; // 3 for ;,\0 + 5 if inlen < 100k ; else (unsigned)ceil(log10(inlen + 1))
-}
-unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen) {
-//  if(outlen < netstring_bounds(inlen)) return 0;
-    sprintf(out, "%u:%.*s,", inlen, inlen, in);
-    return strlen(out);
-}
-unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen) {
-//  if(outlen < inlen) return 0;
-    const char *bak = in;
-    sscanf(in, "%u", &outlen);
-    while( *++in != ':' );
-    memcpy(out, in+1, outlen), out[outlen-1] = 0;
-    // return outlen; // number of written bytes
-    return (outlen + (in+2 - bak)); // number of read bytes
-}
-
-#if 0
-AUTORUN {
-    // encode
-    const char text1[] = "hello world!", text2[] = "abc123";
-    unsigned buflen = netstring_bounds(strlen(text1) + strlen(text2));
-    char *buf = malloc(buflen), *ptr = buf;
-    ptr += netstring_encode(text1, strlen(text1), ptr, buflen -= (ptr - buf));
-    ptr += netstring_encode(text2, strlen(text2), ptr, buflen -= (ptr - buf));
-    printf("%s -> ", buf);
-
-    // decode
-    char out[12];
-    unsigned plen = strlen(ptr = buf);
-    while(plen > 0) {
-        int written = netstring_decode(ptr, plen, out, 12);
-        ptr += written;
-        plen -= written;
-        printf("'%s'(%s)(%d), ", out, ptr, plen );
-    }
-    puts("");
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// array de/interleaving
-// - rlyeh, public domain.
-//
-// results:
-// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
-// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
-
-void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns ) {
-    void *bak = out;
-    assert( columns < list_count ); // required
-    int row_count = list_count / columns;
-    for( int offset = 0; offset < columns; offset++ ) {
-        for( int row = 0; row < row_count; row++ ) {
-            memcpy( out, &((char*)list)[ (offset + row * columns) * sizeof_item ], sizeof_item );
-            out = ((char*)out) + sizeof_item;
-        }
-    }
-    return bak;
-}
-
-#if 0
-static
-void interleave_test( const char *name, int interleaving, int deinterleaving, const char *original ) {
-    char interleaved[128] = {0};
-    interleave( interleaved, original, strlen(original)/2, 2, interleaving );
-    char deinterleaved[128] = {0};
-    interleave( deinterleaved, interleaved, strlen(original)/2, 2, deinterleaving );
-
-    printf( "\n%s\n", name );
-    printf( "original:\t%s\n", original );
-    printf( "interleaved:\t%s\n", interleaved );
-    printf( "deinterleaved:\t%s\n", deinterleaved );
-
-    assert( 0 == strcmp(original, deinterleaved) );
-}
-
-AUTORUN {
-    interleave_test(
-        "audio 2ch", 2, 3,
-        "L0R0"
-        "L1R1"
-        "L2R2"
-    );
-    interleave_test(
-        "image 3ch", 3, 3,
-        "R0G0B0"
-        "R1G1B1"
-        "R2G2B2"
-    );
-    interleave_test(
-        "image 4ch", 4, 3,
-        "R0G0B0A0"
-        "R1G1B1A1"
-        "R2G2B2A2"
-    );
-    interleave_test(
-        "audio 5ch", 5, 3,
-        "A0B0C0L0R0"
-        "A1B1C1L1R1"
-        "A2B2C2L2R2"
-    );
-    interleave_test(
-        "audio 5.1ch", 6, 3,
-        "A0B0C0L0R0S0"
-        "A1B1C1L1R1S1"
-        "A2B2C2L2R2S2"
-    );
-    interleave_test(
-        "opengl material 9ch", 9, 3,
-        "X0Y0Z0q0w0e0r0u0v0"
-        "X1Y1Z1q1w1e1r1u1v1"
-        "X2Y2Z2q2w2e2r2u2v2"
-    );
-    interleave_test(
-        "opengl material 10ch", 10, 3,
-        "X0Y0Z0q0w0e0r0s0u0v0"
-        "X1Y1Z1q1w1e1r1s1u1v1"
-        "X2Y2Z2q2w2e2r2s2u2v2"
-    );
-    assert(~puts("Ok"));
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// delta encoder
-
-#define delta_expand_template(N) \
-void delta##N##_encode(void *buffer_, unsigned count) { \
-    uint##N##_t current, last = 0, *buffer = (uint##N##_t*)buffer_; \
-    for( unsigned i = 0; i < count; i++ ) { \
-        current = buffer[i]; \
-        buffer[i] = current - last; \
-        last = current; \
-    } \
-} \
-void delta##N##_decode(void *buffer_, unsigned count) { \
-    uint##N##_t delta, last = 0, *buffer = (uint##N##_t*)buffer_; \
-    for( unsigned i = 0; i < count; i++ ) { \
-        delta = buffer[i]; \
-        buffer[i] = delta + last; \
-        last = buffer[i]; \
-    } \
-}
-delta_expand_template(8);
-delta_expand_template(16);
-delta_expand_template(32);
-delta_expand_template(64);
-
-#if 0
-AUTORUN {
-    char buf[] = "1231112223345555";
-    int buflen = strlen(buf);
-
-    char *dt = strdup(buf);
-    printf("  delta8: ", dt);
-    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
-    printf("->");
-    delta8_encode(dt, buflen);
-    for( int i = 0; i < buflen; ++i ) printf("%02d,", dt[i] );
-    printf("->");
-    delta8_decode(dt, buflen);
-    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
-    printf("\r%c\n", 0 == strcmp(buf,dt) ? 'Y':'N');
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// zigzag en/decoder
-// - rlyeh, public domain
-
-uint64_t zig64( int64_t value ) { // convert sign|magnitude to magnitude|sign
-    return (value >> 63) ^ (value << 1);
-}
-int64_t zag64( uint64_t value ) { // convert magnitude|sign to sign|magnitude
-    return (value >> 1) ^ -(value & 1);
-}
-
-// branchless zigzag encoding 32/64
-// sign|magnitude to magnitude|sign and back
-// [ref] https://developers.google.com/protocol-buffers/docs/encoding
-uint32_t enczig32u( int32_t n) { return ((n << 1) ^ (n >> 31)); }
-uint64_t enczig64u( int64_t n) { return ((n << 1) ^ (n >> 63)); }
- int32_t deczig32i(uint32_t n) { return ((n >> 1) ^  -(n & 1)); }
- int64_t deczig64i(uint64_t n) { return ((n >> 1) ^  -(n & 1)); }
-
-#if 0
-AUTORUN {
-    int16_t x = -1000;
-    printf("%d -> %llu %llx -> %lld\n", x, zig64(x), zig64(x), zag64(zig64(x)));
-}
-AUTORUN {
-    #define CMP32(signedN) do { \
-        int32_t reconverted = deczig32i( enczig32u(signedN) ); \
-        int equal = signedN == reconverted; \
-        printf("[%s] %d vs %d\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
-    } while(0)
-
-    #define CMP64(signedN) do { \
-        int64_t reconverted = deczig64i( enczig64u(signedN) ); \
-        int equal = signedN == reconverted; \
-        printf("[%s] %lld vs %lld\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
-    } while(0)
-
-    CMP32( 0);
-    CMP32(-1);
-    CMP32(+1);
-    CMP32(-2);
-    CMP32(+2);
-    CMP32(INT32_MAX - 1);
-    CMP32(INT32_MIN + 1);
-    CMP32(INT32_MAX);
-    CMP32(INT32_MIN);
-
-    CMP64( 0ll);
-    CMP64(-1ll);
-    CMP64(+1ll);
-    CMP64(-2ll);
-    CMP64(+2ll);
-    CMP64(INT64_MAX - 1);
-    CMP64(INT64_MIN + 1);
-    CMP64(INT64_MAX);
-    CMP64(INT64_MIN);
-}
-void TESTU( uint64_t N ) {
-    uint8_t buf[9] = {0};
-    enczig64i(buf, (N));
-    uint64_t reconstructed = deczig64i(buf, 0);
-    if( reconstructed != (N) ) printf("[FAIL] %llu vs %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", (N), buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8] );
-    else if( 0xffffff == ((N) & 0xffffff) ) printf("[ OK ] %llx\n", (N));
-}
-void TESTI( int64_t N ) {
-    TESTU( enczig64u(N) );
-}
-AUTORUN {
-    TESTU(0LLU);
-    TESTU(1LLU);
-    TESTU(2LLU);
-    TESTU(UINT64_MAX/8);
-    TESTU(UINT64_MAX/4);
-    TESTU(UINT64_MAX/2);
-    TESTU(UINT64_MAX-2);
-    TESTU(UINT64_MAX-1);
-    TESTU(UINT64_MAX);
-
-   #pragma omp parallel for  // compile with /openmp
-   for( int64_t N = INT64_MIN; N < INT64_MAX; ++N ) {
-        TESTU(N);
-        TESTI((int64_t)N);
-   }
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// ARC4 en/decryptor. Based on code by Mike Shaffer.
-// - rlyeh, public domain.
-
-void *arc4( void *buf_, unsigned buflen, const void *pass_, unsigned passlen ) {
-    // [ref] http://www.4guysfromrolla.com/webtech/code/rc4.inc.html
-    assert(passlen);
-    int sbox[256], key[256];
-    char *buf = (char*)buf_;
-    const char *pass = (const char*)pass_;
-    for( unsigned a = 0; a < 256; a++ ) {
-        key[a] = pass[a % passlen];
-        sbox[a] = a;
-    }
-    for( unsigned a = 0, b = 0; a < 256; a++ ) {
-        b = (b + sbox[a] + key[a]) % 256;
-        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
-    }
-    for( unsigned a = 0, b = 0, i = 0; i < buflen; ++i ) {
-        a = (a + 1) % 256;
-        b = (b + sbox[a]) % 256;
-        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
-        buf[i] ^= sbox[(sbox[a] + sbox[b]) % 256];
-    }
-    return buf_;
-}
-
-#if 0
-AUTORUN {
-    char buffer[] = "Hello world."; int buflen = strlen(buffer);
-    char *password = "abc123"; int passlen = strlen(password);
-
-    printf("Original: %s\n", buffer);
-    printf("Password: %s\n", password);
-
-    char *encrypted = arc4( buffer, buflen, password, passlen );
-    printf("ARC4 Encrypted text: '%s'\n", encrypted);
-
-    char *decrypted = arc4( buffer, buflen, password, passlen );
-    printf("ARC4 Decrypted text: '%s'\n", decrypted);
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// crc64
-// - rlyeh, public domain
-
-uint64_t crc64(uint64_t h, const void *ptr, uint64_t len) {
-    // based on public domain code by Lasse Collin
-    // also, use poly64 0xC96C5795D7870F42 for crc64-ecma
-    static uint64_t crc64_table[256];
-    static uint64_t poly64 = UINT64_C(0x95AC9329AC4BC9B5);
-    if( poly64 ) {
-        for( int b = 0; b < 256; ++b ) {
-            uint64_t r = b;
-            for( int i = 0; i < 8; ++i ) {
-                r = r & 1 ? (r >> 1) ^ poly64 : r >> 1;
-            }
-            crc64_table[ b ] = r;
-            //printf("%016llx\n", crc64_table[b]);
-        }
-        poly64 = 0;
-    }
-    const uint8_t *buf = (const uint8_t *)ptr;
-    uint64_t crc = ~h; // ~crc;
-    while( len != 0 ) {
-        crc = crc64_table[(uint8_t)crc ^ *buf++] ^ (crc >> 8);
-        --len;
-    }
-    return ~crc;
-}
-
-#if 0
-unsigned crc32(unsigned h, const void *ptr_, unsigned len) {
-    // based on public domain code by Karl Malbrain
-    const uint8_t *ptr = (const uint8_t *)ptr_;
-    if (!ptr) return 0;
-    const unsigned tbl[16] = {
-        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
-        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c };
-    for(h = ~h; len--; ) { uint8_t b = *ptr++; h = (h >> 4) ^ tbl[(h & 15) ^ (b & 15)]; h = (h >> 4) ^ tbl[(h & 15) ^ (b >> 4)]; }
-    return ~h;
-}
-#endif
-
-// ----------------------------------------------------------------------------
-// entropy encoder
-
-#if is(win32)
-#include <winsock2.h>
-#include <wincrypt.h>
-#pragma comment(lib, "advapi32")
-
-void entropy( void *buf, unsigned n ) {
-    HCRYPTPROV provider;
-    if( CryptAcquireContext( &provider, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT ) == 0 ) {
-        assert(!"CryptAcquireContext failed");
-    }
-
-    int rc = CryptGenRandom( provider, n, (BYTE *)buf );
-    assert( rc != 0 );
-    CryptReleaseContext( provider, 0 );
-}
-
-#elif is(linux) || is(osx)
-
-void entropy( void *buf, unsigned n ) {
-    FILE *fp = fopen( "/dev/urandom", "r" );
-    if( !fp ) assert(!"/dev/urandom open failed");
-
-    size_t read = fread( buf, 1, n, fp );
-    assert( read == n && "/dev/urandom read failed" );
-    fclose( fp );
-}
-
-#else // unused for now. likely emscripten will hit this
-
-// pseudo random number generator with 128 bit internal state... probably not suited for cryptographical usage.
-// [src] http://github.com/kokke (UNLICENSE)
-// [ref] http://burtleburtle.net/bob/rand/smallprng.html
-
-#include <time.h>
-
-#if is(win32)
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
-static uint32_t prng_next(void) {
-    #define prng_rotate(x,k) (x << k) | (x >> (32 - k))
-    #define prng_shuffle() do { \
-    uint32_t e = ctx[0] - prng_rotate(ctx[1], 27); \
-    ctx[0] = ctx[1] ^ prng_rotate(ctx[2], 17); \
-    ctx[1] = ctx[2] + ctx[3]; \
-    ctx[2] = ctx[3] + e; \
-    ctx[3] = e + ctx[0]; } while(0)
-    static __thread uint32_t ctx[4], *once = 0; if( !once ) {
-        uint32_t seed = (uint32_t)( ifdef(win32,_getpid,getpid)() + time(0) + ((uintptr_t)once) );
-        ctx[0] = 0xf1ea5eed;
-        ctx[1] = ctx[2] = ctx[3] = seed;
-        for (int i = 0; i < 31; ++i) {
-            prng_shuffle();
-        }
-        once = ctx;
-    }
-    prng_shuffle();
-    return ctx[3];
-}
-
-void entropy( void *buf, unsigned n ) {
-    for( ; n >= 4 ; n -= 4 ) {
-        uint32_t a = prng_next();
-        memcpy(buf, &a, 4);
-        buf = ((char*)buf) + 4;
-    }
-    if( n > 0 ) {
-        uint32_t a = prng_next();
-        memcpy(buf, &a, n);
-    }
-}
-
-#endif
-
-#if 0
-AUTORUN {
-    unsigned char buf[128];
-    entropy(buf, 128);
-    for( int i = 0; i < 128; ++i ) {
-        printf("%02x", buf[i]);
-    }
-    puts("");
-}
-#endif
 #line 0
 
 #line 1 "fwk_collide.c"
@@ -6550,7 +6109,7 @@ void collide_demo() { // debug draw collisions // @fixme: fix leaks: poly_free()
 }
 #line 0
 
-#line 1 "fwk_cooker.c"
+#line 1 "fwk_cook.c"
 // data pipeline
 // - rlyeh, public domain.
 // ----------------------------------------------------------------------------
@@ -6564,7 +6123,7 @@ void collide_demo() { // debug draw collisions // @fixme: fix leaks: poly_free()
 
 const char *ART = "art/";
 const char *TOOLS = "tools/bin/";
-const char *EDITOR = "tools/editor/";
+const char *EDITOR = "tools/";
 const char *COOK_INI = "tools/cook.ini";
 
 static unsigned ART_SKIP_ROOT; // number of chars to skip the base root in ART folder
@@ -6576,12 +6135,13 @@ typedef struct cook_subscript_t {
     char *script;
     char *outname;
     int compress_level;
+    uint64_t pass_ns, gen_ns, exe_ns, zip_ns;
 } cook_subscript_t;
 
 typedef struct cook_script_t {
     cook_subscript_t cs[8];
-
     int num_passes;
+    uint64_t pass_ns, gen_ns, exe_ns, zip_ns;
 } cook_script_t;
 
 static
@@ -6595,6 +6155,7 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
         // - if no script is going to be generated, output is in fact input file.
         // - no compression is going to be required.
         cook_subscript_t cs = { 0 };
+        cs.gen_ns -= time_ns();
 
             // reuse script heap from last call if possible (optimization)
             static __thread char *script = 0;
@@ -6606,6 +6167,7 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
             static __thread set(char*) passes = 0;           if(!passes)  set_init_str(passes);
             map_clear(symbols);
             map_clear(groups);
+
 
             map_find_or_add(symbols, "INFILE", STRDUP(infile));
             map_find_or_add(symbols, "INPUT", STRDUP(infile));
@@ -6658,10 +6220,15 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
                     }
                     lines[i] = line = nl;
 
+#if 0
                 static thread_mutex_t lock, *init = 0; if(!init) thread_mutex_init(init = &lock);
                 thread_mutex_lock( &lock );
                     system(line); // strcatf(&script, "%s\n", line);
                 thread_mutex_unlock( &lock );
+#else
+                // append line
+                strcatf(&script, "%s\n", line);
+#endif
 
                 continue;
             }
@@ -6809,15 +6376,15 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
                 }
             }
             char *compression = 0;
-            for each_map(groups, char*, key, char*, val) {
-                if( isdigit(key[0]) ) {
+            for each_map_ptr_sorted(groups, char*, key, char*, val) { // sorted iteration, so hopefully '0' no compression gets evaluated first
+                if( !compression && isdigit((*key)[0]) ) {
                     char *comma = va(",%s,", ext);
-                    if( !strcmpi(val,ext) || strbegi(val, comma+1) || strstri(val, comma) || strendi(val, va(",%s", ext))) {
-                        compression = key;
+                    if( !strcmpi(*val,ext) || strbegi(*val, comma+1) || strstri(*val, comma) || strendi(*val, va(",%s", ext))) {
+                        compression = (*key);
                     }
                     comma = va(",%s,", belongs_to);
-                    if( !strcmpi(val,ext) || strbegi(val, comma+1) || strstri(val, comma) || strendi(val, va(",%s", ext))) {
-                        compression = key;
+                    if( !strcmpi(*val,ext) || strbegi(*val, comma+1) || strstri(*val, comma) || strendi(*val, va(",%s", ext))) {
+                        compression = (*key);
                     }
                 }
             }
@@ -6845,7 +6412,7 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
         }
 
         // if script was generated...
-        if( script && script[0]) {
+        if( script && script[0] && strstr(script, ifdef(win32, file_normalize(va("%s",infile)), infile )) ) {
             // update outfile
             cs.outfile = *OUTPUT;
 
@@ -6868,6 +6435,8 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
                 }
             #endif
         } else {
+            // if( script && script[0] ) system(script); //< @todo: un-comment this line if we want to get the shell command prints invoked per entry
+
             // ... else bypass infile->outfile
             char** INFILE = map_find(symbols, "INFILE");
             cs.outfile = *INFILE;
@@ -6877,6 +6446,7 @@ cook_script_t cook_script(const char *rules, const char *infile, const char *out
         }
 
         cs.outname = cs.outname ? cs.outname : (char*)infile;
+        cs.gen_ns += time_ns();
 
         ASSERT(mcs.num_passes < countof(mcs.cs));
         mcs.cs[mcs.num_passes++] = cs;
@@ -7008,6 +6578,11 @@ int cook(void *userdata) {
     volatile int *progress = &job->progress;
     *progress = 0;
 
+    // preload a few large binaries
+//    dll("tools/furnace.exe", 0);
+//    dll("tools/assimp-vc143-mt.dll", 0);
+//    dll("tools/ffmpeg.exe", 0);
+
     // scan disk from fs_now snapshot
     array(struct fs) filtered = zipscan_filter(job->threadid, job->numthreads);
     //printf("Scanned: %d items found\n", array_count(now));
@@ -7046,6 +6621,16 @@ int cook(void *userdata) {
         zip_append_file/*_timeinfo*/(z, deleted[i], comment, in, 0/*, tm_now*/);
         fclose(in);
     }
+
+//  if(array_count(uncooked))
+//  PRINTF("cook_jobs[%d]=%d\n", job->threadid, array_count(uncooked));
+
+    // generate cook metrics. you usually do `game.exe --cook-stats && (type *.csv | sort /R > cook.csv)`
+    static __thread FILE *statsfile = 0;
+    if(flag("--cook-stats"))
+    fseek(statsfile = fopen(va("cook%d.csv",job->threadid), "a+t"), 0L, SEEK_END);
+    if(statsfile && !job->threadid && ftell(statsfile) == 0) fprintf(statsfile,"%10s,%10s,%10s,%10s,%10s, %s\n","+total_ms","gen_ms","exe_ms","zip_ms","pass","file");
+
     // added or changed files
     for( int i = 0, end = array_count(uncooked); i < end && !cook_cancelling; ++i ) {
         *progress = ((i+1) == end ? 90 : (i * 90) / end); // (i+i>0) * 100.f / end;
@@ -7072,43 +6657,46 @@ int cook(void *userdata) {
                 }
             }
 
-            // invoke cooking script and recap status
-            const char *rc_output = app_exec(cs.script);
-            int rc = atoi(rc_output);
-            int outlen = file_size(cs.outfile);
-            int failed = cs.script[0] ? rc || !outlen : 0;
-
-            // print errors
-            if( failed ) {
-                PRINTF("Import failed: %s while executing:\n%s\nReturned:\n%s\n", cs.outname, cs.script, rc_output);
-                continue;
-            }
-
-            // special char (multi-pass cook). newly generated file: refresh values
-            // ensure newly created files by cook are also present on repo/disc for further cook passes
-            if( pass > 0 ) { // && strchr(cs.outname, '@') ) { // pass>0 is a small optimization // special char (multi-pass cooks)
-                file_delete(cs.outname);
-                file_move(cs.outfile, cs.outname);
-                inlen = file_size(infile = cs.outfile = cs.outname);
-            }
+            // invoke cooking script
+            mcs.cs[pass].exe_ns -= time_ns();
+                // invoke cooking script
+                const char *rc_output = app_exec(cs.script);
+                // recap status
+                int rc = atoi(rc_output);
+                // int outlen = file_size(cs.outfile);
+                int failed = rc; // cs.script[0] ? rc || !outlen : 0;
+                // print errors
+                if( failed ) {
+                    PRINTF("Import failed: %s while executing:\n%s\nReturned:\n%s\n", cs.outname, cs.script, rc_output);
+                    continue;
+                }
+                if( pass > 0 ) { // (multi-pass cook)
+                    // newly generated file: refresh values
+                    // ensure newly created files by cook are also present on repo/disc for further cook passes
+                    file_delete(cs.outname);
+                    file_move(cs.outfile, cs.outname);
+                    inlen = file_size(infile = cs.outfile = cs.outname);
+                }
+            mcs.cs[pass].exe_ns += time_ns();
 
             // process only if included. may include optional compression.
+            mcs.cs[pass].zip_ns -= time_ns();
             if( cs.compress_level >= 0 ) {
-                FILE *in = fopen(cs.outfile, "rb");
-
-#if 0
-                    struct stat st; stat(infile, &st);
-                    struct tm *timeinfo = localtime(&st.st_mtime);
-                    ASSERT(timeinfo);
-#endif
+                FILE *in = fopen(cs.outfile ? cs.outfile : infile, "rb");
+                if(!in) in = fopen(infile, "rb");
 
                     char *comment = va("%d", inlen);
-                    if( !zip_append_file/*_timeinfo*/(z, infile, comment, in, cs.compress_level/*, timeinfo*/) ) {
+                    if( !zip_append_file(z, infile, comment, in, cs.compress_level) ) {
                         PANIC("failed to add processed file into %s: %s(%s)", zipfile, cs.outname, infile);
                     }
 
                 fclose(in);
             }
+            mcs.cs[pass].zip_ns += time_ns();
+
+            // stats per subscript
+            mcs.cs[pass].pass_ns = mcs.cs[pass].gen_ns + mcs.cs[pass].exe_ns + mcs.cs[pass].zip_ns;
+            if(statsfile) fprintf(statsfile, "%10.f,%10.f,%10.f,%10.f,%10d, \"%s\"\n", mcs.cs[pass].pass_ns/1e6, mcs.cs[pass].gen_ns/1e6, mcs.cs[pass].exe_ns/1e6, mcs.cs[pass].zip_ns/1e6, pass+1, infile);
         }
     }
 
@@ -7137,10 +6725,12 @@ int cook_async( void *userdata ) {
 
     // tcc: only a single running thread shall pass, because of racing shared state due to missing thread_local support at compiler level
     ifdef(tcc, thread_mutex_lock( job->lock ));
+    ifdef(osx, thread_mutex_lock( job->lock ));   // @todo: remove silicon mac M1 hack
 
     int ret = cook(userdata);
 
     // tcc: only a single running thread shall pass, because of racing shared state due to missing thread_local support at compiler level
+    ifdef(osx, thread_mutex_unlock( job->lock )); // @todo: remove silicon mac M1 hack
     ifdef(tcc, thread_mutex_unlock( job->lock ));
 
     thread_exit( ret );
@@ -7220,6 +6810,14 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
             EDITOR = out; // @leak
             assert( EDITOR[strlen(EDITOR) - 1] == '/' );
         }
+
+        // small optimization for upcoming parser: remove whole comments from file
+        array(char*) lines = strsplit(rules, "\r\n");
+        for( int i = 0; i < array_count(lines); ) {
+            if( lines[i][0] == ';' ) array_erase_slow(lines, i);
+            else ++i;
+        }
+        rules = STRDUP( strjoin(lines, "\n") );
     }
 
     if( !masks ) {
@@ -7266,7 +6864,7 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
             if( strend(fname, ".obj") ) {
                 char header[4] = {0};
                 for( FILE *in = fopen(fname, "rb"); in; fclose(in), in = NULL) {
-                    fread(header, 1, 2, in);
+                    fread(header, 2, 1, in);
                 }
                 if( !memcmp(header, "\x64\x86", 2) ) continue;
                 if( !memcmp(header, "\x00\x00", 2) ) continue;
@@ -7344,10 +6942,8 @@ void cook_stop() {
 int cook_progress() {
     int count = 0, sum = 0;
     for( int i = 0, end = cook_jobs(); i < end; ++i ) {
-//        if( jobs[i].progress >= 0 ) {
-            sum += jobs[i].progress;
-            ++count;
-//        }
+        sum += jobs[i].progress;
+        ++count;
     }
     return cook_jobs() ? sum / (count+!count) : 100;
 }
@@ -7375,79 +6971,6 @@ bool have_tools() {
 #line 0
 
 #line 1 "fwk_data.c"
-
-static
-array(char) base64__decode(const char *in_, unsigned inlen) {
-    // from libtomcrypt
-    #define BASE64_ENCODE_OUT_SIZE(s)   (((s) + 2) / 3 * 4)
-    #define BASE64_DECODE_OUT_SIZE(s)   (((s)) / 4 * 3)
-
-#if 1
-    unsigned long outlen = BASE64_DECODE_OUT_SIZE(inlen);
-    array(char) out_ = 0; array_resize(out_, outlen);
-
-    if( base64_decode((const unsigned char *)in_, (unsigned long)inlen, (unsigned char *)out_, &outlen) != CRYPT_OK ) {
-        array_free(out_);
-        return 0;
-    }
-
-    array_resize(out_, outlen);
-    return out_;
-#else
-    unsigned outlen = BASE64_DECODE_OUT_SIZE(inlen);
-    array(char) out_ = 0; array_resize(out_, outlen);
-
-    // based on code by Jon Mayo - November 13, 2003 (PUBLIC DOMAIN)
-    uint_least32_t v;
-    unsigned ii, io, rem;
-    char *out = (char *)out_;
-    const unsigned char *in = (const unsigned char *)in_;
-    const uint8_t base64dec_tab[256]= {
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255, 62,255,255,
-         52, 53, 54, 55, 56, 57, 58, 59, 60, 61,255,255,255,  0,255,255,
-        255,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,255,255,255,255, 63,
-        255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-         41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-    };
-
-    for (io = 0, ii = 0,v = 0, rem = 0; ii < inlen; ii ++) {
-        unsigned char ch;
-        if (isspace(in[ii]))
-            continue;
-        if ((in[ii]=='=') || (!in[ii]))
-            break; /* stop at = or null character*/
-        ch = base64dec_tab[(unsigned char)in[ii]];
-        if (ch == 255)
-            break; /* stop at a parse error */
-        v = (v<<6) | ch;
-        rem += 6;
-        if (rem >= 8) {
-            rem -= 8;
-            if (io >= outlen)
-                return (array_free(out_), NULL); /* truncation is failure */
-            out[io ++] = (v >> rem) & 255;
-        }
-    }
-    if (rem >= 8) {
-        rem -= 8;
-        if (io >= outlen)
-            return (array_free(out_), NULL); /* truncation is failure */
-        out[io ++] = (v >> rem) & 255;
-    }
-    return (array_resize(out_, io), out_);
-#endif
-}
 
 static array(json5) roots;
 static array(char*) sources;
@@ -7603,9 +7126,8 @@ static void *xml_path(struct xml *node, char *path, int down) {
 
 const char *(xml_string)(char *key) {
     struct xml *node = xml_path(*array_back(xml_docs), key, 0);
-    if( !node ) return "(null)";
-    if( strchr(key, '@') ) return (const char *)node;
-    if( strchr(key, '$') ) return (const char *)node;
+    if( node && strchr(key, '@') ) return (const char *)node;
+    if( node && strchr(key, '$') ) return (const char *)node;
     return "";
 }
 unsigned (xml_count)(char *key) {
@@ -7621,7 +7143,7 @@ array(char) (xml_blob)(char *key) { // base64 blob
     if( !node ) return 0;
     if( !strchr(key, '$') ) return 0;
     const char *data = (const char*)node;
-    array(char) out = base64__decode(data, strlen(data)); // either array of chars (ok) or null (error)
+    array(char) out = base64_decode(data, strlen(data)); // either array of chars (ok) or null (error)
     return out;
 }
 
@@ -7677,36 +7199,295 @@ bool data_tests() {
 }
 #line 0
 
-#line 1 "fwk_dll.c"
+#line 1 "fwk_extend.c"
+// dll ------------------------------------------------------------------------
+
+/* deprecated
 #if is(win32)
 #   include <winsock2.h>
-#   define dlopen(name,mode)    (void*)( (name) ? LoadLibraryA(name) : GetModuleHandle(NULL))
-#   define dlsym(handle,symbol) GetProcAddress((HMODULE)handle, symbol )
+#   define dlopen(name,flags)   (void*)( (name) ? LoadLibraryA(name) : GetModuleHandleA(NULL))
+#   define dlsym(handle,symbol) GetProcAddress((HMODULE)(handle), symbol )
 #   define dlclose(handle)      0
 #else
 #   include <dlfcn.h>
+#   define dlopen(name,flags)   (void*)( (name) ? dlopen(name, flags) : NULL )
+#   define dlsym(handle,symbol) dlsym( (handle) ? (handle) : ifdef(osx,RTLD_SELF,NULL), symbol )
 #endif
-
-void* dll(const char *filename, const char *symbol) {
-/*
-    char *buf, *base = file_name(filename);
-    if( file_exists(buf = va("%s", base)) ||
-        file_exists(buf = va("%s.dll", base)) ||
-        file_exists(buf = va("%s.so", base)) ||
-        file_exists(buf = va("lib%s.so", base)) ||
-        file_exists(buf = va("%s.dylib", base)) ) {
-        filename = buf;
-    }
 */
-    void *dll = dlopen(filename, RTLD_NOW | RTLD_LOCAL);
-    dll = dll ? dlsym(dll, symbol) : 0;
-    return dll;
+
+void* dll(const char *fname, const char *symbol) {
+    if( fname && !file_exist(fname) ) {
+        char *buf, *path = file_path(fname), *base = file_base(fname);
+        if( file_exist(buf = va("%s%s.dll", path, base)) ||
+            file_exist(buf = va("%s%s.so", path, base)) ||
+            file_exist(buf = va("%slib%s.so", path, base)) ||
+            file_exist(buf = va("%s%s.dylib", path, base)) ) {
+            fname = (const char *)buf;
+        } else {
+            return NULL;
+        }
+    }
+#if is(win32)
+    return (void*)GetProcAddress(fname ? LoadLibraryA(fname) : GetModuleHandleA(NULL), symbol);
+#else
+    return dlsym(fname ? dlopen(fname, RTLD_NOW|RTLD_LOCAL) : ifdef(osx, RTLD_SELF, NULL), symbol);
+#endif
 }
 
 #if 0 // demo: cl demo.c /LD && REM dll
 EXPORT int add2(int a, int b) { return a + b; }
 int main() { int (*adder)() = dll("demo.dll", "add2"); printf("%d\n", adder(2,3)); }
 #endif
+
+// script ---------------------------------------------------------------------
+
+typedef lua_State lua;
+
+// the Lua interpreter
+static lua *L;
+
+#if is(linux)
+void luaopen_libfwk(lua_State *L) {}
+#endif
+
+static void* script__realloc(void *userdef, void *ptr, size_t osize, size_t nsize) {
+    (void)userdef;
+    return ptr = REALLOC( ptr, /* (osize+1) * */ nsize );
+}
+static int script__traceback(lua_State *L) {
+    if (!lua_isstring(L, 1)) { // try metamethod if non-string error object
+        if (lua_isnoneornil(L, 1) ||
+            !luaL_callmeta(L, 1, "__tostring") ||
+            !lua_isstring(L, -1))
+            return 1;  // return non-string error object
+        lua_remove(L, 1);  // replace object with result of __tostring metamethod
+    }
+    luaL_traceback(L, L, lua_tostring(L, 1), 1);
+    return 1;
+}
+static void script__error(lua_State *L, int status) {
+    if (status != 0) {
+        const char *errormsg = lua_tostring(L, -1);
+        PRINTF( "!-- %s\n", errormsg);
+        lua_pop(L, 1); // remove error message
+    }
+}
+static int script__call(lua_State *L, int narg, int clear) {
+#if ENABLE_FASTCALL_LUA
+    lua_call(L, 0, 0);
+    return 0;
+#else
+    int base = lua_gettop(L) - narg;  // function index
+    lua_pushcfunction(L, script__traceback);  // push traceback function
+    lua_insert(L, base);  // put it under chunk and args
+    int status = lua_pcall(L, narg, (clear ? 0 : LUA_MULTRET), base);
+    script__error(L, status);
+    lua_remove(L, base);  // remove traceback function
+    if (status != 0) lua_gc(L, LUA_GCCOLLECT, 0); // force gc in case of errors
+    return status;
+#endif
+}
+
+void script_bind_function(const char *c_name, void *c_function) {
+    lua_pushcfunction( L, c_function );
+    lua_setglobal( L, c_name );
+}
+
+void script_call(const char *lua_function) {
+    lua_getglobal( L, lua_function );
+    script__call( L, 0, 1 );
+}
+
+void script_bind_class(const char *classname, int num, const char **methods, void **functions) {
+    lua_newtable( L );
+
+    for( int i = 0; i < num; ++i) {
+        lua_pushcfunction( L, functions[i] );
+        lua_setfield( L, 1, methods[i] );
+    }
+
+    lua_setglobal( L, classname );
+}
+
+void script_run(const char *script) {
+    int ret = luaL_dostring(L, script);
+    if( ret != LUA_OK ) {
+      PRINTF("!Script failed to run: %s\n", lua_tostring(L, -1));
+      lua_pop(L, 1); // pop error message
+    }
+}
+
+void script_runfile(const char *pathfile) {
+    PRINTF( "Loading script '%s'\n", pathfile );
+    int loadResult = luaL_loadfile( L, pathfile );
+
+    /**/ if( loadResult == LUA_OK ) {
+        script__call( L, 0, 1 );
+    }
+    else if( loadResult == LUA_ERRSYNTAX ) {
+        PRINTF("!Script failed to load (LUA_ERRSYNTAX, '%s'): %s\n", lua_tostring( L, 1 ), pathfile );
+//      lua_pop(L, 1); // pop error message
+    }
+    else if( loadResult == LUA_ERRMEM ) {
+        PRINTF("!Script failed to load (LUA_ERRMEM): %s\n", pathfile);
+    }
+    else {
+        PRINTF("!Script failed to load: %s\n", pathfile );
+    }
+}
+
+// syntax sugars
+/* usage:
+int window_create_lua(lua *L) {
+    window_create(arg_float(1), arg_int(2));
+    return_void(0);
+}
+int window_swap_lua(lua *L) {
+    int r = window_swap();
+    return_int(r);
+}
+*/
+
+#define arg_int(nth) lua_tointeger(L, nth)
+#define arg_bool(nth) lua_toboolean(L, nth)
+#define arg__Bool(nth) lua_toboolean(L, nth)
+#define arg_float(nth) (float)lua_tonumber(L, nth)
+#define arg_double(nth) lua_tonumber(L, nth)
+#define arg_string(nth) lua_tolstring(L, nth, 0)
+#define return_void(x) return ((x), 0)
+#define return_bool(x) return (lua_pushboolean(L, x), 1)
+#define return__Bool(x) return (lua_pushboolean(L, x), 1)
+#define return_int(x) return (lua_pushinteger(L, x), 1)
+#define return_float(x) return (lua_pushnumber(L, x), 1)
+#define return_double(x) return (lua_pushnumber(L, x), 1)
+#define return_string(x) return (lua_pushstring(L, x), 1)
+
+#define WRAP_ALL(...)                EXPAND(WRAP_ALL, __VA_ARGS__)
+#define WRAP_ALL2(rc, func)          int func##_lua(lua*L) { return_##rc(func()); }
+#define WRAP_ALL3(rc, func, a1)      int func##_lua(lua*L) { return_##rc(func(arg_##a1(1))); }
+#define WRAP_ALL4(rc, func, a1,a2)   int func##_lua(lua*L) { return_##rc(func(arg_##a1(1),arg_##a2(2))); }
+
+#define BIND_ALL(...)                EXPAND(BIND_ALL, __VA_ARGS__);
+#define BIND_ALL2(rc,func)           script_bind_function(#func, func##_lua)
+#define BIND_ALL3(rc,func,a1)        script_bind_function(#func, func##_lua)
+#define BIND_ALL4(rc,func,a1,a2)     script_bind_function(#func, func##_lua)
+
+#define XMACRO(X) /* @fixme: add all remaining FWK functions */ \
+    X(bool, window_create, float, int ) \
+    X(bool, window_swap ) \
+    X(void, ddraw_grid, float ) \
+    X(bool, ui_panel, string, int ) \
+    X(bool, ui_notify, string, string ) \
+    X(void, ui_panel_end )
+
+XMACRO(WRAP_ALL)
+
+void script_quit(void) {
+    if( L ) {
+        lua_close(L);
+        L = 0;
+    }
+}
+void script_init() {
+    if( !L ) {
+        // fwk_init();
+
+        // initialize Lua
+        L = lua_newstate(script__realloc, 0); // L = luaL_newstate();
+
+        // load various Lua libraries
+        luaL_openlibs(L);
+        luaopen_base(L);
+        luaopen_table(L);
+        luaopen_io(L);
+        luaopen_string(L);
+        luaopen_math(L);
+
+        // @fixme: workaround that prevents script binding on lua 5.4.3 on top of luajit 2.1.0-beta3 on linux. lua_setglobal() crashing when accessing null L->l_G
+        if(L->l_G) {
+        XMACRO(BIND_ALL);
+        }
+
+        atexit(script_quit);
+    }
+}
+
+bool script_tests() {
+    // script test (lua)
+    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );
+    return true;
+}
+
+#undef XMACRO
+
+// script v2 ------------------------------------------------------------------
+
+#define luaL_dostringsafe(L, str) \
+    luaL_dostring(L, \
+        "xpcall(function()\n" \
+            str \
+        "end, function(err)\n" \
+        "  print('Error: ' .. tostring(err))\n" \
+        "  print(debug.traceback(nil, 2))\n" \
+        "  if core and core.on_error then\n" \
+        "    pcall(core.on_error, err)\n" \
+        "  end\n" \
+        "  os.exit(1)\n" \
+        "end)" \
+    );
+
+static int f_vfs_read(lua_State *L) {
+    char *file = file_normalize(luaL_checkstring(L, 1));
+    if( strbegi(file, app_path()) ) file += strlen(app_path());
+    strswap(file+1, ".", "/");
+    strswap(file+1, "/lua", ".lua");
+    int len; char *data = vfs_load(file, &len);
+    if( len ) {
+        data = memcpy(MALLOC(len+1), data, len), data[len] = 0;
+        //tty_color(data ? GREEN : RED);
+        //printf("%s (%s)\n%s", file, data ? "ok" : "failed", data);
+        //tty_color(0);
+    }
+    return lua_pushstring(L, data), 1; // "\n\tcannot find `%s` within mounted zipfiles", file), 1;
+}
+
+// add our zip loader at the end of package.loaders
+void lua_add_ziploader(lua_State* L) {
+    lua_pushcfunction( L, f_vfs_read );
+    lua_setglobal( L, "vfs_read" );
+
+    luaL_dostringsafe(L,
+//    "package.path = [[;<?>;<<?.lua>>;]]\n" // .. package.path\n"
+    "package.searchers[#package.searchers + 1] = function(libraryname)\n"
+    "    for pattern in string.gmatch( package.path, '[^;]+' ) do\n"
+    "        local proper_path = string.gsub(pattern, '?', libraryname)\n"
+    "        local f = vfs_read(proper_path)\n"
+    "        if f ~= nil then\n"
+    "           return load(f, proper_path)\n"
+    "        end\n"
+    "    end\n"
+    "    return nil\n"
+    "end\n"
+    );
+}
+
+void *script_init_env(unsigned flags) {
+    if( flags & SCRIPT_LUA ) {
+        lua_State *L = luaL_newstate();
+        luaL_openlibs(L);
+
+        if( flags & SCRIPT_DEBUGGER ) {
+            // Register debuggers/inspectors
+            // luaL_dostringsafe(L, "I = require('inspect').inspect\n");
+            dbg_setup_default(L);
+        }
+
+        lua_add_ziploader(L);
+        return L;
+    }
+
+    return 0;
+}
 #line 0
 
 #line 1 "fwk_file.c"
@@ -7933,7 +7714,10 @@ array(char*) file_list(const char *pathmasks) {
 
         ASSERT(strend(cwd, "/"), "Error: dirs like '%s' must end with slash", cwd);
 
-        dir *d = dir_open(cwd, strstr(masks,"**") ? "r" : "");
+        int recurse = strstr(cwd, "**") || strstr(masks, "**");
+        strswap(cwd, "**", "./");
+
+        dir *d = dir_open(cwd, recurse ? "r" : "");
         if( d ) {
             for( int i = 0; i < dir_count(d); ++i ) {
                 if( dir_file(d,i) ) {
@@ -8030,7 +7814,7 @@ void* file_sha1(const char *file) { // 20bytes
     sha1_init(&hs);
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             sha1_process(&hs, (const unsigned char *)buf, inlen);
         }
     }
@@ -8044,7 +7828,7 @@ void* file_md5(const char *file) { // 16bytes
     md5_init(&hs);
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             md5_process(&hs, (const unsigned char *)buf, inlen);
         }
     }
@@ -8057,7 +7841,7 @@ void* file_crc32(const char *file) { // 4bytes
     unsigned crc = 0;
     for( FILE *fp = fopen(file, "rb"); fp; fclose(fp), fp = 0) {
         char buf[8192];
-        for( int inlen; (inlen = fread(buf, 1, sizeof(buf), fp)) > 0; ) {
+        for( int inlen; (inlen = sizeof(buf) * fread(buf, sizeof(buf), 1, fp)); ) {
             crc = zip__crc32(crc, buf, inlen); // unsigned int stbiw__crc32(unsigned char *buffer, int len)
         }
     }
@@ -8327,7 +8111,7 @@ void vfs_reload() {
 #define ARK_SWAP32(x) (x)
 #define ARK_SWAP64(x) (x)
 #define ARK_REALLOC   REALLOC
-static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 1, 8, in ); return ARK_SWAP64(v); }
+static uint64_t ark_fget64( FILE *in ) { uint64_t v; fread( &v, 8, 1, in ); return ARK_SWAP64(v); }
 void ark_list( const char *infile, zip **z ) {
     for( FILE *in = fopen(infile, "rb"); in; fclose(in), in = 0 )
     while(!feof(in)) {
@@ -8553,7 +8337,7 @@ if( found && *found == 0 ) {
     }
 
     // search (cache)
-    if( !ptr ) {
+    if( !ptr && !is(osx) ) { // @todo: remove silicon mac M1 hack
         ptr = cache_lookup(lookup_id, &size);
     }
 
@@ -8596,7 +8380,7 @@ if( found && *found == 0 ) {
                 char *cmd = va("%scook" ifdef(osx,".osx",ifdef(linux,".linux",".exe"))" %s %s --cook-ini=%s --cook-additive --cook-jobs=1 --quiet", TOOLS, group1, group2, COOK_INI);
 
                 // cook groups
-                int rc = system(cmd);
+                int rc = system(cmd); // atoi(app_exec(cmd));
                 if(rc < 0) PANIC("cannot invoke `%scook` (return code %d)", TOOLS, rc);
 
                 vfs_reload(); // @todo: optimize me. it is waaay inefficent to reload the whole VFS layout after cooking a single asset
@@ -8838,7 +8622,9 @@ ini_t ini_from_mem(const char *data) {
 }
 
 ini_t ini(const char *filename) {
-    return ini_from_mem(file_read(filename));
+    char *kv = file_read(filename);
+    if(!kv) kv = vfs_read(filename);
+    return ini_from_mem(kv);
 }
 
 bool ini_write(const char *filename, const char *section, const char *key, const char *value) {
@@ -10155,15 +9941,12 @@ static const char bm_mini_ttf[] = {
 /*004ec0*/ 0x00,0x08,0x00,0x40,0x00,0x0a,0x00,0x00,0x00,0x84,0x00,0xde,0x00,0x01,0x00,0x01
 };
 
-static const unsigned bm_mini_ttf_length = (unsigned)sizeof(bm_mini_ttf);
-
 // -----------------------------------------------------------------------------
 
 // The following data tables are coming from Dear Imgui.
 // Re-licensed under permission as MIT-0.
 //
 // @todo: 0x3100, 0x312F, FONT_TW, // Bopomofo
-//        0xE000, 0xEB4C, FONT_EM, // Private use (emojis)
 
 static const unsigned table_common[] = {
     0x0020, 0x00FF, // Basic Latin + Latin Supplement
@@ -10248,6 +10031,13 @@ static const unsigned table_middle_east[] = {
     0x0590, 0x05FF, // Hebrew, Yiddish, Ladino, and other Jewish diaspora languages.
     0x0600, 0x06FF, // Arabic script and Arabic-Indic digits
     0xFB00, 0xFB4F, // Ligatures for the Latin, Armenian, and Hebrew scripts
+    0
+};
+
+static const unsigned table_emoji[] = {
+//  0xE000, 0xEB4C, // Private use (emojis)
+    0xE000, 0xF8FF, // Private use (emojis+webfonts)
+    0xF0001,0xF1CC7,// Private use (icon mdi)
     0
 };
 
@@ -10435,6 +10225,7 @@ typedef struct font_t {
     unsigned num_glyphs;
     unsigned *cp2iter;
     unsigned *iter2cp;
+    unsigned begin; // first glyph. used in cp2iter table to clamp into a lesser range
 
     // font info and data
     int height;      // bitmap height
@@ -10475,18 +10266,18 @@ static font_t fonts[8] = {0};
 static
 void font_init() {
     do_once {
-        font_face_from_mem(FONT_FACE1, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE2, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE3, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE4, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE5, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE6, bm_mini_ttf,0, 42.5f, 0);
+        font_face_from_mem(FONT_FACE1, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE2, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE3, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE4, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE5, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE6, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
     }
 }
 
 // Remap color within all existing color textures
 void font_color(const char *tag, uint32_t color) {
-    do_once font_init();
+    font_init();
 
     unsigned index = *tag - FONT_COLOR1[0];
     if( index < FONT_MAX_COLORS ) {
@@ -10504,7 +10295,7 @@ void font_color(const char *tag, uint32_t color) {
 }
 
 void font_scales(const char *tag, float h1, float h2, float h3, float h4, float h5, float h6) {
-    do_once font_init();
+    font_init();
 
     unsigned index = *tag - FONT_FACE1[0];
     if( index >= 8 ) return;
@@ -10525,16 +10316,14 @@ void font_scales(const char *tag, float h1, float h2, float h3, float h4, float 
 // 1. Call stb_truetype.h routines to read and parse a .ttf file.
 // 1. Create a bitmap that is uploaded to the gpu using opengl.
 // 1. Calculate and save a bunch of useful variables and put them in the global font variable.
-void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_len, float font_size, unsigned flags) {
-    const unsigned char *ttf_buffer = ttf_bufferv;
-
-    flags |= FONT_ASCII; // ensure this minimal range [0020-00FF] is always in
-
+void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len, float font_size, unsigned flags) {
     unsigned index = *tag - FONT_FACE1[0];
-
     if( index >= 8 ) return;
-    if( !ttf_buffer /*|| !ttf_len*/ ) return;
     if( font_size <= 0 || font_size > 72 ) return;
+    if( !ttf_data || !ttf_len ) return;
+
+    if(!(flags & FONT_EM))
+    flags |= FONT_ASCII; // ensure this minimal range [0020-00FF] is almost always in
 
     font_t *f = &fonts[index];
     f->initialized = 1;
@@ -10555,8 +10344,8 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     f->scale[6] = 0.2500f; // H6
 
     const char *vs_filename = 0, *fs_filename = 0;
-    const char *vs = vs_filename ? file_read(vs_filename) : mv_vs_source;
-    const char *fs = fs_filename ? file_read(fs_filename) : mv_fs_source;
+    const char *vs = vs_filename ? vfs_read(vs_filename) : mv_vs_source;
+    const char *fs = fs_filename ? vfs_read(fs_filename) : mv_fs_source;
     f->program = shader(vs, fs, "vertexPosition,instanceGlyph", "outColor", NULL);
 
     // figure out what ranges we're about to bake
@@ -10575,6 +10364,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 
     array(uint64_t) sorted = 0;
     if(flags & FONT_ASCII) { MERGE_TABLE(table_common); }
+    if(flags & FONT_EM)    { MERGE_TABLE(table_emoji); }
     if(flags & FONT_EU)    { MERGE_TABLE(table_eastern_europe); }
     if(flags & FONT_RU)    { MERGE_TABLE(table_western_europe); }
     if(flags & FONT_EL)    { MERGE_TABLE(table_western_europe); }
@@ -10587,18 +10377,19 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_japanese_common); MERGE_PACKED_TABLE(0x4E00, packed_table_chinese); } // zh-simplified
     if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_punctuation); } // both zh-simplified and zh-full
 //  if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_full); } // zh-full
-    array_sort(sorted, sort_64);
-    array_unique(sorted, sort_64); // sort + unique pass
+    array_sort(sorted, less_64_ptr);
+    array_unique(sorted, less_64_ptr); // sort + unique pass
 
     // pack and create bitmap
     unsigned char *bitmap = (unsigned char*)MALLOC(f->height*f->width);
 
-        int charCount = 0xFFFF;
+        int charCount = *array_back(sorted) - sorted[0] + 1; // 0xEFFFF;
+        f->begin = sorted[0];
         f->cdata = (stbtt_packedchar*)CALLOC(1, sizeof(stbtt_packedchar) * charCount);
-        f->iter2cp = (unsigned*)CALLOC( 1, sizeof(unsigned) * charCount );
-        for( int i = 0; i < charCount; ++i ) f->iter2cp[i] = 0xFFFD; // default invalid glyph
-        f->cp2iter = (unsigned*)CALLOC( 1, sizeof(unsigned) * charCount );
-        for( int i = 0; i < charCount; ++i ) f->cp2iter[i] = 0xFFFD; // default invalid glyph
+        f->iter2cp = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
+        f->cp2iter = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
+        for( int i = 0; i < charCount; ++i )
+            f->iter2cp[i] = f->cp2iter[i] = 0xFFFD; // default invalid glyph
 
         stbtt_pack_context pc;
         if( !stbtt_PackBegin(&pc, bitmap, f->width, f->height, 0, 1, NULL) ) {
@@ -10612,11 +10403,11 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
             while( i < (num-1) && (sorted[i+1]-sorted[i]) == 1 ) end = sorted[++i];
             //printf("(%d,%d)", (unsigned)begin, (unsigned)end);
 
-            if( stbtt_PackFontRange(&pc, ttf_buffer, 0, f->font_size, begin, end - begin + 1, (stbtt_packedchar*)f->cdata + begin) ) {
-                for( int j = begin; j <= end; ++j ) {
+            if( stbtt_PackFontRange(&pc, ttf_data, 0, f->font_size, begin, end - begin + 1, (stbtt_packedchar*)f->cdata + begin - f->begin) ) {
+                for( uint64_t cp = begin; cp <= end; ++cp ) {
                     // unicode->index runtime lookup
-                    f->cp2iter[ j ] = count;
-                    f->iter2cp[ count++ ] = j;
+                    f->cp2iter[ cp - f->begin ] = count;
+                    f->iter2cp[ count++ ] = cp;
                 }
             } else {
                 PRINTF("!Failed to pack atlas font. Likely out of texture mem.");
@@ -10625,11 +10416,13 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         stbtt_PackEnd(&pc);
         f->num_glyphs = count;
 
+        assert( f->num_glyphs < charCount );
+
     array_free(sorted);
 
     // calculate vertical font metrics
-    stbtt_fontinfo info;
-    stbtt_InitFont(&info, ttf_buffer, stbtt_GetFontOffsetForIndex(ttf_buffer,0));
+    stbtt_fontinfo info = {0};
+    stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data,0));
 
     int a, d, l;
     float s = stbtt_ScaleForPixelHeight(&info, f->font_size);
@@ -10646,7 +10439,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         for (int i = 0; i < f->num_glyphs; i++) {
             int cp = f->iter2cp[i];
             if( cp == 0xFFFD ) continue;
-            stbtt_packedchar *cd = &f->cdata[ cp ];
+            stbtt_packedchar *cd = &f->cdata[ cp - f->begin ];
             if (cd->y1 > max_y1) {
                 max_y1 = cd->y1;
             }
@@ -10695,7 +10488,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 
     // last chance to inspect the font atlases
     if( flag("--font-debug") )
-    stbi_write_png(va("debug_font_atlas%d.png", index), f->width, f->height, 1, bitmap, 0);
+    stbi_write_png(va("font_debug%d.png", index), f->width, f->height, 1, bitmap, 0);
 
     FREE(bitmap);
 
@@ -10713,8 +10506,8 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         unsigned cp = f->iter2cp[ i ];
         if(cp == 0xFFFD) continue;
 
-        stbtt_packedchar *cd = &f->cdata[ cp ];
-//      if(cd->x1==cd->x0) { f->iter2cp[i] = f->cp2iter[cp] = 0xFFFD; continue; }
+        stbtt_packedchar *cd = &f->cdata[ cp - f->begin ];
+//      if(cd->x1==cd->x0) { f->iter2cp[i] = f->cp2iter[cp - f->begin] = 0xFFFD; continue; }
 
         int k1 = 0*f->num_glyphs + count;
         int k2 = 1*f->num_glyphs + count; ++count;
@@ -10762,12 +10555,13 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 }
 
 void font_face(const char *tag, const char *filename_ttf, float font_size, unsigned flags) {
-    do_once font_init();
+    font_init();
 
-    const char *buffer = //file_read(filename_ttf);
-    //if(!buffer) buffer =
-        vfs_read(filename_ttf);
-    font_face_from_mem(tag, buffer,0, font_size, flags);
+    int len;
+    const char *buffer = vfs_load(filename_ttf, &len);
+    if( !buffer ) buffer = file_load(filename_ttf, &len);
+
+    font_face_from_mem(tag, buffer,len, font_size, flags);
 }
 
 static
@@ -10852,7 +10646,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
 // 1. draw the string
 static
 vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2)) {
-    do_once font_init();
+    font_init();
 
     // sanity checks
     int len = strlen(text);
@@ -10917,8 +10711,10 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         }
 
         // convert to vbo data
-        int cp = ch; // f->cp2iter[ch];
+        int cp = ch - f->begin; // f->cp2iter[ch - f->begin];
         //if(cp == 0xFFFD) continue;
+        //if(cp > f->num_glyphs) cp = 0xFFFD;
+
         *t++ = X;
         *t++ = Y;
         *t++ = f->cp2iter[cp];
@@ -11210,173 +11006,281 @@ vec2 font_rect(const char *str) {
 }
 #line 0
 
-#line 1 "fwk_id.c"
-// -----------------------------------------------------------------------------
-// factory of handle ids, based on code by randy gaul (PD/Zlib licensed)
-// - rlyeh, public domain
-//
-// [src] http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp
-// [ref] http://bitsquid.blogspot.com.es/2011/09/managing-decoupling-part-4-id-lookup.html
-// [ref] http://glampert.com/2016/05-04/dissecting-idhashindex/
-// [ref] https://github.com/nlguillemot/dof/blob/master/viewer/packed_freelist.h
-// [ref] https://gist.github.com/pervognsen/ffd89e45b5750e9ce4c6c8589fc7f253
+#line 1 "fwk_gui.c"
+// ----------------------------------------------------------------------------
+// game ui (utils)
 
-typedef union id64 {
-    uint64_t h;
-    struct {
-#if (ID_INDEX_BITS+ID_COUNT_BITS) != 64
-        uint64_t padding : 64-ID_INDEX_BITS-ID_COUNT_BITS;
-#endif
-        uint64_t index : ID_INDEX_BITS;
-        uint64_t count : ID_COUNT_BITS;
-    };
-} id64;
+API void gui_drawrect( texture_t spritesheet, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
 
-typedef struct id_factory id_factory;
-id_factory id_factory_create(uint64_t capacity /*= 256*/);
-id64        id_factory_insert(id_factory *f, uint64_t data);
-uint64_t     id_factory_getvalue(id_factory *f, id64 handle);
-void         id_factory_setvalue(id_factory *f, id64 handle, uint64_t data);
-void        id_factory_erase(id_factory *f, id64 handle);
-bool        id_factory_isvalid(id_factory *f, id64 handle);
-void       id_factory_destroy(id_factory *f);
+#define v42v2(rect) vec2(rect.x,rect.y), vec2(rect.z,rect.w)
 
-// ---
+void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end ) {
+    float gamma = 1;
+    static int program = -1, vbo = -1, vao = -1, u_inv_gamma = -1, u_tint = -1, u_has_tex = -1, u_window_width = -1, u_window_height = -1;
+    vec2 dpi = ifdef(osx, window_dpi(), vec2(1,1));
+    if( program < 0 ) {
+        const char* vs = vfs_read("shaders/rect_2d.vs");
+        const char* fs = vfs_read("shaders/rect_2d.fs");
 
-typedef struct id_factory {
-    uint64_t freelist;
-    uint64_t capacity;
-    uint64_t canary;
-    union entry* entries;
-} id_factory;
-
-typedef union entry {
-    struct {
-        uint64_t data  : ID_DATA_BITS;
-        uint64_t count : ID_COUNT_BITS;
-    };
-    uint64_t h;
-} entry;
-
-id_factory id_factory_create(uint64_t capacity) {
-    if(!capacity) capacity = 1ULL << ID_INDEX_BITS;
-
-    id_factory f = {0};
-    f.entries = CALLOC(1, sizeof(entry) * capacity);
-    f.capacity = capacity;
-
-    for (int i = 0; i < capacity - 1; ++i) {
-        f.entries[i].data = i + 1;
-        f.entries[i].count = 0;
+        program = shader(vs, fs, "", "fragcolor" , NULL);
+        ASSERT(program > 0);
+        u_inv_gamma = glGetUniformLocation(program, "u_inv_gamma");
+        u_tint = glGetUniformLocation(program, "u_tint");
+        u_has_tex = glGetUniformLocation(program, "u_has_tex");
+        u_window_width = glGetUniformLocation(program, "u_window_width");
+        u_window_height = glGetUniformLocation(program, "u_window_height");
+        glGenVertexArrays( 1, (GLuint*)&vao );
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
     }
-    f.entries[capacity - 1].h = 0;
-    f.entries[capacity - 1].data = ~0;
-    f.entries[capacity - 1].count = ~0;
-    f.canary = f.entries[capacity - 1].data;
 
-    return f;
+    start = mul2(start, dpi);
+    end = mul2(end, dpi);
+
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
+    glUseProgram( program );
+    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
+
+    glBindVertexArray( vao );
+
+    glActiveTexture( GL_TEXTURE0 );
+    glBindTexture( texture_type, texture.id );
+
+    glUniform1i(u_has_tex, (texture.id != 0));
+    glUniform1f(u_window_width, (float)window_width());
+    glUniform1f(u_window_height, (float)window_height());
+
+    vec4 rgbaf = {((rgba>>24)&255)/255.f, ((rgba>>16)&255)/255.f,((rgba>>8)&255)/255.f,((rgba>>0)&255)/255.f};
+    glUniform4fv(u_tint, GL_TRUE, &rgbaf.x);
+
+    // normalize texture regions
+    if (texture.id != 0) {
+        tex_start.x /= texture.w;
+        tex_start.y /= texture.h;
+        tex_end.x /= texture.w;
+        tex_end.y /= texture.h;
+    }
+
+    GLfloat vertices[] = {
+        // Positions      // UVs
+        start.x, start.y, tex_start.x, tex_start.y,
+        end.x, start.y,   tex_end.x, tex_start.y,
+        end.x, end.y,     tex_end.x, tex_end.y,
+        start.x, start.y, tex_start.x, tex_start.y,
+        end.x, end.y,     tex_end.x, tex_end.y,
+        start.x, end.y,   tex_start.x, tex_end.y
+    };
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
+
+    glDrawArrays( GL_TRIANGLES, 0, 6 );
+    profile_incstat("Render.num_drawcalls", +1);
+    profile_incstat("Render.num_triangles", +2);
+
+    glBindTexture( texture_type, 0 );
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glBindVertexArray( 0 );
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram( 0 );
 }
 
-void id_factory_destroy(id_factory *f) {
-    FREE(f->entries);
+// ----------------------------------------------------------------------------
+// game ui
+
+typedef struct gui_state_t {
+    union {
+        struct {
+            bool held;
+            bool hover;
+        };
+    };
+} gui_state_t;
+
+static __thread array(guiskin_t) skins=0;
+static __thread guiskin_t *last_skin=0;
+static __thread map(int, gui_state_t) ctl_states=0; //@leak
+
+void gui_pushskin(guiskin_t skin) {
+    array_push(skins, skin);
+    last_skin = array_back(skins);
 }
 
-id64 id_factory_insert(id_factory *f, uint64_t data) {
-    // pop element off the free list
-    assert(f->freelist != f->canary && "max alive capacity reached");
-    uint64_t index = f->freelist;
-    f->freelist = f->entries[f->freelist].data;
-
-    // create new id64
-    f->entries[index].data = data;
-    id64 handle = {0};
-    handle.index = index;
-    handle.count = f->entries[index].count;
-    return handle;
+void gui_popskin() {
+    if (!last_skin) return;
+    if (last_skin->free) last_skin->free(last_skin->userdata);
+    array_pop(skins);
+    last_skin = array_count(skins) ? array_back(skins) : NULL;
 }
 
-void id_factory_erase(id_factory *f, id64 handle) {
-    // push id64 onto the freelist
-    uint64_t index = handle.index;
-    f->entries[index].data = f->freelist;
-    f->freelist = index;
-
-    // increment the count. this signifies a change in lifetime (this particular id64 is now dead)
-    // the next time this particular index is used in alloc, a new `count` will be used to uniquely identify
-    f->entries[index].count++;
+void *gui_userdata() {
+    return last_skin->userdata;
 }
 
-uint64_t id_factory_getvalue(id_factory *f, id64 handle) {
-    uint64_t index = handle.index;
-    uint64_t count = handle.count;
-    assert(f->entries[index].count == count);
-    return f->entries[index].data;
+vec2 gui_getskinsize(const char *skin) {
+    vec2 size={0};
+    if (last_skin->getskinsize) last_skin->getskinsize(last_skin->userdata, skin, &size);
+    return size;
 }
 
-void id_factory_setvalue(id_factory *f, id64 handle, uint64_t data) {
-    uint64_t index = handle.index;
-    uint64_t count = handle.count;
-    assert(f->entries[index].count == count);
-    f->entries[index].data = data;
+static
+gui_state_t *gui_getstate(int id) {
+    if (!ctl_states) map_init(ctl_states, less_int, hash_int);
+    return map_find_or_add(ctl_states, id, (gui_state_t){0});
 }
 
-bool id_factory_isvalid(id_factory *f, id64 handle) {
-    uint64_t index = handle.index;
-    uint64_t count = handle.count;
-    if (index >= f->capacity) return false;
-    return f->entries[index].count == count;
-}
+bool (gui_button)(int id, vec4 r, const char *skin) {
+    gui_state_t *entry = gui_getstate(id);
+    bool was_clicked=0;
+    entry->hover = false;
 
-#if 0
-// monitor history of a single entity by running `id_factory | find " 123."`
-AUTORUN {
-    trap_install();
-
-    id_factory f = id_factory_create(optioni("--NUM",256));
-
-    array(id64) ids = 0;
-    for( int i = 0 ; ; ++i, i &= ((1ULL << ID_INDEX_BITS) - 1) ) { // infinite wrap
-        printf("count_ids(%d) ", array_count(ids));
-        bool insert = randf() < 0.49; // biased against deletion
-        if( insert ) {
-            id64 h = id_factory_insert(&f, i);
-            array_push(ids, h);
-            printf("add %llu.%llu\n", h.index, h.count);
-        } else {
-            int count = array_count(ids);
-            if( count ) {
-                int chosen = randi(0,count);
-                printf("del %d.\n", chosen);
-                id64 h = ids[chosen];
-                id_factory_erase(&f, h);
-                array_erase(ids, chosen);
-            }
+    if (input(MOUSE_X) > r.x && input(MOUSE_X) < (r.x+r.z) && input(MOUSE_Y) > r.y && input(MOUSE_Y) < (r.y+r.w)) {
+        if (input_up(MOUSE_L) && entry->held) {
+            was_clicked=1;
         }
+
+        entry->held = input_held(MOUSE_L);
+        entry->hover = true;
+    }
+    else if (input_up(MOUSE_L) && entry->held) {
+        entry->held = false;
+    }
+
+    char *btn = va("%s%s", skin?skin:"button", entry->held?"_press":entry->hover?"_hover":"");
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, btn, r);
+
+    return was_clicked;
+}
+
+void (gui_panel)(int id, vec4 r, const char *skin) {
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, skin?skin:"panel", r);
+}
+
+/* skinned */
+
+static
+void skinned_free(void* userdata) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+    atlas_destroy(&a->atlas);
+    FREE(a);
+}
+
+static
+atlas_slice_frame_t *skinned_getsliceframe(atlas_t *a, const char *name) {
+    for (int i = 0; i < array_count(a->slices); i++) 
+        if (!strcmp(quark_string(&a->db, a->slices[i].name), name))
+            return &a->slice_frames[a->slices[i].frames[0]];
+    return NULL;
+}
+
+static
+void skinned_draw_missing_rect(vec4 r) {
+    vec4 size = vec4(0, 0, texture_checker().w, texture_checker().h);
+    gui_drawrect(texture_checker(), v42v2(size), 0x800080FF, v42v2(r));
+}
+
+static
+void skinned_draw_sprite(float scale, atlas_t *a, atlas_slice_frame_t *f, vec4 r) {
+    vec4 outer = f->bounds;
+    r.x -= f->pivot.x*scale;
+    r.y -= f->pivot.y*scale;
+    r.z += r.x;
+    r.w += r.y;
+
+    // Ensure dest rectangle is large enough to render the whole element
+    if ((r.z-r.x) < (outer.z-outer.x) * scale) {
+        r.z = r.x + (outer.z-outer.x) * scale;
+    }
+    if ((r.w-r.y) < (outer.w-outer.y) * scale) {
+        r.w = r.y + (outer.w-outer.y) * scale;
+    }
+
+    if (!f->has_9slice) {
+        gui_drawrect(a->tex, v42v2(f->bounds), 0xFFFFFFFF, v42v2(r));
+        return;
+    }
+
+    vec4 core  = f->core;
+    core.x += outer.x;
+    core.y += outer.y;
+    core.z += outer.x;
+    core.w += outer.y;
+
+    // Define the 9 slices
+    vec4 top_left_slice = {outer.x, outer.y, core.x, core.y};
+    vec4 top_middle_slice = {core.x, outer.y, core.z, core.y};
+    vec4 top_right_slice = {core.z, outer.y, outer.z, core.y};
+
+    vec4 middle_left_slice = {outer.x, core.y, core.x, core.w};
+    vec4 center_slice = core;
+    vec4 middle_right_slice = {core.z, core.y, outer.z, core.w};
+
+    vec4 bottom_left_slice = {outer.x, core.w, core.x, outer.w};
+    vec4 bottom_middle_slice = {core.x, core.w, core.z, outer.w};
+    vec4 bottom_right_slice = {core.z, core.w, outer.z, outer.w};
+
+    vec4 top_left = {r.x, r.y, r.x + (core.x - outer.x) * scale, r.y + (core.y - outer.y) * scale};
+    vec4 top_right = {r.z - (outer.z - core.z) * scale, r.y, r.z, r.y + (core.y - outer.y) * scale};
+    vec4 bottom_left = {r.x, r.w - (outer.w - core.w) * scale, r.x + (core.x - outer.x) * scale, r.w};
+    vec4 bottom_right = {r.z - (outer.z - core.z) * scale, r.w - (outer.w - core.w) * scale, r.z, r.w};
+
+    vec4 top = {top_left.z, r.y, top_right.x, top_left.w};
+    vec4 bottom = {bottom_left.z, bottom_left.y, bottom_right.x, r.w};
+    vec4 left = {r.x, top_left.w, top_left.z, bottom_left.y};
+    vec4 right = {top_right.x, top_right.w, r.z, bottom_right.y};
+
+    vec4 center = {top_left.z, top_left.w, top_right.x, bottom_right.y};
+
+    gui_drawrect(a->tex, v42v2(center_slice), 0xFFFFFFFF, v42v2(center));
+    gui_drawrect(a->tex, v42v2(top_left_slice), 0xFFFFFFFF, v42v2(top_left));
+    gui_drawrect(a->tex, v42v2(top_right_slice), 0xFFFFFFFF, v42v2(top_right));
+    gui_drawrect(a->tex, v42v2(bottom_left_slice), 0xFFFFFFFF, v42v2(bottom_left));
+    gui_drawrect(a->tex, v42v2(bottom_right_slice), 0xFFFFFFFF, v42v2(bottom_right));
+    gui_drawrect(a->tex, v42v2(top_middle_slice), 0xFFFFFFFF, v42v2(top));
+    gui_drawrect(a->tex, v42v2(bottom_middle_slice), 0xFFFFFFFF, v42v2(bottom));
+    gui_drawrect(a->tex, v42v2(middle_left_slice), 0xFFFFFFFF, v42v2(left));
+    gui_drawrect(a->tex, v42v2(middle_right_slice), 0xFFFFFFFF, v42v2(right));
+}
+
+static
+void skinned_draw_rect(void* userdata, const char *skin, vec4 r) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+
+    atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f) skinned_draw_missing_rect(r);
+    else skinned_draw_sprite(a->scale, &a->atlas, f, r);
+}
+
+void skinned_getskinsize(void *userdata, const char *skin, vec2 *size) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+
+    atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (f) {
+        size->x = (f->bounds.z-f->bounds.x)*a->scale;
+        size->y = (f->bounds.w-f->bounds.y)*a->scale;
     }
 }
-#endif
 
-// ----------------------------------------------------------------------
-// public api
-
-static id_factory fid; // @fixme: threadsafe
-
-uintptr_t id_make(void *ptr) {
-    do_once fid = id_factory_create(0), id_factory_insert(&fid, 0); // init and reserve id(0)
-    id64 newid = id_factory_insert(&fid, (uint64_t)(uintptr_t)ptr ); // 48-bit effective addr
-    return newid.h;
-}
-
-void *id_handle(uintptr_t id) {
-    return (void *)(uintptr_t)id_factory_getvalue(&fid, ((id64){ (uint64_t)id }) );
-}
-
-void id_dispose(uintptr_t id) {
-    id_factory_erase(&fid, ((id64){ (uint64_t)id }) );
-}
-
-bool id_valid(uintptr_t id) {
-    return id_factory_isvalid(&fid, ((id64){ (uint64_t)id }) );
+guiskin_t gui_skinned(const char *inifile, float scale) {
+    skinned_t *a = REALLOC(0, sizeof(skinned_t));
+    a->atlas = atlas_create(inifile, 0);
+    a->scale = scale?scale:1.0f;
+    guiskin_t skin={0};
+    skin.userdata = a;
+    skin.drawrect = skinned_draw_rect;
+    skin.getskinsize = skinned_getskinsize;
+    skin.free = skinned_free;
+    return skin;
 }
 #line 0
 
@@ -11853,7 +11757,7 @@ int input_enum(const char *vk) {
     static map(char*,int) m = 0;
     do_once {
         map_init_str(m);
-        #define k(VK) map_insert(m, STRINGIZE(KEY_##VK), KEY_##VK); map_insert(m, STRINGIZE(VK), KEY_##VK);
+        #define k(VK) map_find_or_add(m, STRINGIZE(VK), KEY_##VK); map_find_or_add(m, STRINGIZE(KEY_##VK), KEY_##VK);
         k(ESC)
         k(TICK)  k(1) k(2) k(3) k(4) k(5) k(6) k(7) k(8) k(9) k(0)     k(BS)
         k(TAB)    k(Q) k(W) k(E) k(R) k(T) k(Y) k(U) k(I) k(O) k(P)
@@ -12055,6 +11959,7 @@ int ui_mouse() {
 
 int ui_keyboard() {
     char *keys[] = {
+        "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
         "ESC",
         "TICK","1","2","3","4","5","6","7","8","9","0","BS",
         "TAB","Q","W","E","R","T","Y","U","I","O","P",
@@ -12063,25 +11968,23 @@ int ui_keyboard() {
         "LCTRL","LALT","SPACE","RALT","RCTRL","<","V",">",
     };
 
-    vec2i rows[] = {
-        vec2i(0,1),
-        vec2i(1,13),
-        vec2i(13,24),
-        vec2i(24,35),
-        vec2i(35,45),
-        vec2i(45,countof(keys)),
+    float rows[] = {
+        12,
+        1,
+        12,
+        11,
+        11,
+        10,
+        8
     };
 
-    for( int i = 0; i < countof(rows); ++i ) {
-        int any = 0;
-        char *row = 0;
-        for( int j = rows[i].x; j < rows[i].y; ++j ) {
-            strcatf(&row, input(KEY_ESC + j) ? (any|=1, "[%s]") : " %s ", keys[j]);
+    for( int row = 0, k = 0; row < countof(rows); ++row ) {
+        static char *buf = 0; if(buf) *buf = 0;
+        for( int col = 0; col < rows[row]; ++col, ++k ) {
+            assert( input_enum(keys[k]) == input_enum(va("KEY_%s", keys[k])) );
+            strcatf(&buf, input(input_enum(keys[k])) ? "[%s]" : " %s ", keys[k]);
         }
-        if(!any) ui_disable();
-        ui_label(row);
-        ui_enable();
-        FREE(row);
+        ui_label(buf);
     }
 
     return 0;
@@ -13035,9 +12938,10 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 #  include <malloc.h>
 #endif
 
-#ifndef SYS_REALLOC
-#define SYS_REALLOC realloc
-#define SYS_MSIZE /* bsd/osx, then win32, then ems/__GLIBC__, then __ANDROID_API__ */ \
+#ifndef SYS_MEM_INIT
+#define SYS_MEM_INIT()
+#define SYS_MEM_REALLOC realloc
+#define SYS_MEM_SIZE /* bsd/osx, then win32, then ems/__GLIBC__, then __ANDROID_API__ */ \
     ifdef(osx, malloc_size, ifdef(bsd, malloc_size, \
         ifdef(win32, _msize, malloc_usable_size)))
 #endif
@@ -13047,10 +12951,12 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 static __thread uint64_t xstats_current = 0, xstats_total = 0, xstats_allocs = 0;
 
 void* xrealloc(void* oldptr, size_t size) {
+    static __thread int once = 0; for(;!once;once = 1) SYS_MEM_INIT();
+
     // for stats
     size_t oldsize = xsize(oldptr);
 
-    void *ptr = SYS_REALLOC(oldptr, size);
+    void *ptr = SYS_MEM_REALLOC(oldptr, size);
     if( !ptr && size ) {
         PANIC("Not memory enough (trying to allocate %u bytes)", (unsigned)size);
     }
@@ -13075,7 +12981,7 @@ void* xrealloc(void* oldptr, size_t size) {
     return ptr;
 }
 size_t xsize(void* p) {
-    if( p ) return SYS_MSIZE(p);
+    if( p ) return SYS_MEM_SIZE(p);
     return 0;
 }
 char *xstats(void) {
@@ -14739,7 +14645,7 @@ static bool rd(void *buf, size_t len, size_t swap) { // return false any error a
     bool ret;
     if( in.fp ) {
         assert( !ferror(in.fp) && "invalid file handle (reader)" );
-        ret = len == fread((char*)buf, 1, len, in.fp);
+        ret = 1 == fread((char*)buf, len, 1, in.fp);
     } else {
         assert( in.membuf && "invalid memory buffer (reader)");
         assert( (in.offset + len <= in.memsize) && "memory overflow! (reader)");
@@ -15727,6 +15633,760 @@ AUTORUN {
     hexdump(&fat, sizeof(struct bootsector));
 }
 #endif
+
+// ----------------------------------------------------------------------------
+// compression api
+
+static struct zcompressor {
+    // id of compressor
+    unsigned enumerator;
+    // name of compressor
+    const char name1, *name4, *name;
+    // returns worst case compression estimation for selected flags
+    unsigned (*bounds)(unsigned bytes, unsigned flags);
+    // returns number of bytes written. 0 if error.
+    unsigned (*encode)(const void *in, unsigned inlen, void *out, unsigned outcap, unsigned flags);
+    // returns number of excess bytes that will be overwritten when decoding.
+    unsigned (*excess)(unsigned flags);
+    // returns number of bytes written. 0 if error.
+    unsigned (*decode)(const void *in, unsigned inlen, void *out, unsigned outcap);
+} zlist[] = {
+    { COMPRESS_RAW,     '0', "raw",  "raw",     raw_bounds, raw_encode, raw_excess, raw_decode },
+    { COMPRESS_PPP,     'p', "ppp",  "ppp",     ppp_bounds, ppp_encode, ppp_excess, ppp_decode },
+    { COMPRESS_ULZ,     'u', "ulz",  "ulz",     ulz_bounds, ulz_encode, ulz_excess, ulz_decode },
+    { COMPRESS_LZ4,     '4', "lz4x", "lz4x",    lz4x_bounds, lz4x_encode, lz4x_excess, lz4x_decode },
+    { COMPRESS_CRUSH,   'c', "crsh", "crush",   crush_bounds, crush_encode, crush_excess, crush_decode },
+    { COMPRESS_DEFLATE, 'd', "defl", "deflate", deflate_bounds, deflate_encode, deflate_excess, deflate_decode },
+    { COMPRESS_LZP1,    '1', "lzp1", "lzp1",    lzp1_bounds, lzp1_encode, lzp1_excess, lzp1_decode },
+    { COMPRESS_LZMA,    'm', "lzma", "lzma",    lzma_bounds, lzma_encode, lzma_excess, lzma_decode },
+    { COMPRESS_BALZ,    'b', "balz", "balz",    balz_bounds, balz_encode, balz_excess, balz_decode },
+    { COMPRESS_LZW3,    'w', "lzw3", "lzrw3a",  lzrw3a_bounds, lzrw3a_encode, lzrw3a_excess, lzrw3a_decode },
+    { COMPRESS_LZSS,    's', "lzss", "lzss",    lzss_bounds, lzss_encode, lzss_excess, lzss_decode },
+    { COMPRESS_BCM,     'B', "bcm",  "bcm",     bcm_bounds, bcm_encode, bcm_excess, bcm_decode },
+    { COMPRESS_ZLIB,    'z', "zlib", "zlib",    deflate_bounds, deflatez_encode, deflate_excess, deflatez_decode },
+};
+
+enum { COMPRESS_NUM = 14 };
+
+static char *znameof(unsigned flags) {
+    static __thread char buf[16];
+    snprintf(buf, 16, "%4s.%c", zlist[(flags>>4)&0x0F].name4, "0123456789ABCDEF"[flags&0xF]);
+    return buf;
+}
+unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].encode(in, inlen, (uint8_t*)out, outlen, flags & 0x0F);
+}
+unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].decode((uint8_t*)in, inlen, out, outlen);
+}
+unsigned zbounds(unsigned inlen, unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].bounds(inlen, flags & 0x0F);
+}
+unsigned zexcess(unsigned flags) {
+    return zlist[(flags >> 4) % COMPRESS_NUM].excess(flags & 0x0F);
+}
+
+// ----------------------------------------------------------------------------
+// BASE92 en/decoder
+// THE BEERWARE LICENSE (Revision 42):
+// <thenoviceoof> wrote this file. As long as you retain this notice you
+// can do whatever you want with this stuff. If we meet some day, and you
+// think this stuff is worth it, you can buy me a beer in return
+// - Nathan Hwang (thenoviceoof)
+
+unsigned base92_bounds(unsigned inlen) {
+    unsigned size = (inlen * 8) % 13, extra_null = 1;
+    if(size == 0) return 2 * ((inlen * 8) / 13) + extra_null;
+    if(size  < 7) return 2 * ((inlen * 8) / 13) + extra_null + 1;
+                  return 2 * ((inlen * 8) / 13) + extra_null + 2;
+}
+
+unsigned base92_encode(const void* in, unsigned inlen, void *out, unsigned size) {
+    char *res = (char *)out;
+    const unsigned char *str = (const unsigned char *)in;
+    unsigned int j = 0;          // j for encoded
+    unsigned long workspace = 0; // bits holding bin
+    unsigned short wssize = 0;   // number of good bits in workspace
+    unsigned char c;
+    const unsigned char ENCODE_MAPPING[256] = {
+        33, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+        44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+        64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
+        74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+        84, 85, 86, 87, 88, 89, 90, 91, 92, 93,
+        94, 95, 97, 98, 99, 100, 101, 102, 103, 104,
+        105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
+        115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+        125, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0
+    };
+    if (inlen) {
+        for (unsigned i = 0; i < inlen; i++) {
+            workspace = workspace << 8 | str[i];
+            wssize += 8;
+            if (wssize >= 13) {
+                int tmp = (workspace >> (wssize - 13)) & 8191;
+                c = ENCODE_MAPPING[(tmp / 91)];
+                if (c == 0) return 0; // illegal char
+                res[j++] = c;
+                c = ENCODE_MAPPING[(tmp % 91)];
+                if (c == 0) return 0; // illegal char
+                res[j++] = c;
+                wssize -= 13;
+            }
+        }
+        // encode a last byte
+        if (0 < wssize && wssize < 7) {
+            int tmp = (workspace << (6 - wssize)) & 63;  // pad the right side
+            c = ENCODE_MAPPING[(tmp)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+        } else if (7 <= wssize) {
+            int tmp = (workspace << (13 - wssize)) & 8191; // pad the right side
+            c = ENCODE_MAPPING[(tmp / 91)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+            c = ENCODE_MAPPING[(tmp % 91)];
+            if (c == 0) return 0; // illegal char
+            res[j++] = c;
+        }
+    } else {
+        res[j++] = '~';
+    }
+    // add null byte
+    res[j] = 0;
+    return j;
+}
+
+// this guy expects a null-terminated string
+// gives back a non-null terminated string, and properly filled len
+unsigned base92_decode(const void* in, unsigned size, void *out, unsigned outlen_unused) {
+    const char* str = (const char*)in;
+    unsigned char *res = (unsigned char *)out;
+    int i, j = 0, b1, b2;
+    unsigned long workspace = 0;
+    unsigned short wssize = 0;
+    const unsigned char DECODE_MAPPING[256] = {
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 0, 255, 1, 2, 3, 4, 5,
+        6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+        36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 255, 62, 63, 64,
+        65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+        75, 76, 77, 78, 79, 80, 81, 82, 83, 84,
+        85, 86, 87, 88, 89, 90, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255
+    };
+
+    // handle small cases first
+    if (size == 0 || (str[0] == '~' && str[1] == '\0')) {
+        res[0] = 0;
+        return 1;
+    }
+    // calculate size
+    int len = ((size/2 * 13) + (size%2 * 6)) / 8;
+    // handle pairs of chars
+    for (i = 0; i + 1 < size; i += 2) {
+        b1 = DECODE_MAPPING[(str[i])];
+        b2 = DECODE_MAPPING[(str[i+1])];
+        workspace = (workspace << 13) | (b1 * 91 + b2);
+        wssize += 13;
+        while (wssize >= 8) {
+            res[j++] = (workspace >> (wssize - 8)) & 255;
+            wssize -= 8;
+        }
+    }
+    // handle single char
+    if (size % 2 == 1) {
+        workspace = (workspace << 6) | DECODE_MAPPING[(str[size - 1])];
+        wssize += 6;
+        while (wssize >= 8) {
+            res[j++] = (workspace >> (wssize - 8)) & 255;
+            wssize -= 8;
+        }
+    }
+    //assert(j == len);
+    return j;
+}
+
+// ----------------------------------------------------------------------------
+// COBS en/decoder
+// Based on code by Jacques Fortier.
+// "Redistribution and use in source and binary forms are permitted, with or without modification."
+//
+// Consistent Overhead Byte Stuffing is an encoding that removes all 0 bytes from arbitrary binary data.
+// The encoded data consists only of bytes with values from 0x01 to 0xFF. This is useful for preparing data for
+// transmission over a serial link (RS-232 or RS-485 for example), as the 0 byte can be used to unambiguously indicate
+// packet boundaries. COBS also has the advantage of adding very little overhead (at least 1 byte, plus up to an
+// additional byte per 254 bytes of data). For messages smaller than 254 bytes, the overhead is constant.
+//
+// This implementation is designed to be both efficient and robust.
+// The decoder is designed to detect malformed input data and report an error upon detection.
+//
+
+unsigned cobs_bounds( unsigned len ) {
+    return len + ceil(len / 254.0) + 1;
+}
+unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen) {
+    const uint8_t *src = (const uint8_t *)in;
+    uint8_t *dst = (uint8_t*)out;
+    size_t srclen = inlen;
+
+    uint8_t code = 1;
+    size_t read_index = 0, write_index = 1, code_index = 0;
+
+    while( read_index < srclen ) {
+        if( src[ read_index ] == 0) {
+            dst[ code_index ] = code;
+            code = 1;
+            code_index = write_index++;
+            read_index++;
+        } else {
+            dst[ write_index++ ] = src[ read_index++ ];
+            code++;
+            if( code == 0xFF ) {
+                dst[ code_index ] = code;
+                code = 1;
+                code_index = write_index++;
+            }
+        }
+    }
+
+    dst[ code_index ] = code;
+    return write_index;
+}
+unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen) {
+    const uint8_t *src = (const uint8_t *)in;
+    uint8_t *dst = (uint8_t*)out;
+    size_t srclen = inlen;
+
+    uint8_t code, i;
+    size_t read_index = 0, write_index = 0;
+
+    while( read_index < srclen ) {
+        code = src[ read_index ];
+
+        if( ((read_index + code) > srclen) && (code != 1) ) {
+            return 0;
+        }
+
+        read_index++;
+
+        for( i = 1; i < code; i++ ) {
+            dst[ write_index++ ] = src[ read_index++ ];
+        }
+        if( (code != 0xFF) && (read_index != srclen) ) {
+            dst[ write_index++ ] = '\0';
+        }
+    }
+
+    return write_index;
+}
+
+#if 0
+static
+void cobs_test( const char *buffer, int buflen ) {
+    char enc[4096];
+    int enclen = cobs_encode( buffer, buflen, enc, 4096 );
+
+    char dec[4096];
+    int declen = cobs_decode( enc, enclen, dec, 4096 );
+
+    test( enclen >= buflen );
+    test( declen == buflen );
+    test( memcmp(dec, buffer, buflen) == 0 );
+
+    printf("%d->%d->%d (+%d extra bytes)\n", declen, enclen, declen, enclen - declen);
+}
+AUTORUN {
+    const char *null = 0;
+    cobs_test( null, 0 );
+
+    const char empty[] = "";
+    cobs_test( empty, sizeof(empty) );
+
+    const char text[] = "hello world\n";
+    cobs_test( text, sizeof(text) );
+
+    const char bintext[] = "hello\0\0\0world\n";
+    cobs_test( bintext, sizeof(bintext) );
+
+    const char blank[512] = {0};
+    cobs_test( blank, sizeof(blank) );
+
+    char longbintext[1024];
+    for( int i = 0; i < 1024; ++i ) longbintext[i] = (unsigned char)i;
+    cobs_test( longbintext, sizeof(longbintext) );
+
+    assert(~puts("Ok"));
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// netstring en/decoder
+// - rlyeh, public domain.
+
+unsigned netstring_bounds(unsigned inlen) {
+    return 5 + inlen + 3; // 3 for ;,\0 + 5 if inlen < 100k ; else (unsigned)ceil(log10(inlen + 1))
+}
+unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen) {
+//  if(outlen < netstring_bounds(inlen)) return 0;
+    sprintf(out, "%u:%.*s,", inlen, inlen, in);
+    return strlen(out);
+}
+unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen) {
+//  if(outlen < inlen) return 0;
+    const char *bak = in;
+    sscanf(in, "%u", &outlen);
+    while( *++in != ':' );
+    memcpy(out, in+1, outlen), out[outlen-1] = 0;
+    // return outlen; // number of written bytes
+    return (outlen + (in+2 - bak)); // number of read bytes
+}
+
+#if 0
+AUTORUN {
+    // encode
+    const char text1[] = "hello world!", text2[] = "abc123";
+    unsigned buflen = netstring_bounds(strlen(text1) + strlen(text2));
+    char *buf = malloc(buflen), *ptr = buf;
+    ptr += netstring_encode(text1, strlen(text1), ptr, buflen -= (ptr - buf));
+    ptr += netstring_encode(text2, strlen(text2), ptr, buflen -= (ptr - buf));
+    printf("%s -> ", buf);
+
+    // decode
+    char out[12];
+    unsigned plen = strlen(ptr = buf);
+    while(plen > 0) {
+        int written = netstring_decode(ptr, plen, out, 12);
+        ptr += written;
+        plen -= written;
+        printf("'%s'(%s)(%d), ", out, ptr, plen );
+    }
+    puts("");
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// array de/interleaving
+// - rlyeh, public domain.
+//
+// results:
+// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
+// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
+
+void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns ) {
+    void *bak = out;
+    assert( columns < list_count ); // required
+    int row_count = list_count / columns;
+    for( int offset = 0; offset < columns; offset++ ) {
+        for( int row = 0; row < row_count; row++ ) {
+            memcpy( out, &((char*)list)[ (offset + row * columns) * sizeof_item ], sizeof_item );
+            out = ((char*)out) + sizeof_item;
+        }
+    }
+    return bak;
+}
+
+#if 0
+static
+void interleave_test( const char *name, int interleaving, int deinterleaving, const char *original ) {
+    char interleaved[128] = {0};
+    interleave( interleaved, original, strlen(original)/2, 2, interleaving );
+    char deinterleaved[128] = {0};
+    interleave( deinterleaved, interleaved, strlen(original)/2, 2, deinterleaving );
+
+    printf( "\n%s\n", name );
+    printf( "original:\t%s\n", original );
+    printf( "interleaved:\t%s\n", interleaved );
+    printf( "deinterleaved:\t%s\n", deinterleaved );
+
+    assert( 0 == strcmp(original, deinterleaved) );
+}
+
+AUTORUN {
+    interleave_test(
+        "audio 2ch", 2, 3,
+        "L0R0"
+        "L1R1"
+        "L2R2"
+    );
+    interleave_test(
+        "image 3ch", 3, 3,
+        "R0G0B0"
+        "R1G1B1"
+        "R2G2B2"
+    );
+    interleave_test(
+        "image 4ch", 4, 3,
+        "R0G0B0A0"
+        "R1G1B1A1"
+        "R2G2B2A2"
+    );
+    interleave_test(
+        "audio 5ch", 5, 3,
+        "A0B0C0L0R0"
+        "A1B1C1L1R1"
+        "A2B2C2L2R2"
+    );
+    interleave_test(
+        "audio 5.1ch", 6, 3,
+        "A0B0C0L0R0S0"
+        "A1B1C1L1R1S1"
+        "A2B2C2L2R2S2"
+    );
+    interleave_test(
+        "opengl material 9ch", 9, 3,
+        "X0Y0Z0q0w0e0r0u0v0"
+        "X1Y1Z1q1w1e1r1u1v1"
+        "X2Y2Z2q2w2e2r2u2v2"
+    );
+    interleave_test(
+        "opengl material 10ch", 10, 3,
+        "X0Y0Z0q0w0e0r0s0u0v0"
+        "X1Y1Z1q1w1e1r1s1u1v1"
+        "X2Y2Z2q2w2e2r2s2u2v2"
+    );
+    assert(~puts("Ok"));
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// delta encoder
+
+#define delta_expand_template(N) \
+void delta##N##_encode(void *buffer_, unsigned count) { \
+    uint##N##_t current, last = 0, *buffer = (uint##N##_t*)buffer_; \
+    for( unsigned i = 0; i < count; i++ ) { \
+        current = buffer[i]; \
+        buffer[i] = current - last; \
+        last = current; \
+    } \
+} \
+void delta##N##_decode(void *buffer_, unsigned count) { \
+    uint##N##_t delta, last = 0, *buffer = (uint##N##_t*)buffer_; \
+    for( unsigned i = 0; i < count; i++ ) { \
+        delta = buffer[i]; \
+        buffer[i] = delta + last; \
+        last = buffer[i]; \
+    } \
+}
+delta_expand_template(8);
+delta_expand_template(16);
+delta_expand_template(32);
+delta_expand_template(64);
+
+#if 0
+AUTORUN {
+    char buf[] = "1231112223345555";
+    int buflen = strlen(buf);
+
+    char *dt = strdup(buf);
+    printf("  delta8: ", dt);
+    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
+    printf("->");
+    delta8_encode(dt, buflen);
+    for( int i = 0; i < buflen; ++i ) printf("%02d,", dt[i] );
+    printf("->");
+    delta8_decode(dt, buflen);
+    for( int i = 0; i < buflen; ++i ) printf("%c", dt[i] );
+    printf("\r%c\n", 0 == strcmp(buf,dt) ? 'Y':'N');
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// zigzag en/decoder
+// - rlyeh, public domain
+
+uint64_t zig64( int64_t value ) { // convert sign|magnitude to magnitude|sign
+    return (value >> 63) ^ (value << 1);
+}
+int64_t zag64( uint64_t value ) { // convert magnitude|sign to sign|magnitude
+    return (value >> 1) ^ -(value & 1);
+}
+
+// branchless zigzag encoding 32/64
+// sign|magnitude to magnitude|sign and back
+// [ref] https://developers.google.com/protocol-buffers/docs/encoding
+uint32_t enczig32u( int32_t n) { return ((n << 1) ^ (n >> 31)); }
+uint64_t enczig64u( int64_t n) { return ((n << 1) ^ (n >> 63)); }
+ int32_t deczig32i(uint32_t n) { return ((n >> 1) ^  -(n & 1)); }
+ int64_t deczig64i(uint64_t n) { return ((n >> 1) ^  -(n & 1)); }
+
+#if 0
+AUTORUN {
+    int16_t x = -1000;
+    printf("%d -> %llu %llx -> %lld\n", x, zig64(x), zig64(x), zag64(zig64(x)));
+}
+AUTORUN {
+    #define CMP32(signedN) do { \
+        int32_t reconverted = deczig32i( enczig32u(signedN) ); \
+        int equal = signedN == reconverted; \
+        printf("[%s] %d vs %d\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
+    } while(0)
+
+    #define CMP64(signedN) do { \
+        int64_t reconverted = deczig64i( enczig64u(signedN) ); \
+        int equal = signedN == reconverted; \
+        printf("[%s] %lld vs %lld\n", equal ? " OK " : "FAIL", signedN, reconverted ); \
+    } while(0)
+
+    CMP32( 0);
+    CMP32(-1);
+    CMP32(+1);
+    CMP32(-2);
+    CMP32(+2);
+    CMP32(INT32_MAX - 1);
+    CMP32(INT32_MIN + 1);
+    CMP32(INT32_MAX);
+    CMP32(INT32_MIN);
+
+    CMP64( 0ll);
+    CMP64(-1ll);
+    CMP64(+1ll);
+    CMP64(-2ll);
+    CMP64(+2ll);
+    CMP64(INT64_MAX - 1);
+    CMP64(INT64_MIN + 1);
+    CMP64(INT64_MAX);
+    CMP64(INT64_MIN);
+}
+void TESTU( uint64_t N ) {
+    uint8_t buf[9] = {0};
+    enczig64i(buf, (N));
+    uint64_t reconstructed = deczig64i(buf, 0);
+    if( reconstructed != (N) ) printf("[FAIL] %llu vs %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", (N), buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8] );
+    else if( 0xffffff == ((N) & 0xffffff) ) printf("[ OK ] %llx\n", (N));
+}
+void TESTI( int64_t N ) {
+    TESTU( enczig64u(N) );
+}
+AUTORUN {
+    TESTU(0LLU);
+    TESTU(1LLU);
+    TESTU(2LLU);
+    TESTU(UINT64_MAX/8);
+    TESTU(UINT64_MAX/4);
+    TESTU(UINT64_MAX/2);
+    TESTU(UINT64_MAX-2);
+    TESTU(UINT64_MAX-1);
+    TESTU(UINT64_MAX);
+
+   #pragma omp parallel for  // compile with /openmp
+   for( int64_t N = INT64_MIN; N < INT64_MAX; ++N ) {
+        TESTU(N);
+        TESTI((int64_t)N);
+   }
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// ARC4 en/decryptor. Based on code by Mike Shaffer.
+// - rlyeh, public domain.
+
+void *arc4( void *buf_, unsigned buflen, const void *pass_, unsigned passlen ) {
+    // [ref] http://www.4guysfromrolla.com/webtech/code/rc4.inc.html
+    assert(passlen);
+    int sbox[256], key[256];
+    char *buf = (char*)buf_;
+    const char *pass = (const char*)pass_;
+    for( unsigned a = 0; a < 256; a++ ) {
+        key[a] = pass[a % passlen];
+        sbox[a] = a;
+    }
+    for( unsigned a = 0, b = 0; a < 256; a++ ) {
+        b = (b + sbox[a] + key[a]) % 256;
+        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
+    }
+    for( unsigned a = 0, b = 0, i = 0; i < buflen; ++i ) {
+        a = (a + 1) % 256;
+        b = (b + sbox[a]) % 256;
+        int swap = sbox[a]; sbox[a] = sbox[b]; sbox[b] = swap;
+        buf[i] ^= sbox[(sbox[a] + sbox[b]) % 256];
+    }
+    return buf_;
+}
+
+#if 0
+AUTORUN {
+    char buffer[] = "Hello world."; int buflen = strlen(buffer);
+    char *password = "abc123"; int passlen = strlen(password);
+
+    printf("Original: %s\n", buffer);
+    printf("Password: %s\n", password);
+
+    char *encrypted = arc4( buffer, buflen, password, passlen );
+    printf("ARC4 Encrypted text: '%s'\n", encrypted);
+
+    char *decrypted = arc4( buffer, buflen, password, passlen );
+    printf("ARC4 Decrypted text: '%s'\n", decrypted);
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// crc64
+// - rlyeh, public domain
+
+uint64_t crc64(uint64_t h, const void *ptr, uint64_t len) {
+    // based on public domain code by Lasse Collin
+    // also, use poly64 0xC96C5795D7870F42 for crc64-ecma
+    static uint64_t crc64_table[256];
+    static uint64_t poly64 = UINT64_C(0x95AC9329AC4BC9B5);
+    if( poly64 ) {
+        for( int b = 0; b < 256; ++b ) {
+            uint64_t r = b;
+            for( int i = 0; i < 8; ++i ) {
+                r = r & 1 ? (r >> 1) ^ poly64 : r >> 1;
+            }
+            crc64_table[ b ] = r;
+            //printf("%016llx\n", crc64_table[b]);
+        }
+        poly64 = 0;
+    }
+    const uint8_t *buf = (const uint8_t *)ptr;
+    uint64_t crc = ~h; // ~crc;
+    while( len != 0 ) {
+        crc = crc64_table[(uint8_t)crc ^ *buf++] ^ (crc >> 8);
+        --len;
+    }
+    return ~crc;
+}
+
+#if 0
+unsigned crc32(unsigned h, const void *ptr_, unsigned len) {
+    // based on public domain code by Karl Malbrain
+    const uint8_t *ptr = (const uint8_t *)ptr_;
+    if (!ptr) return 0;
+    const unsigned tbl[16] = {
+        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c };
+    for(h = ~h; len--; ) { uint8_t b = *ptr++; h = (h >> 4) ^ tbl[(h & 15) ^ (b & 15)]; h = (h >> 4) ^ tbl[(h & 15) ^ (b >> 4)]; }
+    return ~h;
+}
+#endif
+
+// ----------------------------------------------------------------------------
+// entropy encoder
+
+#if is(win32)
+#include <winsock2.h>
+#include <wincrypt.h>
+#pragma comment(lib, "advapi32")
+
+void entropy( void *buf, unsigned n ) {
+    HCRYPTPROV provider;
+    if( CryptAcquireContext( &provider, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT ) == 0 ) {
+        assert(!"CryptAcquireContext failed");
+    }
+
+    int rc = CryptGenRandom( provider, n, (BYTE *)buf );
+    assert( rc != 0 );
+    CryptReleaseContext( provider, 0 );
+}
+
+#elif is(linux) || is(osx)
+
+void entropy( void *buf, unsigned n ) {
+    FILE *fp = fopen( "/dev/urandom", "r" );
+    if( !fp ) assert(!"/dev/urandom open failed");
+
+    size_t read = n * fread( buf, n, 1, fp );
+    assert( read == n && "/dev/urandom read failed" );
+    fclose( fp );
+}
+
+#else // unused for now. likely emscripten will hit this
+
+// pseudo random number generator with 128 bit internal state... probably not suited for cryptographical usage.
+// [src] http://github.com/kokke (UNLICENSE)
+// [ref] http://burtleburtle.net/bob/rand/smallprng.html
+
+#include <time.h>
+
+#if is(win32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+static uint32_t prng_next(void) {
+    #define prng_rotate(x,k) (x << k) | (x >> (32 - k))
+    #define prng_shuffle() do { \
+    uint32_t e = ctx[0] - prng_rotate(ctx[1], 27); \
+    ctx[0] = ctx[1] ^ prng_rotate(ctx[2], 17); \
+    ctx[1] = ctx[2] + ctx[3]; \
+    ctx[2] = ctx[3] + e; \
+    ctx[3] = e + ctx[0]; } while(0)
+    static __thread uint32_t ctx[4], *once = 0; if( !once ) {
+        uint32_t seed = (uint32_t)( ifdef(win32,_getpid,getpid)() + time(0) + ((uintptr_t)once) );
+        ctx[0] = 0xf1ea5eed;
+        ctx[1] = ctx[2] = ctx[3] = seed;
+        for (int i = 0; i < 31; ++i) {
+            prng_shuffle();
+        }
+        once = ctx;
+    }
+    prng_shuffle();
+    return ctx[3];
+}
+
+void entropy( void *buf, unsigned n ) {
+    for( ; n >= 4 ; n -= 4 ) {
+        uint32_t a = prng_next();
+        memcpy(buf, &a, 4);
+        buf = ((char*)buf) + 4;
+    }
+    if( n > 0 ) {
+        uint32_t a = prng_next();
+        memcpy(buf, &a, n);
+    }
+}
+
+#endif
+
+#if 0
+AUTORUN {
+    unsigned char buf[128];
+    entropy(buf, 128);
+    for( int i = 0; i < 128; ++i ) {
+        printf("%02x", buf[i]);
+    }
+    puts("");
+}
+#endif
 #line 0
 
 #line 1 "fwk_reflect.c"
@@ -15747,74 +16407,87 @@ AUTORUN {
     reflect_init();
 }
 
-static
-const char* symbol(const char *s) {
+const char* symbol_naked(const char *s) {
     if( strbeg(s, "const ") ) s += 6;
     if( strbeg(s, "union ") ) s += 6;
     if( strbeg(s, "struct ") ) s += 7;
     if(!strstr(s, " *") ) return s;
     char *copy = va("%s", s);
     do strswap(copy," *","*"); while( strstr(copy, " *") ); // char  * -> char*
-    return (const char *)copy;
+    return (const char*)copy;
 }
 
 void type_inscribe(const char *TY,unsigned TYsz,const char *infos) {
     reflect_init();
-    unsigned TYid = intern(TY = symbol(TY));
-    map_find_or_add(reflects, TYid, ((reflect_t){TYid, 0, TYsz, TY, infos}));
+    unsigned TYid = intern(TY = symbol_naked(TY));
+    map_find_or_add(reflects, TYid, ((reflect_t){TYid, 0, TYsz, STRDUP(TY), infos})); // @leak
 }
 void enum_inscribe(const char *E,unsigned Eval,const char *infos) {
     reflect_init();
-    unsigned Eid = intern(E = symbol(E));
-    map_find_or_add(reflects, Eid, ((reflect_t){Eid,0, Eval, E,infos}));
+    unsigned Eid = intern(E = symbol_naked(E));
+    map_find_or_add(reflects, Eid, ((reflect_t){Eid,0, Eval, STRDUP(E),infos})); // @leak
 }
 unsigned enum_find(const char *E) {
     reflect_init();
-    E = symbol(E);
+    E = symbol_naked(E);
     return map_find(reflects, intern(E))->sz;
 }
 void function_inscribe(const char *F,void *func,const char *infos) {
     reflect_init();
-    unsigned Fid = intern(F = symbol(F));
-    map_find_or_add(reflects, Fid, ((reflect_t){Fid,0, 0, F,infos, func}));
+    unsigned Fid = intern(F = symbol_naked(F));
+    map_find_or_add(reflects, Fid, ((reflect_t){Fid,0, 0, STRDUP(F),infos, func})); // @leak
     reflect_t *found = map_find(reflects,Fid);
 }
 void *function_find(const char *F) {
     reflect_init();
-    F = symbol(F);
+    F = symbol_naked(F);
     return map_find(reflects, intern(F))->addr;
 }
 void struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos) {
     reflect_init();
-    unsigned Tid = intern(T = symbol(T));
-    map_find_or_add(reflects, Tid, ((reflect_t){Tid, OBJTYPEid, Tsz, T, infos}));
+    unsigned Tid = intern(T = symbol_naked(T));
+    map_find_or_add(reflects, Tid, ((reflect_t){Tid, OBJTYPEid, Tsz, STRDUP(T), infos})); // @leak
 }
-void member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes) {
+void member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *TYPE, unsigned bytes) {
     reflect_init();
-    unsigned Tid = intern(T = symbol(T));
-    unsigned Mid = intern(M = symbol(M));
-    type = symbol(type);
-    map_find_or_add(reflects, (Mid<<16)|Tid, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type }));
+    unsigned Tid = intern(T = symbol_naked(T));
+    unsigned Mid = intern(M = symbol_naked(M));
+    unsigned Xid = intern(TYPE = symbol_naked(TYPE));
+    map_find_or_add(reflects, (Mid<<16)|Tid, ((reflect_t){Mid, 0, Msz, STRDUP(M), infos, NULL, Tid, STRDUP(TYPE) })); // @leak
     // add member separately as well
     if(!members) map_init_int(members);
     array(reflect_t) *found = map_find_or_add(members, Tid, 0);
-    array_push(*found, ((reflect_t){Mid, 0, Msz, M, infos, NULL, Tid, type, bytes }));
+    reflect_t data = {Mid, 0, Msz, STRDUP(M), infos, NULL, Tid, STRDUP(TYPE), bytes }; // @leak
+    // ensure member has not been added previously
+#if 1
+    // works, without altering member order
+    reflect_t *index = 0;
+    for(int i = 0, end = array_count(*found); i < end; ++i) {
+        if( (*found)[i].id == Mid ) { index = (*found)+i; break; }
+    }
+    if( index ) *index = data; else array_push(*found, data);
+#else
+    // works, although members get sorted
+    array_push(*found, data);
+    array_sort(*found, less_unsigned_ptr); //< first member type in reflect_t is `unsigned id`, so less_unsigned_ptr works
+    array_unique(*found, less_unsigned_ptr); //< first member type in reflect_t is `unsigned id`, so less_unsigned_ptr works
+#endif
 }
 reflect_t member_find(const char *T, const char *M) {
     reflect_init();
-    T = symbol(T);
-    M = symbol(M);
+    T = symbol_naked(T);
+    M = symbol_naked(M);
     return *map_find(reflects, (intern(M)<<16)|intern(T));
 }
 void *member_findptr(void *obj, const char *T, const char *M) {
     reflect_init();
-    T = symbol(T);
-    M = symbol(M);
+    T = symbol_naked(T);
+    M = symbol_naked(M);
     return (char*)obj + member_find(T,M).sz;
 }
 array(reflect_t)* members_find(const char *T) {
     reflect_init();
-    T = symbol(T);
+    T = symbol_naked(T);
     return map_find(members, intern(T));
 }
 
@@ -15829,9 +16502,17 @@ void ui_reflect_(const reflect_t *R, const char *filter, int mask) {
         if( buf ) *buf = '\0';
 
         struct nk_context *ui_ctx = (struct nk_context *)ui_handle();
-        /*for ui_push_hspace(16)*/ {
+        for ui_push_hspace(16) {
             array(reflect_t) *T = map_find(members, intern(R->name));
-            /**/ if( T )         {ui_label(strcatf(&buf,"S struct %s@%s", R->name, R->info+1)); for each_array_ptr(*T, reflect_t, it) if(strmatchi(it->name,filter)) ui_reflect_(it,filter,'M'); }
+            /**/ if( T )         {ui_label(strcatf(&buf,"S struct %s@%s", R->name, R->info+1));
+            for each_array_ptr(*T, reflect_t, it)
+                if(strmatchi(it->name,filter)) {
+                    if( !R->type && !strcmp(it->name,R->name) ) // avoid recursion
+                        ui_label(strcatf(&buf,"M %s %s@%s", it->type, it->name, it->info+1));
+                    else
+                        ui_reflect_(it,filter,'M');
+                }
+            }
             else if( R->addr )    ui_label(strcatf(&buf,"F func %s()@%s", R->name, R->info+1));
             else if( !R->parent ) ui_label(strcatf(&buf,"E enum %s = %d@%s", R->name, R->sz, R->info+1));
             else                  ui_label(strcatf(&buf,"M %s %s@%s", R->type, R->name, R->info+1));
@@ -16470,6 +17151,27 @@ unsigned rgbaf(float r, float g, float b, float a) {
 }
 unsigned bgraf(float b, float g, float r, float a) {
     return rgba(r * 255, g * 255, b * 255, a * 255);
+}
+
+unsigned atorgba(const char *s) {
+    if( s[0] != '#' ) return 0;
+    unsigned r = 0, g = 0, b = 0, a = 255;
+    int slen = strspn(s+1, "0123456789abcdefABCDEF");
+    if( slen > 8 ) slen = 8;
+    /**/ if( slen == 6 ) sscanf(s+1, "%2x%2x%2x",    &r,&g,&b);
+    else if( slen == 8 ) sscanf(s+1, "%2x%2x%2x%2x", &r,&g,&b,&a);
+    else if( slen == 3 ) sscanf(s+1, "%1x%1x%1x",    &r,&g,&b   ), r=r<<4|r,g=g<<4|g,b=b<<4|b;
+    else if( slen == 4 ) sscanf(s+1, "%1x%1x%1x%1x", &r,&g,&b,&a), r=r<<4|r,g=g<<4|g,b=b<<4|b,a=a<<4|a;
+    return rgba(r,g,b,a);
+}
+char *rgbatoa(unsigned rgba) {
+    unsigned a = rgba >> 24;
+    unsigned b =(rgba >> 16) & 255;
+    unsigned g =(rgba >>  8) & 255;
+    unsigned r = rgba        & 255;
+    char *s = va("#        ");
+    sprintf(s+1, "%02x%02x%02x%02x", r,g,b,a);
+    return s;
 }
 
 // -----------------------------------------------------------------------------
@@ -17311,1107 +18013,6 @@ void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3], float gamma ) {
     glBindVertexArray( 0 );
     glUseProgram( 0 );
 //    glDisable( GL_BLEND );
-}
-
-// ----------------------------------------------------------------------------
-// sprites
-
-typedef struct sprite_t {
-    float px, py, pz;         // origin x, y, depth
-    float ox, oy, cos, sin;   // offset x, offset y, cos/sin of rotation degree
-    float sx, sy;             // scale x,y
-    uint32_t rgba;            // vertex color
-    float cellw, cellh;       // dimensions of any cell in spritesheet
-
-    union {
-    struct {
-        int frame, ncx, ncy;      // frame in a (num cellx, num celly) spritesheet
-    };
-    struct {
-        float x, y, w, h;         // normalized[0..1] within texture bounds
-    };
-    };
-} sprite_t;
-
-// sprite batching
-typedef struct batch_t { array(sprite_t) sprites; mesh_t mesh; int dirty; } batch_t;
-typedef map(int, batch_t) batch_group_t; // mapkey is anything that forces a flush. texture_id for now, might be texture_id+program_id soon
-
-// sprite stream
-typedef struct sprite_vertex { vec3 pos; vec2 uv; uint32_t rgba; } sprite_vertex;
-typedef struct sprite_index  { GLuint triangle[3]; } sprite_index;
-
-#define sprite_vertex(...) C_CAST(sprite_vertex, __VA_ARGS__)
-#define sprite_index(...)  C_CAST(sprite_index, __VA_ARGS__)
-
-// sprite impl
-static int sprite_count = 0;
-static int sprite_program = -1;
-static array(sprite_index)  sprite_indices = 0;
-static array(sprite_vertex) sprite_vertices = 0;
-static batch_group_t sprite_additive_group = {0}; // (w/2,h/2) centered
-static batch_group_t sprite_translucent_group = {0}; // (w/2,h/2) centered
-static batch_group_t sprite_00_translucent_group = {0}; // (0,0) centered
-
-void sprite( texture_t texture, float position[3], float rotation, uint32_t color ) {
-    float offset[2] = {0,0}, scale[2] = {1,1}, spritesheet[3] = {0,0,0};
-    sprite_sheet( texture, spritesheet, position, rotation, offset, scale, 0, color, false );
-}
-
-// rect(x,y,w,h) is [0..1] normalized, z-index, pos(x,y,scale), rotation (degrees), color (rgba)
-void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba) {
-    // @todo: no need to queue if alpha or scale are zero
-    sprite_t s = {0};
-
-    s.x = rect.x, s.y = rect.y, s.w = rect.z, s.h = rect.w;
-    s.cellw = s.w * t.w, s.cellh = s.h * t.h;
-
-    s.px = pos.x, s.py = pos.y, s.pz = zindex;
-    s.sx = s.sy = pos.z;
-    s.rgba = tint_rgba;
-    s.ox = 0/*ox*/ * s.sx;
-    s.oy = 0/*oy*/ * s.sy;
-    if( tilt_deg ) {
-        tilt_deg = (tilt_deg + 0) * ((float)C_PI / 180);
-        s.cos = cosf(tilt_deg);
-        s.sin = sinf(tilt_deg);
-    } else {
-        s.cos = 1;
-        s.sin = 0;
-    }
-
-    batch_group_t *batches = &sprite_00_translucent_group;
-    batch_t *found = map_find_or_add(*batches, t.id, (batch_t){0});
-
-    array_push(found->sprites, s);
-}
-
-void sprite_sheet( texture_t texture, float spritesheet[3], float position[3], float rotation, float offset[2], float scale[2], int is_additive, uint32_t rgba, int resolution_independant) {
-    const float px = position[0], py = position[1], pz = position[2];
-    const float ox = offset[0], oy = offset[1], sx = scale[0], sy = scale[1];
-    const float frame = spritesheet[0], xcells = spritesheet[1], ycells = spritesheet[2];
-
-    if (frame < 0) return;
-    if (frame > 0 && frame >= (xcells * ycells)) return;
-
-    // no need to queue if alpha or scale are zero
-    if( sx && sy && alpha(rgba) ) {
-        vec3 bak = camera_get_active()->position;
-        if( resolution_independant ) { // @todo: optimize me
-        sprite_flush();
-        camera_get_active()->position = vec3(window_width()/2,window_height()/2,1);
-        }
-
-        sprite_t s;
-        s.px = px;
-        s.py = py;
-        s.pz = pz;
-        s.frame = frame;
-        s.ncx = xcells ? xcells : 1;
-        s.ncy = ycells ? ycells : 1;
-        s.sx = sx;
-        s.sy = sy;
-        s.ox = ox * sx;
-        s.oy = oy * sy;
-        s.cellw = (texture.x * sx / s.ncx);
-        s.cellh = (texture.y * sy / s.ncy);
-        s.rgba = rgba;
-        s.cos = 1;
-        s.sin = 0;
-        if(rotation) {
-            rotation = (rotation + 0) * ((float)C_PI / 180);
-            s.cos = cosf(rotation);
-            s.sin = sinf(rotation);
-        }
-
-        batch_group_t *batches = is_additive ? &sprite_additive_group : &sprite_translucent_group;
-#if 0
-        batch_t *found = map_find(*batches, texture.id);
-        if( !found ) found = map_insert(*batches, texture.id, (batch_t){0});
-#else
-        batch_t *found = map_find_or_add(*batches, texture.id, (batch_t){0});
-#endif
-
-        array_push(found->sprites, s);
-
-        if( resolution_independant ) { // @todo: optimize me
-        sprite_flush();
-        camera_get_active()->position = bak;
-        }
-    }
-}
-
-static void sprite_rebuild_meshes() {
-    sprite_count = 0;
-
-    batch_group_t* list[] = { &sprite_additive_group, &sprite_translucent_group };
-    for( int l = 0; l < countof(list); ++l) {
-        for each_map_ptr(*list[l], int,_, batch_t,bt) {
-
-            bt->dirty = array_count(bt->sprites) ? 1 : 0;
-            if( !bt->dirty ) continue;
-
-            int index = 0;
-            array_clear(sprite_indices);
-            array_clear(sprite_vertices);
-
-            array_foreach_ptr(bt->sprites, sprite_t,it ) {
-                float x0 = it->ox - it->cellw/2, x3 = x0 + it->cellw;
-                float y0 = it->oy - it->cellh/2, y3 = y0;
-                float x1 = x0,                   x2 = x3;
-                float y1 = y0 + it->cellh,       y2 = y1;
-
-                // @todo: move this affine transform into glsl shader
-                vec3 v0 = { it->px + ( x0 * it->cos - y0 * it->sin ), it->py + ( x0 * it->sin + y0 * it->cos ), it->pz };
-                vec3 v1 = { it->px + ( x1 * it->cos - y1 * it->sin ), it->py + ( x1 * it->sin + y1 * it->cos ), it->pz };
-                vec3 v2 = { it->px + ( x2 * it->cos - y2 * it->sin ), it->py + ( x2 * it->sin + y2 * it->cos ), it->pz };
-                vec3 v3 = { it->px + ( x3 * it->cos - y3 * it->sin ), it->py + ( x3 * it->sin + y3 * it->cos ), it->pz };
-
-                float cx = (1.0f / it->ncx) - 1e-9f;
-                float cy = (1.0f / it->ncy) - 1e-9f;
-                int idx = (int)it->frame;
-                int px = idx % it->ncx;
-                int py = idx / it->ncx;
-
-                float ux = px * cx, uy = py * cy;
-                float vx = ux + cx, vy = uy + cy;
-
-                vec2 uv0 = vec2(ux, uy);
-                vec2 uv1 = vec2(ux, vy);
-                vec2 uv2 = vec2(vx, vy);
-                vec2 uv3 = vec2(vx, uy);
-
-                array_push( sprite_vertices, sprite_vertex(v0, uv0, it->rgba) ); // Vertex 0 (A)
-                array_push( sprite_vertices, sprite_vertex(v1, uv1, it->rgba) ); // Vertex 1 (B)
-                array_push( sprite_vertices, sprite_vertex(v2, uv2, it->rgba) ); // Vertex 2 (C)
-                array_push( sprite_vertices, sprite_vertex(v3, uv3, it->rgba) ); // Vertex 3 (D)
-
-                //      A--B                  A               A-B
-                // quad |  | becomes triangle |\  and triangle \|
-                //      D--C                  D-C               C
-                GLuint A = (index+0), B = (index+1), C = (index+2), D = (index+3); index += 4;
-
-                array_push( sprite_indices, sprite_index(C, D, A) ); // Triangle 1
-                array_push( sprite_indices, sprite_index(C, A, B) ); // Triangle 2
-            }
-
-            mesh_update(&bt->mesh, "p3 t2 c4B", 0,array_count(sprite_vertices),sprite_vertices, 3*array_count(sprite_indices),sprite_indices, MESH_STATIC);
-
-            // clear elements from queue
-            sprite_count += array_count(bt->sprites);
-            array_clear(bt->sprites);
-        }
-    }
-
-    batch_group_t* list2[] = { &sprite_00_translucent_group };
-    for( int l = 0; l < countof(list2); ++l) {
-        for each_map_ptr(*list2[l], int,_, batch_t,bt) {
-
-            bt->dirty = array_count(bt->sprites) ? 1 : 0;
-            if( !bt->dirty ) continue;
-
-            int index = 0;
-            array_clear(sprite_indices);
-            array_clear(sprite_vertices);
-
-            array_foreach_ptr(bt->sprites, sprite_t,it ) {
-                float x0 = it->ox - it->cellw/2, x3 = x0 + it->cellw;
-                float y0 = it->oy - it->cellh/2, y3 = y0;
-                float x1 = x0,                   x2 = x3;
-                float y1 = y0 + it->cellh,       y2 = y1;
-
-                // @todo: move this affine transform into glsl shader
-                vec3 v0 = { it->px + ( x0 * it->cos - y0 * it->sin ), it->py + ( x0 * it->sin + y0 * it->cos ), it->pz };
-                vec3 v1 = { it->px + ( x1 * it->cos - y1 * it->sin ), it->py + ( x1 * it->sin + y1 * it->cos ), it->pz };
-                vec3 v2 = { it->px + ( x2 * it->cos - y2 * it->sin ), it->py + ( x2 * it->sin + y2 * it->cos ), it->pz };
-                vec3 v3 = { it->px + ( x3 * it->cos - y3 * it->sin ), it->py + ( x3 * it->sin + y3 * it->cos ), it->pz };
-
-                float ux = it->x, vx = ux + it->w;
-                float uy = it->y, vy = uy + it->h;
-
-                vec2 uv0 = vec2(ux, uy);
-                vec2 uv1 = vec2(ux, vy);
-                vec2 uv2 = vec2(vx, vy);
-                vec2 uv3 = vec2(vx, uy);
-
-                array_push( sprite_vertices, sprite_vertex(v0, uv0, it->rgba) ); // Vertex 0 (A)
-                array_push( sprite_vertices, sprite_vertex(v1, uv1, it->rgba) ); // Vertex 1 (B)
-                array_push( sprite_vertices, sprite_vertex(v2, uv2, it->rgba) ); // Vertex 2 (C)
-                array_push( sprite_vertices, sprite_vertex(v3, uv3, it->rgba) ); // Vertex 3 (D)
-
-                //      A--B                  A               A-B
-                // quad |  | becomes triangle |\  and triangle \|
-                //      D--C                  D-C               C
-                GLuint A = (index+0), B = (index+1), C = (index+2), D = (index+3); index += 4;
-
-                array_push( sprite_indices, sprite_index(C, D, A) ); // Triangle 1
-                array_push( sprite_indices, sprite_index(C, A, B) ); // Triangle 2
-            }
-
-            mesh_update(&bt->mesh, "p3 t2 c4B", 0,array_count(sprite_vertices),sprite_vertices, 3*array_count(sprite_indices),sprite_indices, MESH_STATIC);
-
-            // clear elements from queue
-            sprite_count += array_count(bt->sprites);
-            array_clear(bt->sprites);
-        }
-    }
-}
-
-static void sprite_render_meshes() {
-    if( map_count(sprite_additive_group) <= 0 )
-    if( map_count(sprite_translucent_group) <= 0 )
-    if( map_count(sprite_00_translucent_group) <= 0 )
-        return;
-
-    if( sprite_program < 0 ) {
-        sprite_program = shader( vfs_read("shaders/vs_324_24_sprite.glsl"), vfs_read("shaders/fs_24_4_sprite.glsl"),
-            "att_Position,att_TexCoord,att_Color",
-            "fragColor", NULL
-        );
-    }
-
-    // use the shader and  bind the texture @ unit 0
-    shader_bind(sprite_program);
-    glActiveTexture(GL_TEXTURE0);
-
-    // setup rendering state
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glDepthFunc(GL_LEQUAL); // try to help with zfighting
-
-    // update camera
-    // camera_fps(camera_get_active(), 0,0);
-    vec3 pos = camera_get_active()->position;
-    float zoom = absf(pos.z); if(zoom < 0.1f) zoom = 0.1f; zoom = 1.f / (zoom + !zoom);
-    float width  = window_width();
-    float height = window_height();
-
-    // set mvp in the uniform. (0,0) is center of screen.
-    mat44 mvp2d;
-    float zdepth_max = window_height(); // 1;
-    float l = pos.x - width  * zoom / 2;
-    float r = pos.x + width  * zoom / 2;
-    float b = pos.y + height * zoom / 2;
-    float t = pos.y - height * zoom / 2;
-    ortho44(mvp2d, l,r,b,t, -zdepth_max, +zdepth_max);
-
-    shader_mat44("u_mvp", mvp2d);
-
-    // set (unit 0) in the uniform texture sampler, and render batch
-    // for all additive then translucent groups
-
-    if( map_count(sprite_additive_group) > 0 ) {
-        glBlendFunc( GL_SRC_ALPHA, GL_ONE );
-        for each_map_ptr(sprite_additive_group, int,texture_id, batch_t,bt) {
-            if( bt->dirty ) {
-                shader_texture_unit("u_texture", *texture_id, 0);
-                mesh_render(&bt->mesh);
-            }
-        }
-//        map_clear(sprite_additive_group);
-    }
-
-    if( map_count(sprite_translucent_group) > 0 ) {
-        glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-        for each_map_ptr(sprite_translucent_group, int,texture_id, batch_t,bt) {
-            if( bt->dirty ) {
-                shader_texture_unit("u_texture", *texture_id, 0);
-                mesh_render(&bt->mesh);
-            }
-        }
-//        map_clear(sprite_translucent_group);
-    }
-
-    if( map_count(sprite_00_translucent_group) > 0 ) {
-        glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-        for each_map_ptr(sprite_00_translucent_group, int,texture_id, batch_t,bt) {
-            if( bt->dirty ) {
-                shader_texture_unit("u_texture", *texture_id, 0);
-                mesh_render(&bt->mesh);
-            }
-        }
-//        map_clear(sprite_00_translucent_group);
-    }
-
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_BLEND);
-    glDepthFunc(GL_LESS);
-    glUseProgram(0);
-}
-
-static void sprite_init() {
-    do_once {
-    map_init(sprite_00_translucent_group, less_int, hash_int);
-    map_init(sprite_translucent_group, less_int, hash_int);
-    map_init(sprite_additive_group, less_int, hash_int);
-    }
-}
-
-void sprite_flush() {
-    profile("Sprite.rebuild_time") {
-    sprite_rebuild_meshes();
-    }
-    profile("Sprite.render_time") {
-    sprite_render_meshes();
-    }
-}
-
-// -----------------------------------------------------------------------------
-// tilemaps
-
-tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr) {
-    tilemap_t t = {0};
-    t.tint = ~0u; // WHITE
-    t.blank_chr = blank_chr;
-    for( ; *map ; ++map ) {
-        if( map[0] == linefeed_chr ) ++t.rows;
-        else {
-            array_push(t.map, map[0]);
-            ++t.cols;
-        }
-    }
-    return t;
-}
-
-void tilemap_render_ext( tilemap_t m, tileset_t t, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive ) {
-    vec3 old_pos = camera_get_active()->position;
-    sprite_flush();
-    camera_get_active()->position = vec3(window_width()/2,window_height()/2,1);
-
-    float scale[2] = {xy_zoom[2], xy_zoom[2]};
-    xy_zoom[2] = zindex;
-
-    float offset[2] = {0,0};
-    float spritesheet[3] = {0,t.cols,t.rows}; // selected tile index and spritesheet dimensions (cols,rows)
-
-    for( unsigned y = 0, c = 0; y < m.rows; ++y ) {
-        for( unsigned x = 0; x < m.cols; ++x, ++c ) {
-            if( m.map[c] != m.blank_chr ) {
-                spritesheet[0] = m.map[c];
-                sprite_sheet(t.tex, spritesheet, xy_zoom, tilt, offset, scale, is_additive, tint, false);
-            }
-            offset[0] += t.tile_w;
-        }
-        offset[0] = 0, offset[1] += t.tile_h;
-    }
-
-    sprite_flush();
-    camera_get_active()->position = old_pos;
-}
-
-void tilemap_render( tilemap_t map, tileset_t set ) {
-    map.position.x += set.tile_w;
-    map.position.y += set.tile_h;
-    tilemap_render_ext( map, set, map.zindex, &map.position.x, map.tilt, map.tint, map.is_additive );
-}
-
-tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows) {
-    tileset_t t = {0};
-    t.tex = tex;
-    t.cols = cols, t.rows = rows;
-    t.tile_w = tile_w, t.tile_h = tile_h;
-    return t;
-}
-
-int tileset_ui( tileset_t t ) {
-    ui_subimage(va("Selection #%d (%d,%d)", t.selected, t.selected % t.cols, t.selected / t.cols), t.tex.id, t.tex.w, t.tex.h, (t.selected % t.cols) * t.tile_w, (t.selected / t.cols) * t.tile_h, t.tile_w, t.tile_h);
-    int choice;
-    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) {
-        int px = ((choice / 100) / 100.f) * t.tex.w / t.tile_w;
-        int py = ((choice % 100) / 100.f) * t.tex.h / t.tile_h;
-        t.selected = px + py * t.cols;
-    }
-    // if( (choice = ui_buttons(3, "load", "save", "clear")) ) {}
-    return t.selected;
-}
-
-// -----------------------------------------------------------------------------
-// tiled
-
-tiled_t tiled(const char *file_tmx) {
-    tiled_t zero = {0}, ti = zero;
-
-    // read file and parse json
-    if( !xml_push(file_tmx) ) return zero;
-
-    // sanity checks
-    bool supported = !strcmp(xml_string("/map/@orientation"), "orthogonal") && !strcmp(xml_string("/map/@renderorder"), "right-down");
-    if( !supported ) return xml_pop(), zero;
-
-    // tileset
-    const char *file_tsx = xml_string("/map/tileset/@source");
-    if( !xml_push(vfs_read(file_tsx)) ) return zero;
-        const char *set_src = xml_string("/tileset/image/@source");
-        int set_w = xml_int("/tileset/@tilewidth");
-        int set_h = xml_int("/tileset/@tileheight");
-        int set_c = xml_int("/tileset/@columns");
-        int set_r = xml_int("/tileset/@tilecount") / set_c;
-        tileset_t set = tileset(texture(set_src,0), set_w, set_h, set_c, set_r );
-    xml_pop();
-
-    // actual parsing
-    ti.w = xml_int("/map/@width");
-    ti.h = xml_int("/map/@height");
-    ti.tilew = xml_int("/map/@tilewidth");
-    ti.tileh = xml_int("/map/@tileheight");
-    ti.first_gid = xml_int("/map/tileset/@firstgid");
-    ti.map_name = STRDUP( xml_string("/map/tileset/@source") ); // @leak
-
-    for(int l = 0, layers = xml_count("/map/layer"); l < layers; ++l ) {
-        if( strcmp(xml_string("/map/layer[%d]/data/@encoding",l), "base64") || strcmp(xml_string("/map/layer[%d]/data/@compression",l), "zlib") ) {
-            PRINTF("Warning: layer encoding not supported: '%s' -> layer '%s'\n", file_tmx, *array_back(ti.names));
-            continue;
-        }
-
-        int cols = xml_int("/map/layer[%d]/@width",l);
-        int rows = xml_int("/map/layer[%d]/@height",l);
-
-        tilemap_t tm = tilemap("", ' ', '\n');
-        tm.blank_chr = ~0u; //ti.first_gid - 1;
-        tm.cols = cols;
-        tm.rows = rows;
-        array_resize(tm.map, tm.cols * tm.rows);
-        memset(tm.map, 0xFF, tm.cols * tm.rows * sizeof(int));
-
-        for( int c = 0, chunks = xml_count("/map/layer[%d]/data/chunk", l); c <= chunks; ++c ) {
-            int cw, ch;
-            int cx, cy;
-            array(char) b64 = 0;
-
-            if( !chunks ) { // non-infinite mode
-                b64 = xml_blob("/map/layer[%d]/data/$",l);
-                cw = tm.cols, ch = tm.rows;
-                cx = 0, cy = 0;
-            } else { // infinite mode
-                b64 = xml_blob("/map/layer[%d]/data/chunk[%d]/$",l,c);
-                cw = xml_int("/map/layer[%d]/data/chunk[%d]/@width",l,c), ch = xml_int("/map/layer[%d]/data/chunk[%d]/@height",l,c); // 20x20
-                cx = xml_int("/map/layer[%d]/data/chunk[%d]/@x",l,c), cy = xml_int("/map/layer[%d]/data/chunk[%d]/@y",l,c); // (-16,-32)
-                cx = abs(cx), cy = abs(cy);
-            }
-
-            int outlen = cw * ch * 4;
-            static __thread int *out = 0; out = (int *)REALLOC( 0, outlen + zexcess(COMPRESS_ZLIB) ); // @leak
-            if( zdecode( out, outlen, b64, array_count(b64), COMPRESS_ZLIB ) > 0 ) {
-                for( int y = 0, p = 0; y < ch; ++y ) {
-                    for( int x = 0; x < cw; ++x, ++p ) {
-                        if( out[p] >= ti.first_gid ) {
-                            int offset = (x + cx) + (y + cy) * tm.cols;
-                            if( offset >= 0 && offset < (cw * ch) )
-                            tm.map[ offset ] = out[ p ] - ti.first_gid;
-                        }
-                    }
-                }
-            }
-            else {
-                PRINTF("Warning: bad zlib stream: '%s' -> layer #%d -> chunk #%d\n", file_tmx, l, c);
-            }
-
-            array_free(b64);
-        }
-
-        array_push(ti.layers, tm);
-        array_push(ti.names, STRDUP(xml_string("/map/layer[%d]/@name",l)));
-        array_push(ti.visible, true);
-        array_push(ti.sets, set);
-    }
-
-    xml_pop();
-    return ti;
-}
-
-void tiled_render(tiled_t tmx, vec3 pos) {
-    for( unsigned i = 0, end = array_count(tmx.layers); i < end; ++i ) {
-        tmx.layers[i].position = pos; // add3(camera_get_active()->position, pos);
-        if( tmx.parallax ) tmx.layers[i].position.x /= (3+i), tmx.layers[i].position.y /= (5+i);
-        if( tmx.visible[i] ) tilemap_render(tmx.layers[i], tmx.sets[i]);
-    }
-}
-
-void tiled_ui(tiled_t *t) {
-    ui_label2("Loaded map", t->map_name ? t->map_name : "(none)");
-    ui_label2("Map dimensions", va("%dx%d", t->w, t->h));
-    ui_label2("Tile dimensions", va("%dx%d", t->tilew, t->tileh));
-    ui_separator();
-    ui_bool("Parallax", &t->parallax);
-    ui_separator();
-    ui_label2("Layers", va("%d", array_count(t->layers)));
-    for( int i = 0; i < array_count(t->layers); ++i ) {
-        if( ui_label2_toolbar(va("- %s (%dx%d)", t->names[i], t->layers[i].cols, t->layers[i].rows ), t->visible[i] ? "\xee\xa3\xb4" : "\xee\xa3\xb5") > 0 ) { // ICON_MD_VISIBILITY / ICON_MD_VISIBILITY_OFF
-            t->visible[i] ^= true;
-        }
-    }
-    ui_separator();
-    if( ui_collapse(va("Sets: %d", array_count(t->layers)), va("%p",t))) {
-        for( int i = 0; i < array_count(t->layers); ++i ) {
-            if( ui_collapse(va("%d", i+1), va("%p%d",t,i)) ) {
-                t->sets[i].selected = tileset_ui( t->sets[i] );
-                ui_collapse_end();
-            }
-        }
-        ui_collapse_end();
-    }
-}
-
-// -----------------------------------------------------------------------------
-// spine json loader (wip)
-// - rlyeh, public domain
-//
-// [ref] http://es.esotericsoftware.com/spine-json-format
-//
-// notable misses:
-// - mesh deforms
-// - cubic beziers
-// - shears
-// - bounding boxes
-
-enum { SPINE_MAX_BONES = 64 }; // max bones
-
-typedef struct spine_bone_t {
-    char *name, *parent;
-    struct spine_bone_t *parent_bone;
-
-    float z; // draw order usually matches bone-id. ie, zindex == bone_id .. root(0) < chest (mid) < finger(top)
-
-    float len;
-    float x, y, deg;        // base
-    float x2, y2, deg2;     // accum / temporaries during bone transform time
-    float x3, y3, deg3;     // values from timeline
-
-    unsigned rect_id;
-    unsigned atlas_id;
-} spine_bone_t;
-
-typedef struct spine_slot_t {
-    char *name, *bone, *attach;
-} spine_slot_t;
-
-typedef struct spine_rect_t {
-    char *name;
-    float x,y,w,h,sx,sy,deg;
-} spine_rect_t;
-
-typedef struct spine_skin_t {
-    char *name;
-    array(spine_rect_t) rects;
-} spine_skin_t;
-
-typedef struct spine_animkey_t { // offline; only during loading
-    float time, curve[4];        // time is mandatory, curve is optional
-    union {
-        char *name;              // type: attachment (mode-1)
-        struct { float deg; };   // type: rotate (mode-2)
-        struct { float x,y; };   // type: translate (mode-3)
-    };
-} spine_animkey_t;
-
-#if 0
-typedef struct spine_pose_t { // runtime; only during playing
-    unsigned frame;
-    array(vec4) xform; // entry per bone. translation(x,y),rotation(z),attachment-id(w)
-} spine_pose_t;
-#endif
-
-typedef struct spine_anim_t {
-    char *name;
-    union {
-#if 0
-        struct {
-            unsigned frames;
-            array(spine_pose_t) poses;
-        };
-#endif
-        struct {
-            array(spine_animkey_t) attach_keys[SPINE_MAX_BONES];
-            array(spine_animkey_t) rotate_keys[SPINE_MAX_BONES];
-            array(spine_animkey_t) translate_keys[SPINE_MAX_BONES];
-        };
-    };
-} spine_anim_t;
-
-typedef struct spine_atlas_t {
-    char *name;
-    float x,y,w,h,deg;
-} spine_atlas_t;
-
-typedef struct spine_t {
-    char *name;
-    texture_t texture;
-    unsigned skin;
-    array(spine_bone_t) bones;
-    array(spine_slot_t) slots;
-    array(spine_skin_t) skins;
-    array(spine_anim_t) anims;
-    array(spine_atlas_t) atlas;
-    // anim controller
-    unsigned inuse;
-    float time, maxtime;
-    unsigned debug_atlas_id;
-} spine_t;
-
-// ---
-
-static
-void spine_convert_animkeys_to_animpose(spine_anim_t *input) {
-    spine_anim_t copy = *input; // @todo
-    // @leak: attach/rot/tra keys
-}
-
-static
-int find_bone_id(spine_t *s, const char *bone_name) {
-    for( unsigned i = 0, end = array_count(s->bones); i < end; ++i )
-        if( !strcmp(s->bones[i].name, bone_name)) return i;
-    return -1;
-}
-static
-spine_bone_t *find_bone(spine_t *s, const char *bone_name) {
-    int bone_id = find_bone_id(s, bone_name);
-    return bone_id >= 0 ? &s->bones[bone_id] : NULL;
-}
-
-void spine_skin(spine_t *p, unsigned skin) {
-    if( !p->texture.id ) return;
-    if( skin >= array_count(p->skins) ) return;
-
-    p->skin = skin;
-
-    char *skin_name = va("%s/", p->skins[skin].name);
-    int header = strlen(skin_name);
-
-    for( int i = 0; i < array_count(p->atlas); ++i) {
-        if(!strbeg(p->atlas[i].name, skin_name)) continue;
-
-        int bone_id = find_bone_id(p, p->atlas[i].name+header );
-        if( bone_id < 0 ) continue;
-
-        p->bones[bone_id].atlas_id = i;
-    }
-
-    for( int i = 0; i < array_count(p->skins[p->skin].rects); ++i) {
-        int bone_id = find_bone_id(p, p->skins[p->skin].rects[i].name );
-        if( bone_id < 0 ) continue;
-
-        p->bones[bone_id].rect_id = i;
-    }
-}
-
-static
-bool spine_(spine_t *t, const char *file_json, const char *file_atlas, unsigned flags) {
-    char *atlas = vfs_read(file_atlas);
-    if(!atlas || !atlas[0]) return false;
-
-    memset(t, 0, sizeof(spine_t));
-
-    // goblins.png
-    //   size: 1024, 128
-    //   filter: Linear, Linear
-    //   pma: true
-    // dagger
-    //   bounds: 2, 18, 26, 108
-    // goblin/eyes-closed
-    //   bounds: 2, 4, 34, 12
-    spine_atlas_t *sa = 0;
-    const char *last_id = 0;
-    const char *texture_name = 0;
-    const char *texture_filter = 0;
-    const char *texture_format = 0;
-    const char *texture_repeat = 0;
-    float texture_width = 0, texture_height = 0, temp;
-    for each_substring(atlas, "\r\n", it) {
-        it += strspn(it, " \t\f\v");
-        /**/ if( strbeg(it, "pma:" ) || strbeg(it, "index:") ) {} // ignored
-        else if( strbeg(it, "size:" ) ) sscanf(it+5, "%f,%f", &texture_width, &texture_height);
-        else if( strbeg(it, "rotate:" ) ) { float tmp; tmp=sa->w,sa->w=sa->h,sa->h=tmp; sa->deg = 90; } // assert(val==90)
-        else if( strbeg(it, "repeat:" ) ) texture_repeat = it+7; // temp string
-        else if( strbeg(it, "filter:" ) ) texture_filter = it+7; // temp string
-        else if( strbeg(it, "format:" ) ) texture_format = it+7; // temp string
-        else if( strbeg(it, "bounds:" ) ) {
-            sscanf(it+7, "%f,%f,%f,%f", &sa->x, &sa->y, &sa->w, &sa->h);
-        }
-        else if( !texture_name ) texture_name = va("%s", it);
-        else {
-            array_push(t->atlas, ((spine_atlas_t){0}) );
-            sa = &t->atlas[array_count(t->atlas) - 1];
-            sa->name = STRDUP(it);
-        }
-    }
-    for( int i = 0; i < array_count(t->atlas); ++i ) {
-        sa = &t->atlas[i];
-        sa->x /= texture_width, sa->y /= texture_height;
-        sa->w /= texture_width, sa->h /= texture_height;
-    }
-
-    if(!texture_name) return false;
-
-    t->texture = texture(texture_name, TEXTURE_LINEAR);
-
-    json_push(vfs_read(file_json)); // @fixme: json_push_from_file() ?
-
-    array_resize(t->bones, json_count("/bones"));
-    array_reserve(t->slots, json_count("/slots"));
-    array_resize(t->skins, json_count("/skins"));
-    array_resize(t->anims, json_count("/animations"));
-
-    for( int i = 0, end = json_count("/bones"); i < end; ++i ) {
-        spine_bone_t v = {0};
-        v.name = STRDUP(json_string("/bones[%d]/name", i));
-        v.parent = STRDUP(json_string("/bones[%d]/parent", i));
-        v.x = json_float("/bones[%d]/x", i);
-        v.y = json_float("/bones[%d]/y", i);
-        v.z = i;
-        v.len = json_float("/bones[%d]/length", i);
-        v.deg = json_float("/bones[%d]/rotation", i);
-        t->bones[i] = v;
-
-        for( int j = i-1; j > 0; --j ) {
-            if( strcmp(t->bones[j].name,v.parent) ) continue;
-            t->bones[i].parent_bone = &t->bones[j];
-            break;
-        }
-    }
-
-    for( int i = 0, end = json_count("/slots"); i < end; ++i ) {
-        spine_slot_t v = {0};
-        v.name = STRDUP(json_string("/slots[%d]/name", i));
-        v.bone = STRDUP(json_string("/slots[%d]/bone", i));
-        v.attach = STRDUP(json_string("/slots[%d]/attachment", i));
-
-        array_push(t->slots, v);
-
-        // slots define draw-order. so, update draw-order/zindex in bone
-        spine_bone_t *b = find_bone(t, v.name);
-        if( b ) b->z = i;
-    }
-
-    for( int i = 0, end = json_count("/skins"); i < end; ++i ) {
-        spine_skin_t v = {0};
-        v.name = STRDUP(json_string("/skins[%d]/name", i));
-
-        for( int j = 0, jend = json_count("/skins[%d]/attachments",i); j < jend; ++j ) // /skins/default/
-        for( int k = 0, kend = json_count("/skins[%d]/attachments[%d]",i,j); k < kend; ++k ) { // /skins/default/left hand item/
-            spine_rect_t r = {0};
-            r.name = STRDUP(json_key("/skins[%d]/attachments[%d][%d]",i,j,k)); // stringf("%s-%s-%s", json_key("/skins[%d]",i), json_key("/skins[%d][%d]",i,j), json_key("/skins[%d][%d][%d]",i,j,k));
-            r.x = json_float("/skins[%d]/attachments[%d][%d]/x",i,j,k);
-            r.y = json_float("/skins[%d]/attachments[%d][%d]/y",i,j,k);
-            r.sx= json_float("/skins[%d]/attachments[%d][%d]/scaleX",i,j,k); r.sx += !r.sx;
-            r.sy= json_float("/skins[%d]/attachments[%d][%d]/scaleY",i,j,k); r.sy += !r.sy;
-            r.w = json_float("/skins[%d]/attachments[%d][%d]/width",i,j,k);
-            r.h = json_float("/skins[%d]/attachments[%d][%d]/height",i,j,k);
-            r.deg = json_float("/skins[%d]/attachments[%d][%d]/rotation",i,j,k);
-            array_push(v.rects, r);
-        }
-
-        t->skins[i] = v;
-    }
-
-#if 1
-    // simplify:
-    // merge /skins/default into existing /skins/*, then delete /skins/default
-    if( array_count(t->skins) > 1 ) {
-        for( int i = 1; i < array_count(t->skins); ++i ) {
-            for( int j = 0; j < array_count(t->skins[0].rects); ++j ) {
-                array_push(t->skins[i].rects, t->skins[0].rects[j]);
-            }
-        }
-        // @leak @fixme: FREE(t->skins[0])
-        for( int i = 0; i < array_count(t->skins)-1; ++i ) {
-            t->skins[i] = t->skins[i+1];
-        }
-        array_pop(t->skins);
-    }
-#endif
-
-    for( int i = 0, end = json_count("/animations"); i < end; ++i ) {
-        int id;
-        const char *name;
-
-        spine_anim_t v = {0};
-        v.name = STRDUP(json_key("/animations[%d]", i));
-
-        // slots / attachments
-
-        for( int j = 0, jend = json_count("/animations[%d]/slots",i); j < jend; ++j )
-        for( int k = 0, kend = json_count("/animations[%d]/slots[%d]",i,j); k < kend; ++k ) // ids
-        {
-            int bone_id = find_bone_id(t, json_key("/animations[%d]/bones[%d]",i,j));
-            if( bone_id < 0 ) continue;
-
-            for( int l = 0, lend = json_count("/animations[%d]/slots[%d][%d]",i,j,k); l < lend; ++l ) { // channels (rot,tra,attach)
-                spine_animkey_t key = {0};
-
-                key.name = STRDUP(json_string("/animations[%d]/slots[%d][%d][%d]/name",i,j,k,l));
-                key.time = json_float("/animations[%d]/slots[%d][%d][%d]/time",i,j,k,l);
-                if( json_count("/animations[%d]/slots[%d][%d][%d]/curve",i,j,k,l) == 4 ) {
-                key.curve[0] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[0]",i,j,k,l);
-                key.curve[1] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[1]",i,j,k,l);
-                key.curve[2] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[2]",i,j,k,l);
-                key.curve[3] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[3]",i,j,k,l);
-                }
-
-                // @todo: convert name to id
-                // for(id = 0; t->bones[id].name && strcmp(t->bones[id].name,key.name); ++id)
-                // printf("%s vs %s\n", key.name, t->bones[id].name);
-
-                array_push(v.attach_keys[bone_id], key);
-            }
-        }
-
-        // bones
-
-        for( int j = 0, jend = json_count("/animations[%d]/bones",i); j < jend; ++j ) // slots or bones
-        for( int k = 0, kend = json_count("/animations[%d]/bones[%d]",i,j); k < kend; ++k ) { // bone ids
-            int bone_id = find_bone_id(t, json_key("/animations[%d]/bones[%d]",i,j));
-            if( bone_id < 0 ) continue;
-
-            // parse bones
-            for( int l = 0, lend = json_count("/animations[%d]/bones[%d][%d]",i,j,k); l < lend; ++l ) { // channels (rot,tra,attach)
-                const char *channel = json_key("/animations[%d]/bones[%d][%d]",i,j,k);
-                int track = !strcmp(channel, "rotate") ? 1 : !strcmp(channel, "translate") ? 2 : 0;
-                if( !track ) continue;
-
-                spine_animkey_t key = {0};
-
-                key.time = json_float("/animations[%d]/bones[%d][%d][%d]/time",i,j,k,l);
-                if( json_count("/animations[%d]/bones[%d][%d][%d]/curve",i,j,k,l) == 4 ) {
-                key.curve[0] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[0]",i,j,k,l);
-                key.curve[1] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[1]",i,j,k,l);
-                key.curve[2] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[2]",i,j,k,l);
-                key.curve[3] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[3]",i,j,k,l);
-                }
-
-                if( track == 1 )
-                key.deg = json_float("/animations[%d]/bones[%d][%d][%d]/value",i,j,k,l), // "/angle"
-                array_push(v.rotate_keys[bone_id], key);
-                else
-                key.x = json_float("/animations[%d]/bones[%d][%d][%d]/x",i,j,k,l),
-                key.y = json_float("/animations[%d]/bones[%d][%d][%d]/y",i,j,k,l),
-                array_push(v.translate_keys[bone_id], key);
-            }
-        }
-
-        t->anims[i] = v;
-    }
-
-    json_pop();
-
-    spine_skin(t, 0);
-
-    return true;
-}
-
-spine_t* spine(const char *file_json, const char *file_atlas, unsigned flags) {
-    spine_t *t = MALLOC(sizeof(spine_t));
-    if( !spine_(t, file_json, file_atlas, flags) ) return FREE(t), NULL;
-    return t;
-}
-
-void spine_render(spine_t *p, vec3 offset, unsigned flags) {
-    if( !p->texture.id ) return;
-    if( !flags ) return;
-
-    ddraw_push_2d();
-        // if( flags & 2 ) ddraw_line(vec3(0,0,0), vec3(window_width(),window_height(),0));
-        // if( flags & 2 ) ddraw_line(vec3(window_width(),0,0), vec3(0,window_height(),0));
-
-        // int already_computed[SPINE_MAX_BONES] = {0}; // @fixme: optimize: update longest chains first, then remnant branches
-
-        for( int i = 1; i < array_count(p->bones); ++i ) {
-            spine_bone_t *self = &p->bones[i];
-            if( !self->rect_id ) continue;
-
-            int num_bones = 0;
-            static array(spine_bone_t*) chain = 0; array_resize(chain, 0);
-            for( spine_bone_t *next = self; next ; next = next->parent_bone, ++num_bones ) {
-                array_push(chain, next);
-            }
-
-            vec3 target = {0}, prev = {0};
-            for( int j = 0, end = array_count(chain); j < end; ++j ) { // traverse from root(skipped) -> `i` bone direction
-                int j_opposite = end - 1 - j;
-
-                spine_bone_t *b = chain[j_opposite]; // bone
-                spine_bone_t *pb = b->parent_bone; // parent bone
-
-                float pb_x2 = 0, pb_y2 = 0, pb_deg2 = 0;
-                if( pb ) pb_x2 = pb->x2, pb_y2 = pb->y2, pb_deg2 = pb->deg2;
-
-                const float deg2rad = C_PI / 180;
-                b->x2 =      b->x3 + pb_x2   + b->x * cos( -pb_deg2 * deg2rad ) - b->y * sin( -pb_deg2 * deg2rad );
-                b->y2 =     -b->y3 + pb_y2   - b->y * cos(  pb_deg2 * deg2rad ) + b->x * sin(  pb_deg2 * deg2rad );
-                b->deg2 = -b->deg3 + pb_deg2 - b->deg;
-
-                prev = target;
-                target = vec3(b->x2,b->y2,b->deg2);
-            }
-
-            target.z = 0;
-            target = add3(target, offset);
-            prev.z = 0;
-            prev = add3(prev, offset);
-
-            if( flags & 2 ) {
-                ddraw_point( target );
-                ddraw_text( target, -0.25f, self->name );
-                ddraw_bone( prev, target ); // from parent to bone
-            }
-            if( flags & 1 ) {
-                spine_atlas_t *a = &p->atlas[self->atlas_id];
-                spine_rect_t *r = &p->skins[p->skin].rects[self->rect_id];
-
-                vec4 rect = ptr4(&a->x);
-                float zindex = self->z;
-                float offsx = 0;
-                float offsy = 0;
-                float tilt = self->deg2 + (a->deg - r->deg);
-                unsigned tint = self->atlas_id == p->debug_atlas_id ? 0xFF<<24 | 0xFF : ~0u;
-
-                if( 1 ) {
-                    vec3 dir = vec3(r->x,r->y,0);
-                    dir = rotatez3(dir, self->deg2);
-                    offsx = dir.x * r->sx;
-                    offsy = dir.y * r->sy;
-                }
-
-                sprite_rect(p->texture, rect, zindex, add3(vec3(target.x,target.y,1),vec3(offsx,offsy,0)), tilt, tint);
-            }
-         }
-
-    ddraw_pop_2d();
-    ddraw_flush();
-}
-
-static
-void spine_animate_(spine_t *p, float *time, float *maxtime, float delta) {
-    if( !p->texture.id ) return;
-
-    if( delta > 1/120.f ) delta = 1/120.f;
-    if( *time >= *maxtime ) *time = 0; else *time += delta;
-
-    // reset root // needed?
-    p->bones[0].x2 = 0;
-    p->bones[0].y2 = 0;
-    p->bones[0].deg2 = 0;
-    p->bones[0].x3 = 0;
-    p->bones[0].y3 = 0;
-    p->bones[0].deg3 = 0;
-
-    for( int i = 0, end = array_count(p->bones); i < end; ++i) {
-        // @todo: attach channel
-        // @todo: per channel: if curve == linear || curve == stepped || array_count(curve) == 4 {...}
-        for each_array_ptr(p->anims[p->inuse].rotate_keys[i], spine_animkey_t, r) {
-            double r0 = r->time;
-            *maxtime = maxf( *maxtime, r0 );
-            if( absf(*time - r0) < delta ) {
-                p->bones[i].deg3 = r->deg;
-            }
-        }
-        for each_array_ptr(p->anims[p->inuse].translate_keys[i], spine_animkey_t, r) {
-            double r0 = r->time;
-            *maxtime = maxf( *maxtime, r0 );
-            if( absf(*time - r0) < delta ) {
-                p->bones[i].x3 = r->x;
-                p->bones[i].y3 = r->y;
-            }
-        }
-    }
-}
-
-void spine_animate(spine_t *p, float delta) {
-    spine_animate_(p, &p->time, &p->maxtime, delta);
-}
-
-void spine_ui(spine_t *p) {
-    if( ui_collapse(va("Anims: %d", array_count(p->anims)), va("%p-a", p))) {
-        for each_array_ptr(p->anims, spine_anim_t, q) {
-            if(ui_slider2("", &p->time, va("%.2f/%.0f %.2f%%", p->time, p->maxtime, p->time * 100.f))) {
-                spine_animate(p, 0);
-            }
-
-            int choice = ui_label2_toolbar(q->name, ICON_MD_PAUSE_CIRCLE " " ICON_MD_PLAY_CIRCLE);
-            if( choice == 1 ) window_pause( 0 ); // play
-            if( choice == 2 ) window_pause( 1 ); // pause
-
-            for( int i = 0; i < SPINE_MAX_BONES; ++i ) {
-                ui_separator();
-                ui_label(va("Bone %d: Attachment keys", i));
-                for each_array_ptr(q->attach_keys[i], spine_animkey_t, r) {
-                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] %s", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->name));
-                }
-                ui_label(va("Bone %d: Rotate keys", i));
-                for each_array_ptr(q->rotate_keys[i], spine_animkey_t, r) {
-                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] %.2f deg", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->deg));
-                }
-                ui_label(va("Bone %d: Translate keys", i));
-                for each_array_ptr(q->translate_keys[i], spine_animkey_t, r) {
-                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] (%.2f,%.2f)", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->x, r->y));
-                }
-            }
-        }
-        ui_collapse_end();
-    }
-    if( ui_collapse(va("Bones: %d", array_count(p->bones)), va("%p-b", p))) {
-        for each_array_ptr(p->bones, spine_bone_t, q)
-        if( ui_collapse(q->name, va("%p-b2", q)) ) {
-            ui_label2("Parent:", q->parent);
-            ui_label2("X:", va("%.2f", q->x));
-            ui_label2("Y:", va("%.2f", q->y));
-            ui_label2("Length:", va("%.2f", q->len));
-            ui_label2("Rotation:", va("%.2f", q->deg));
-            ui_collapse_end();
-        }
-        ui_collapse_end();
-    }
-    if( ui_collapse(va("Slots: %d", array_count(p->slots)), va("%p-s", p))) {
-        for each_array_ptr(p->slots, spine_slot_t, q)
-        if( ui_collapse(q->name, va("%p-s2", q)) ) {
-            ui_label2("Bone:", q->bone);
-            ui_label2("Attachment:", q->attach);
-            ui_collapse_end();
-        }
-        ui_collapse_end();
-    }
-    if( ui_collapse(va("Skins: %d", array_count(p->skins)), va("%p-k", p))) {
-        for each_array_ptr(p->skins, spine_skin_t, q)
-        if( ui_collapse(q->name, va("%p-k2", q)) ) {
-            for each_array_ptr(q->rects, spine_rect_t, r)
-            if( ui_collapse(r->name, va("%p-k3", r)) ) {
-                ui_label2("X:", va("%.2f", r->x));
-                ui_label2("Y:", va("%.2f", r->y));
-                ui_label2("Scale X:", va("%.2f", r->sx));
-                ui_label2("Scale Y:", va("%.2f", r->sy));
-                ui_label2("Width:", va("%.2f", r->w));
-                ui_label2("Height:", va("%.2f", r->h));
-                ui_label2("Rotation:", va("%.2f", r->deg));
-                ui_collapse_end();
-
-                spine_bone_t *b = find_bone(p, r->name);
-                if( b ) {
-                    p->debug_atlas_id = b->atlas_id;
-
-                    static float tilt = 0;
-                    if( input(KEY_LCTRL) ) tilt += 60*1/60.f; else tilt = 0;
-                    spine_atlas_t *r = p->atlas + b->atlas_id;
-                    sprite_flush();
-                    camera_get_active()->position = vec3(0,0,2);
-                            vec4 rect = ptr4(&r->x); float zindex = 0; vec3 xy_zoom = vec3(0,0,0); unsigned tint = ~0u;
-                            sprite_rect(p->texture,
-                                // rect: vec4(r->x*1.0/p->texture.w,r->y*1.0/p->texture.h,(r->x+r->w)*1.0/p->texture.w,(r->y+r->h)*1.0/p->texture.h),
-                                ptr4(&r->x), // atlas
-                                0, vec3(0,0,0), r->deg + tilt, tint);
-                            sprite_flush();
-                    camera_get_active()->position = vec3(+window_width()/3,window_height()/2.25,2);
-                }
-            }
-            ui_collapse_end();
-        }
-        ui_collapse_end();
-    }
-
-    if( ui_int("Use skin", &p->skin) ) {
-    p->skin = clampf(p->skin, 0, array_count(p->skins) - 1);
-    spine_skin(p, p->skin);
-    }
-
-    if( p->texture.id ) ui_texture(0, p->texture);
 }
 
 // -----------------------------------------------------------------------------
@@ -19375,6 +18976,13 @@ int fx_load(const char *filemask) {
         set_insert(added, name);
         (void)postfx_load_from_mem(&fx, file_name(name), vfs_read(name));
     }
+    if( 1 )
+    for each_array( file_list(filemask), char*, list ) {
+        if( set_find(added, list) ) continue;
+        char *name = STRDUP(list); // @leak
+        set_insert(added, name);
+        (void)postfx_load_from_mem(&fx, file_name(name), file_read(name));
+    }
     return 1;
 }
 void fx_begin() {
@@ -19852,6 +19460,13 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
         vec3 dir = norm3(vec3(view[2], view[6], view[10]));
         glUniform3fv( loc, 1, &dir.x );
     }
+    if( (loc = glGetUniformLocation(shader, "billboard")) >= 0 ) {
+        glUniform1i( loc, m.billboard );
+    }
+    else
+    if( (loc = glGetUniformLocation(shader, "u_billboard")) >= 0 ) {
+        glUniform1i( loc, m.billboard );
+    }
 #if 0
     // @todo: mat44 projview (useful?)
 #endif
@@ -20170,7 +19785,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
         if( material_embedded_texture ) {
             *material_embedded_texture = '\0';
             material_embedded_texture += 5;
-            array(char) embedded_texture = base64__decode(material_embedded_texture, strlen(material_embedded_texture));
+            array(char) embedded_texture = base64_decode(material_embedded_texture, strlen(material_embedded_texture));
             //printf("%s %d\n", material_embedded_texture, array_count(embedded_texture));
             //hexdump(embedded_texture, array_count(embedded_texture));
             *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), 0 ).id;
@@ -20296,6 +19911,7 @@ model_t model_from_mem(const void *mem, int len, int flags) {
             "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent","fragColor",
             va("SHADING_PHONG,%s", (flags&MODEL_RIMLIGHT)?"RIM":""));
     // }
+    // ASSERT(shaderprog > 0);
 
     iqm_t *q = CALLOC(1, sizeof(iqm_t));
     m.program = shaderprog;
@@ -20569,14 +20185,7 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    // @fixme: instanced billboards
     mat44 mv; multiply44x2(mv, view, models[0]);
-    if( m.billboard ) {
-        float d = sqrt(mv[4*0+0] * mv[4*0+0] + mv[4*1+1] * mv[4*1+1] + mv[4*2+2] * mv[4*2+2]);
-        if(m.billboard & 4) mv[4*0+0] = d, mv[4*0+1] =  0, mv[4*0+2] = 0;
-        if(m.billboard & 2) mv[4*1+0] = 0, mv[4*1+1] = -d, mv[4*1+2] = 0;
-        if(m.billboard & 1) mv[4*2+0] = 0, mv[4*2+1] =  0, mv[4*2+2] = d;
-    }
 
     if( count != m.num_instances ) {
         m.num_instances = count;
@@ -20786,7 +20395,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
             int count = array_count(list);
             if(!count) continue;
                 // color
-                vec3 rgbf = {((rgb>>16)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>0)&255)/255.f};
+                vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
                 glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                 // config vertex data
                 glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -20818,7 +20427,7 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
                 int count = array_count(list);
                 if(!count) continue;
                     // color
-                    vec3 rgbf = {((rgb>>16)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>0)&255)/255.f};
+                    vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
                     glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                     // config vertex data
                     glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -21537,6 +21146,117 @@ void ddraw_demo() {
 
     ddraw_color_pop();
 }
+
+static int gizmo__mode;
+static int gizmo__active;
+static int gizmo__hover;
+bool gizmo_active() {
+    return gizmo__active;
+}
+bool gizmo_hover() {
+    return gizmo__hover;
+}
+int gizmo(vec3 *pos, vec3 *rot, vec3 *sca) {
+#if 0
+    ddraw_flush();
+    mat44 copy; copy44(copy, camera_get_active()->view);
+    if( 1 ) {
+        float *mv = camera_get_active()->view;
+        float d = sqrt(mv[4*0+0] * mv[4*0+0] + mv[4*1+1] * mv[4*1+1] + mv[4*2+2] * mv[4*2+2]);
+        if(4) mv[4*0+0] = d, mv[4*0+1] = 0, mv[4*0+2] = 0;
+        if(2) mv[4*1+0] = 0, mv[4*1+1] = d, mv[4*1+2] = 0;
+        if(1) mv[4*2+0] = 0, mv[4*2+1] = 0, mv[4*2+2] = d;
+    }
+#endif
+
+    ddraw_color_push(dd_color);
+    ddraw_ontop_push(1);
+
+    int enabled = !ui_active() && !ui_hover();
+    vec3 mouse = enabled ? vec3(input(MOUSE_X),input(MOUSE_Y),input_down(MOUSE_L)) : vec3(0,0,0); // x,y,l
+    vec3 from = camera_get_active()->position;
+    vec3 to = editor_pick(mouse.x, mouse.y);
+    ray r = ray(from, to);
+
+    static vec3 src3, hit3, off3; static vec2 src2;
+    #define on_gizmo_dragged(X,Y,Z,COLOR,DRAWCMD, ...) do { \
+        vec3 dir = vec3(X,Y,Z); \
+        line axis = {add3(*pos, scale3(dir,100)), add3(*pos, scale3(dir,-100))}; \
+        plane ground = { vec3(0,0,0), vec3(Y?1:0,Y?0:1,0) }; \
+        vec3 unit = vec3(X+(1.0-X)*0.3,Y+(1.0-Y)*0.3,Z+(1.0-Z)*0.3); \
+        aabb arrow = { sub3(*pos,unit), add3(*pos,unit) }; \
+        hit *hit_arrow = ray_hit_aabb(r, arrow), *hit_ground = ray_hit_plane(r, ground); \
+        ddraw_color( hit_arrow || gizmo__active == (X*4+Y*2+Z) ? gizmo__hover = 1, YELLOW : COLOR ); \
+        DRAWCMD; \
+        if( !gizmo__active && hit_arrow && mouse.z ) src2 = vec2(mouse.x,mouse.y), src3 = *pos, hit3 = hit_ground->p, off3 = mul3(sub3(src3,hit3),vec3(X,Y,Z)), gizmo__active = X*4+Y*2+Z; \
+        if( (gizmo__active && gizmo__active==(X*4+Y*2+Z)) || (!gizmo__active && hit_arrow) ) { ddraw_color( COLOR ); ( 1 ? ddraw_line : ddraw_line_dashed)(axis.a, axis.b); } \
+        if( gizmo__active == (X*4+Y*2+Z) && hit_ground ) {{ __VA_ARGS__ }; modified = 1; gizmo__active *= !!input(MOUSE_L); } \
+    } while(0)
+    #define gizmo_translate(X,Y,Z,COLOR) \
+        on_gizmo_dragged(X,Y,Z,COLOR, ddraw_arrow(*pos,add3(*pos,vec3(X,Y,Z))), { \
+            *pos = add3(line_closest_point(axis, hit_ground->p), off3); \
+        } )
+    #define gizmo_scale(X,Y,Z,COLOR) \
+        on_gizmo_dragged(X,Y,Z,COLOR, (ddraw_line(*pos,add3(*pos,vec3(X,Y,Z))),ddraw_sphere(add3(*pos,vec3(X-0.1*X,Y-0.1*Y,Z-0.1*Z)),0.1)), { /*ddraw_aabb(arrow.min,arrow.max)*/ \
+            int component = (X*1+Y*2+Z*3)-1; \
+            float mag = len2(sub2(vec2(mouse.x, mouse.y), src2)); \
+            float magx = (mouse.x - src2.x) * (mouse.x - src2.x); \
+            float magy = (mouse.y - src2.y) * (mouse.y - src2.y); \
+            float sgn = (magx > magy ? mouse.x > src2.x : mouse.y > src2.y) ? 1 : -1; \
+            sca->v3[component] -= sgn * mag * 0.01; \
+            src2 = vec2(mouse.x, mouse.y); \
+        } )
+    #define gizmo_rotate(X,Y,Z,COLOR) do { \
+            vec3 dir = vec3(X,Y,Z); \
+            line axis = {add3(*pos, scale3(dir,100)), add3(*pos, scale3(dir,-100))}; \
+            plane ground = { vec3(0,0,0), vec3(0,1,0) }; \
+                vec3 unit = vec3(X+(1.0-X)*0.3,Y+(1.0-Y)*0.3,Z+(1.0-Z)*0.3); \
+                aabb arrow = { sub3(*pos,unit), add3(*pos,unit) }; \
+                hit *hit_arrow = ray_hit_aabb(r, arrow), *hit_ground = ray_hit_plane(r, ground); \
+                int hover = (hit_arrow ? (X*4+Y*2+Z) : 0); \
+            if( gizmo__active == (X*4+Y*2+Z) ) { ddraw_color(gizmo__active ? gizmo__hover = 1, YELLOW : WHITE); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
+            else if( !gizmo__active && hover == (X*4+Y*2+Z) ) { gizmo__hover = 1; ddraw_color(COLOR); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
+            else if( !gizmo__active ) { ddraw_color(WHITE); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
+            if( !gizmo__active && hit_arrow && mouse.z ) src2 = vec2(mouse.x,mouse.y), gizmo__active = hover; \
+            if( (!gizmo__active && hover == (X*4+Y*2+Z)) || gizmo__active == (X*4+Y*2+Z) ) { gizmo__hover = 1; ddraw_color( COLOR ); ( 1 ? ddraw_line_thin : ddraw_line_dashed)(axis.a, axis.b); } \
+            if( gizmo__active && gizmo__active == (X*4+Y*2+Z) && hit_ground && enabled ) { \
+                int component = (Y*1+X*2+Z*3)-1; /*pitch,yaw,roll*/ \
+                float mag = len2(sub2(vec2(mouse.x, mouse.y), src2)); \
+                float magx = (mouse.x - src2.x) * (mouse.x - src2.x); \
+                float magy = (mouse.y - src2.y) * (mouse.y - src2.y); \
+                float sgn = (magx > magy ? mouse.x > src2.x : mouse.y > src2.y) ? 1 : -1; \
+                rot->v3[component] += sgn * mag; \
+                /*rot->v3[component] = clampf(rot->v3[component], -360, +360);*/ \
+                src2 = vec2(mouse.x, mouse.y); \
+                \
+            } \
+            gizmo__active *= enabled && !!input(MOUSE_L); \
+        } while(0)
+
+    gizmo__hover = 0;
+
+    int modified = 0;
+    if(enabled && input_down(KEY_SPACE)) gizmo__active = 0, gizmo__mode = (gizmo__mode + 1) % 3;
+    if(gizmo__mode == 0) gizmo_translate(1,0,0, RED);
+    if(gizmo__mode == 0) gizmo_translate(0,1,0, GREEN);
+    if(gizmo__mode == 0) gizmo_translate(0,0,1, BLUE);
+    if(gizmo__mode == 1) gizmo_scale(1,0,0, RED);
+    if(gizmo__mode == 1) gizmo_scale(0,1,0, GREEN);
+    if(gizmo__mode == 1) gizmo_scale(0,0,1, BLUE);
+    if(gizmo__mode == 2) gizmo_rotate(1,0,0, RED);
+    if(gizmo__mode == 2) gizmo_rotate(0,1,0, GREEN);
+    if(gizmo__mode == 2) gizmo_rotate(0,0,1, BLUE);
+
+#if 0
+    ddraw_flush();
+    copy44(camera_get_active()->view, copy);
+#endif
+
+    ddraw_ontop_pop();
+    ddraw_color_pop();
+
+    return modified;
+}
 #line 0
 
 #line 1 "fwk_scene.c"
@@ -21554,6 +21274,8 @@ camera_t camera() {
         cam.position = vec3(10,10,10);
         cam.updir = vec3(0,1,0);
         cam.fov = 45;
+        cam.orthographic = false;
+        cam.distance = 3; // len3(cam.position);
 
         cam.damping = false;
         cam.move_friction = 0.09f;
@@ -21645,19 +21367,18 @@ void camera_enable(camera_t *cam) {
 void camera_fov(camera_t *cam, float fov) {
     last_camera = cam;
 
-#if 0 // isometric/dimetric
-    #define orthogonal(proj, fov, aspect, znear, zfar) \
-    ortho44((proj), -(fov) * (aspect), (fov) * (aspect), -(fov), (fov), (znear), (zfar))
-
-    float DIMETRIC = 30.000f;
-    float ISOMETRIC = 35.264f;
     float aspect = window_width() / ((float)window_height()+!window_height());
-    orthogonal(cam->proj, 45, aspect, -1000, 1000); // why -1000?
-    // cam->yaw = 45;
-    cam->pitch = -ISOMETRIC;
-#endif
+
     cam->fov = fov;
-    perspective44(cam->proj, cam->fov, window_width() / ((float)window_height()+!window_height()), 0.01f, 1000.f);
+
+    if( cam->orthographic ) {
+        ortho44(cam->proj, -cam->fov * aspect, cam->fov * aspect, -cam->fov, cam->fov, 0.01f, 2000);
+        // [ref] https://commons.wikimedia.org/wiki/File:Isometric_dimetric_camera_views.png
+        // float pitch = cam->dimetric ? 30.000f : 35.264f; // dimetric or isometric
+        // cam->pitch = -pitch; // quickly reorient towards origin
+    } else {
+        perspective44(cam->proj, cam->fov, aspect, 0.01f, 2000.f);
+    }
 }
 
 void camera_fps(camera_t *cam, float yaw, float pitch) {
@@ -21688,34 +21409,21 @@ void camera_fps(camera_t *cam, float yaw, float pitch) {
 void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
     last_camera = cam;
 
-    vec2 inc_mouse = vec2(yaw, pitch);
-
-    // @todo: worth moving all these members into camera_t ?
-    static vec2 _mouse = {0,0};
-    static vec2 _polarity = { +1,-1 };
-    static vec2 _sensitivity = { 2,2 };
-    static float _friction = 0.75; //99;
-    static float _distance; do_once _distance = len3(cam->position);
-
     // update dummy state
     camera_fps(cam, 0,0);
 
-    // add smooth input
-    _mouse = mix2(_mouse, add2(_mouse, mul2(mul2(inc_mouse,_sensitivity),_polarity)), _friction);
-    _distance = mixf(_distance, _distance+inc_distance, _friction);
+    // @todo: add damping
+    vec3 _mouse = vec3(yaw, pitch, inc_distance);
+    cam->yaw += _mouse.x;
+    cam->pitch += _mouse.y;
+    cam->distance += _mouse.z;
 
-    // look: update angles
-    vec2 offset = sub2( _mouse, ptr2(&cam->last_move.x) );
-    if( 1 ) { // if _enabled
-        cam->yaw += offset.x;
-        cam->pitch += offset.y;
-        // look: limit pitch angle [-89..89]
-        cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
-    }
+    // look: limit pitch angle [-89..89]
+    cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
 
     // compute view matrix
-    float x = rad(cam->yaw), y = rad(cam->pitch), cx = cosf(x), cy = cosf(y), sx = sinf(x), sy = sinf(y);
-    lookat44(cam->view, vec3( cx*cy*_distance, sy*_distance, sx*cy*_distance ), vec3(0,0,0), vec3(0,1,0) );
+    float x = rad(cam->yaw), y = rad(-cam->pitch), cx = cosf(x), cy = cosf(y), sx = sinf(x), sy = sinf(y);
+    lookat44(cam->view, vec3( cx*cy*cam->distance, sy*cam->distance, sx*cy*cam->distance ), vec3(0,0,0), vec3(0,1,0) );
 
     // save for next call
     cam->last_move.x = _mouse.x;
@@ -21724,6 +21432,7 @@ void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
 
 int ui_camera( camera_t *cam ) {
     int changed = 0;
+    changed |= ui_bool("Orthographic", &cam->orthographic);
     changed |= ui_bool("Damping", &cam->damping);
     if( !cam->damping ) ui_disable();
     changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.3f", cam->move_friction));
@@ -21741,6 +21450,7 @@ int ui_camera( camera_t *cam ) {
     ui_enable();
     ui_separator();
     changed |= ui_float("FOV (degrees)", &cam->fov);
+    changed |= ui_float("Orbit distance", &cam->distance);
     ui_disable();
     changed |= ui_mat44("Projection matrix", cam->proj);
     ui_enable();
@@ -22111,185 +21821,1521 @@ void scene_render(int flags) {
 }
 #line 0
 
-#line 1 "fwk_script.c"
-typedef lua_State lua;
+#line 1 "fwk_sprite.c"
+// ----------------------------------------------------------------------------
+// sprites
 
-// the Lua interpreter
-static lua *L;
+typedef struct sprite_static_t {
+    float px, py, pz;         // origin x, y, depth
+    float ox, oy, cos, sin;   // offset x, offset y, cos/sin of rotation degree
+    float sx, sy;             // scale x,y
+    float cellw, cellh;       // dimensions of any cell in spritesheet
 
-#if is(linux)
-void luaopen_libfwk(lua_State *L) {}
-#endif
+    union {
+    struct {
+        int frame, ncx, ncy;      // frame in a (num cellx, num celly) spritesheet
+    };
+    struct {
+        float x, y, w, h;         // normalized[0..1] within texture bounds
+    };
+    };
 
-static void* script__realloc(void *userdef, void *ptr, size_t osize, size_t nsize) {
-    (void)userdef;
-    return ptr = REALLOC( ptr, /* (osize+1) * */ nsize );
-}
-static int script__traceback(lua_State *L) {
-    if (!lua_isstring(L, 1)) { // try metamethod if non-string error object
-        if (lua_isnoneornil(L, 1) ||
-            !luaL_callmeta(L, 1, "__tostring") ||
-            !lua_isstring(L, -1))
-            return 1;  // return non-string error object
-        lua_remove(L, 1);  // replace object with result of __tostring metamethod
+    uint32_t rgba, flags;     // vertex color and flags
+} sprite_static_t;
+
+// sprite batching
+typedef struct batch_t { array(sprite_static_t) sprites; mesh_t mesh; int dirty; } batch_t;
+typedef map(int, batch_t) batch_group_t; // mapkey is anything that forces a flush. texture_id for now, might be texture_id+program_id soon
+
+// sprite stream
+typedef struct sprite_vertex { vec3 pos; vec2 uv; uint32_t rgba; } sprite_vertex;
+typedef struct sprite_index  { GLuint triangle[3]; } sprite_index;
+
+#define sprite_vertex(...) C_CAST(sprite_vertex, __VA_ARGS__)
+#define sprite_index(...)  C_CAST(sprite_index, __VA_ARGS__)
+
+// sprite impl
+static int sprite_count = 0;
+static int sprite_program = -1;
+static array(sprite_index)  sprite_indices = 0;
+static array(sprite_vertex) sprite_vertices = 0;
+
+// center_wh << 2 | additive << 1 | projected << 0
+static batch_group_t sprite_group[8] = {0};
+
+// rect(x,y,w,h) is [0..1] normalized, pos(xyz,z-index), scale_offset(sx,sy,offx,offy), rotation (degrees), color (rgba)
+void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scale_offset, float tilt_deg, unsigned tint_rgba, unsigned flags) {
+    float zindex = pos.w;
+    float scalex = scale_offset.x;
+    float scaley = scale_offset.y;
+    float offsetx = scale_offset.z;
+    float offsety = scale_offset.w;
+
+    // do not queue if either scales or alpha are zero
+    if( 0 == (scalex * scaley * ((tint_rgba>>24) & 255)) ) return;
+
+    ASSERT( (flags & SPRITE_CENTERED) == 0 );
+    if( flags & SPRITE_PROJECTED ) {
+        tilt_deg += 180, scalex = -scalex; // flip texture Y on mvp3d (same than turn 180º then flip X)
     }
-    luaL_traceback(L, L, lua_tostring(L, 1), 1);
-    return 1;
-}
-static void script__error(lua_State *L, int status) {
-    if (status != 0) {
-        const char *errormsg = lua_tostring(L, -1);
-        PRINTF( "!-- %s\n", errormsg);
-        lua_pop(L, 1); // remove error message
-    }
-}
-static int script__call(lua_State *L, int narg, int clear) {
-#if ENABLE_FASTCALL_LUA
-    lua_call(L, 0, 0);
-    return 0;
+
+    sprite_static_t s = {0};
+
+    s.px = pos.x, s.py = pos.y, s.pz = pos.z - zindex;
+    s.sx = scalex, s.sy = scaley;
+
+    s.x = rect.x, s.y = rect.y, s.w = rect.z, s.h = rect.w;
+    s.cellw = s.w * s.sx * t.w, s.cellh = s.h * s.sy * t.h;
+
+    s.rgba = tint_rgba;
+    s.flags = flags;
+
+#if 0
+    s.ox = 0/*ox*/ * s.sx;
+    s.oy = 0/*oy*/ * s.sy;
 #else
-    int base = lua_gettop(L) - narg;  // function index
-    lua_pushcfunction(L, script__traceback);  // push traceback function
-    lua_insert(L, base);  // put it under chunk and args
-    int status = lua_pcall(L, narg, (clear ? 0 : LUA_MULTRET), base);
-    script__error(L, status);
-    lua_remove(L, base);  // remove traceback function
-    if (status != 0) lua_gc(L, LUA_GCCOLLECT, 0); // force gc in case of errors
-    return status;
+    s.ox += offsetx * scalex;
+    s.oy += offsety * scaley;
 #endif
-}
 
-void script_bind_function(const char *c_name, void *c_function) {
-    lua_pushcfunction( L, c_function );
-    lua_setglobal( L, c_name );
-}
-
-void script_call(const char *lua_function) {
-    lua_getglobal( L, lua_function );
-    script__call( L, 0, 1 );
-}
-
-void script_bind_class(const char *classname, int num, const char **methods, void **functions) {
-    lua_newtable( L );
-
-    for( int i = 0; i < num; ++i) {
-        lua_pushcfunction( L, functions[i] );
-        lua_setfield( L, 1, methods[i] );
+    if( tilt_deg ) {
+        tilt_deg = (tilt_deg + 0) * ((float)C_PI / 180);
+        s.cos = cosf(tilt_deg);
+        s.sin = sinf(tilt_deg);
+    } else {
+        s.cos = 1;
+        s.sin = 0;
     }
 
-    lua_setglobal( L, classname );
+    batch_group_t *batches = &sprite_group[ flags & 7 ];
+    batch_t *found = map_find_or_add(*batches, t.id, (batch_t){0});
+
+    array_push(found->sprites, s);
 }
 
-void script_run(const char *script) {
-    int ret = luaL_dostring(L, script);
-    if( ret != LUA_OK ) {
-      PRINTF("!Script failed to run: %s\n", lua_tostring(L, -1));
-      lua_pop(L, 1); // pop error message
-    }
-}
+void sprite_sheet( texture_t texture, float spritesheet[3], float position[3], float rotation, float offset[2], float scale[2], unsigned rgba, unsigned flags) {
+    flags |= SPRITE_CENTERED;
+    ASSERT( flags & SPRITE_CENTERED );
 
-void script_runfile(const char *pathfile) {
-    PRINTF( "Loading script '%s'\n", pathfile );
-    int loadResult = luaL_loadfile( L, pathfile );
+    const float px = position[0], py = position[1], pz = position[2];
+    const float ox = offset[0], oy = offset[1], sx = scale[0], sy = scale[1];
+    const float frame = spritesheet[0], xcells = spritesheet[1], ycells = spritesheet[2];
 
-    /**/ if( loadResult == LUA_OK ) {
-        script__call( L, 0, 1 );
-    }
-    else if( loadResult == LUA_ERRSYNTAX ) {
-        PRINTF("!Script failed to load (LUA_ERRSYNTAX, '%s'): %s\n", lua_tostring( L, 1 ), pathfile );
-//      lua_pop(L, 1); // pop error message
-    }
-    else if( loadResult == LUA_ERRMEM ) {
-        PRINTF("!Script failed to load (LUA_ERRMEM): %s\n", pathfile);
-    }
-    else {
-        PRINTF("!Script failed to load: %s\n", pathfile );
-    }
-}
+    if (frame < 0) return;
+    if (frame > 0 && frame >= (xcells * ycells)) return;
 
-// syntax sugars
-/* usage:
-int window_create_lua(lua *L) {
-    window_create(arg_float(1), arg_int(2));
-    return_void(0);
-}
-int window_swap_lua(lua *L) {
-    int r = window_swap();
-    return_int(r);
-}
-*/
-
-#define arg_int(nth) lua_tointeger(L, nth)
-#define arg_bool(nth) lua_toboolean(L, nth)
-#define arg__Bool(nth) lua_toboolean(L, nth)
-#define arg_float(nth) (float)lua_tonumber(L, nth)
-#define arg_double(nth) lua_tonumber(L, nth)
-#define arg_string(nth) lua_tolstring(L, nth, 0)
-#define return_void(x) return ((x), 0)
-#define return_bool(x) return (lua_pushboolean(L, x), 1)
-#define return__Bool(x) return (lua_pushboolean(L, x), 1)
-#define return_int(x) return (lua_pushinteger(L, x), 1)
-#define return_float(x) return (lua_pushnumber(L, x), 1)
-#define return_double(x) return (lua_pushnumber(L, x), 1)
-#define return_string(x) return (lua_pushstring(L, x), 1)
-
-#define WRAP_ALL(...)                EXPAND(WRAP_ALL, __VA_ARGS__)
-#define WRAP_ALL2(rc, func)          int func##_lua(lua*L) { return_##rc(func()); }
-#define WRAP_ALL3(rc, func, a1)      int func##_lua(lua*L) { return_##rc(func(arg_##a1(1))); }
-#define WRAP_ALL4(rc, func, a1,a2)   int func##_lua(lua*L) { return_##rc(func(arg_##a1(1),arg_##a2(2))); }
-
-#define BIND_ALL(...)                EXPAND(BIND_ALL, __VA_ARGS__);
-#define BIND_ALL2(rc,func)           script_bind_function(#func, func##_lua)
-#define BIND_ALL3(rc,func,a1)        script_bind_function(#func, func##_lua)
-#define BIND_ALL4(rc,func,a1,a2)     script_bind_function(#func, func##_lua)
-
-#define XMACRO(X) /* @fixme: add all remaining FWK functions */ \
-    X(bool, window_create, float, int ) \
-    X(bool, window_swap ) \
-    X(void, ddraw_grid, float ) \
-    X(bool, ui_panel, string, int ) \
-    X(bool, ui_notify, string, string ) \
-    X(void, ui_panel_end )
-
-XMACRO(WRAP_ALL)
-
-void script_quit(void) {
-    if( L ) {
-        lua_close(L);
-        L = 0;
-    }
-}
-void script_init() {
-    if( !L ) {
-        // fwk_init();
-
-        // initialize Lua
-        L = lua_newstate(script__realloc, 0); // L = luaL_newstate();
-
-        // load various Lua libraries
-        luaL_openlibs(L);
-        luaopen_base(L);
-        luaopen_table(L);
-        luaopen_io(L);
-        luaopen_string(L);
-        luaopen_math(L);
-
-        // @fixme: workaround that prevents script binding on lua 5.4.3 on top of luajit 2.1.0-beta3 on linux. lua_setglobal() crashing when accessing null L->l_G
-        if(L->l_G) {
-        XMACRO(BIND_ALL);
+    // no need to queue if alpha or scale are zero
+    if( sx && sy && alpha(rgba) ) {
+        vec3 bak = camera_get_active()->position;
+        if( flags & SPRITE_RESOLUTION_INDEPENDANT ) { // @todo: optimize me
+        sprite_flush();
+        camera_get_active()->position = vec3(window_width()/2,window_height()/2,1);
         }
 
-        atexit(script_quit);
+        sprite_static_t s;
+        s.px = px;
+        s.py = py;
+        s.pz = pz;
+        s.frame = frame;
+        s.ncx = xcells ? xcells : 1;
+        s.ncy = ycells ? ycells : 1;
+        s.sx = sx;
+        s.sy = sy;
+        s.ox = ox * sx;
+        s.oy = oy * sy;
+        s.cellw = (texture.x * sx / s.ncx);
+        s.cellh = (texture.y * sy / s.ncy);
+        s.rgba = rgba;
+        s.flags = flags;
+        s.cos = 1;
+        s.sin = 0;
+        if(rotation) {
+            rotation = (rotation + 0) * ((float)C_PI / 180);
+            s.cos = cosf(rotation);
+            s.sin = sinf(rotation);
+        }
+
+        batch_group_t *batches = &sprite_group[ flags & 7 ];
+#if 0
+        batch_t *found = map_find(*batches, texture.id);
+        if( !found ) found = map_insert(*batches, texture.id, (batch_t){0});
+#else
+        batch_t *found = map_find_or_add(*batches, texture.id, (batch_t){0});
+#endif
+
+        array_push(found->sprites, s);
+
+        if( flags & SPRITE_RESOLUTION_INDEPENDANT ) { // @todo: optimize me
+        sprite_flush();
+        camera_get_active()->position = bak;
+        }
     }
 }
 
-bool script_tests() {
-    // script test (lua)
-    script_run( "-- Bye.lua\nio.write(\"script test: Bye world!, from \", _VERSION, \"\\n\")" );
+void sprite( texture_t texture, float position[3], float rotation, unsigned color, unsigned flags) {
+    float offset[2] = {0,0}, scale[2] = {1,1}, spritesheet[3] = {0,0,0};
+    sprite_sheet( texture, spritesheet, position, rotation, offset, scale, color, flags );
+}
+
+static void sprite_rebuild_meshes() {
+    sprite_count = 0;
+
+    // w/2,h/2 centered
+    for( int l = countof(sprite_group) / 2; l < countof(sprite_group); ++l) {
+        for each_map_ptr(sprite_group[l], int,_, batch_t,bt) {
+
+            bt->dirty = array_count(bt->sprites) ? 1 : 0;
+            if( !bt->dirty ) continue;
+
+            int index = 0;
+            array_clear(sprite_indices);
+            array_clear(sprite_vertices);
+
+            array_foreach_ptr(bt->sprites, sprite_static_t,it ) {
+                float x0 = it->ox - it->cellw/2, x3 = x0 + it->cellw;
+                float y0 = it->oy - it->cellh/2, y3 = y0;
+                float x1 = x0,                   x2 = x3;
+                float y1 = y0 + it->cellh,       y2 = y1;
+
+                // @todo: move this affine transform into glsl shader
+                vec3 v0 = { it->px + ( x0 * it->cos - y0 * it->sin ), it->py + ( x0 * it->sin + y0 * it->cos ), it->pz };
+                vec3 v1 = { it->px + ( x1 * it->cos - y1 * it->sin ), it->py + ( x1 * it->sin + y1 * it->cos ), it->pz };
+                vec3 v2 = { it->px + ( x2 * it->cos - y2 * it->sin ), it->py + ( x2 * it->sin + y2 * it->cos ), it->pz };
+                vec3 v3 = { it->px + ( x3 * it->cos - y3 * it->sin ), it->py + ( x3 * it->sin + y3 * it->cos ), it->pz };
+
+                float cx = (1.0f / it->ncx) - 1e-9f;
+                float cy = (1.0f / it->ncy) - 1e-9f;
+                int idx = (int)it->frame;
+                int px = idx % it->ncx;
+                int py = idx / it->ncx;
+
+                float ux = px * cx, uy = py * cy;
+                float vx = ux + cx, vy = uy + cy;
+
+                vec2 uv0 = vec2(ux, uy);
+                vec2 uv1 = vec2(ux, vy);
+                vec2 uv2 = vec2(vx, vy);
+                vec2 uv3 = vec2(vx, uy);
+
+                array_push( sprite_vertices, sprite_vertex(v0, uv0, it->rgba) ); // Vertex 0 (A)
+                array_push( sprite_vertices, sprite_vertex(v1, uv1, it->rgba) ); // Vertex 1 (B)
+                array_push( sprite_vertices, sprite_vertex(v2, uv2, it->rgba) ); // Vertex 2 (C)
+                array_push( sprite_vertices, sprite_vertex(v3, uv3, it->rgba) ); // Vertex 3 (D)
+
+                //      A--B                  A               A-B
+                // quad |  | becomes triangle |\  and triangle \|
+                //      D--C                  D-C               C
+                GLuint A = (index+0), B = (index+1), C = (index+2), D = (index+3); index += 4;
+
+                array_push( sprite_indices, sprite_index(C, D, A) ); // Triangle 1
+                array_push( sprite_indices, sprite_index(C, A, B) ); // Triangle 2
+            }
+
+            mesh_update(&bt->mesh, "p3 t2 c4B", 0,array_count(sprite_vertices),sprite_vertices, 3*array_count(sprite_indices),sprite_indices, MESH_STATIC);
+
+            // clear elements from queue
+            sprite_count += array_count(bt->sprites);
+            array_clear(bt->sprites);
+        }
+    }
+
+    // (0,0) centered
+    for( int l = 0; l < countof(sprite_group) / 2; ++l) {
+        for each_map_ptr(sprite_group[l], int,_, batch_t,bt) {
+
+            bt->dirty = array_count(bt->sprites) ? 1 : 0;
+            if( !bt->dirty ) continue;
+
+            int index = 0;
+            array_clear(sprite_indices);
+            array_clear(sprite_vertices);
+
+            array_foreach_ptr(bt->sprites, sprite_static_t,it ) {
+                float x0 = it->ox - it->cellw/2, x3 = x0 + it->cellw;
+                float y0 = it->oy - it->cellh/2, y3 = y0;
+                float x1 = x0,                   x2 = x3;
+                float y1 = y0 + it->cellh,       y2 = y1;
+
+                // @todo: move this affine transform into glsl shader
+                vec3 v0 = { it->px + ( x0 * it->cos - y0 * it->sin ), it->py + ( x0 * it->sin + y0 * it->cos ), it->pz };
+                vec3 v1 = { it->px + ( x1 * it->cos - y1 * it->sin ), it->py + ( x1 * it->sin + y1 * it->cos ), it->pz };
+                vec3 v2 = { it->px + ( x2 * it->cos - y2 * it->sin ), it->py + ( x2 * it->sin + y2 * it->cos ), it->pz };
+                vec3 v3 = { it->px + ( x3 * it->cos - y3 * it->sin ), it->py + ( x3 * it->sin + y3 * it->cos ), it->pz };
+
+                float ux = it->x, vx = ux + it->w;
+                float uy = it->y, vy = uy + it->h;
+
+                vec2 uv0 = vec2(ux, uy);
+                vec2 uv1 = vec2(ux, vy);
+                vec2 uv2 = vec2(vx, vy);
+                vec2 uv3 = vec2(vx, uy);
+
+                array_push( sprite_vertices, sprite_vertex(v0, uv0, it->rgba) ); // Vertex 0 (A)
+                array_push( sprite_vertices, sprite_vertex(v1, uv1, it->rgba) ); // Vertex 1 (B)
+                array_push( sprite_vertices, sprite_vertex(v2, uv2, it->rgba) ); // Vertex 2 (C)
+                array_push( sprite_vertices, sprite_vertex(v3, uv3, it->rgba) ); // Vertex 3 (D)
+
+                //      A--B                  A               A-B
+                // quad |  | becomes triangle |\  and triangle \|
+                //      D--C                  D-C               C
+                GLuint A = (index+0), B = (index+1), C = (index+2), D = (index+3); index += 4;
+
+                array_push( sprite_indices, sprite_index(C, D, A) ); // Triangle 1
+                array_push( sprite_indices, sprite_index(C, A, B) ); // Triangle 2
+            }
+
+            mesh_update(&bt->mesh, "p3 t2 c4B", 0,array_count(sprite_vertices),sprite_vertices, 3*array_count(sprite_indices),sprite_indices, MESH_STATIC);
+
+            // clear elements from queue
+            sprite_count += array_count(bt->sprites);
+            array_clear(bt->sprites);
+        }
+    }
+}
+
+static void sprite_render_meshes_group(batch_group_t* sprites, int alpha_key, int alpha_value, float mvp[16]) {
+    if( map_count(*sprites) > 0 ) {
+        // setup shader
+        if( sprite_program < 0 ) {
+            sprite_program = shader( vfs_read("shaders/vs_324_24_sprite.glsl"), vfs_read("shaders/fs_24_4_sprite.glsl"),
+                "att_Position,att_TexCoord,att_Color",
+                "fragColor", NULL
+            );
+        }
+        shader_bind(sprite_program);
+        shader_mat44("u_mvp", mvp);
+
+        // set (unit 0) in the uniform texture sampler, and render batch
+        glActiveTexture(GL_TEXTURE0);
+        glBlendFunc( alpha_key, alpha_value );
+
+        for each_map_ptr(*sprites, int,texture_id, batch_t,bt) {
+            if( bt->dirty ) {
+                shader_texture_unit("u_texture", *texture_id, 0);
+                mesh_render(&bt->mesh);
+            }
+        }
+//      map_clear(*sprites);
+    }
+}
+
+static void sprite_init() {
+    do_once for(int i = 0; i < countof(sprite_group); ++i) {
+    map_init(sprite_group[i], less_int, hash_int);
+    }
+}
+
+void sprite_flush() {
+    profile("Sprite.rebuild_time") {
+        sprite_rebuild_meshes();
+    }
+    profile("Sprite.render_time") {
+        // setup rendering state
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glDepthFunc(GL_LEQUAL); // try to help with zfighting
+
+        // 3d
+        mat44 mvp3d; multiply44x2(mvp3d, camera_get_active()->proj, camera_get_active()->view);
+        // render all additive then translucent groups
+        sprite_render_meshes_group(&sprite_group[SPRITE_PROJECTED], GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, mvp3d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_PROJECTED|SPRITE_CENTERED], GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, mvp3d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_PROJECTED|SPRITE_CENTERED|SPRITE_ADDITIVE], GL_SRC_ALPHA, GL_ONE, mvp3d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_PROJECTED|SPRITE_ADDITIVE], GL_SRC_ALPHA, GL_ONE, mvp3d );
+
+        // 2d: (0,0) is center of screen
+        mat44 mvp2d;
+        vec3 pos = camera_get_active()->position;
+        float zoom = absf(pos.z); if(zoom < 0.1f) zoom = 0.1f; zoom = 1.f / (zoom + !zoom);
+        float zdepth_max = window_height(); // 1;
+        float l = pos.x - window_width()  * zoom / 2;
+        float r = pos.x + window_width()  * zoom / 2;
+        float b = pos.y + window_height() * zoom / 2;
+        float t = pos.y - window_height() * zoom / 2;
+        ortho44(mvp2d, l,r,b,t, -zdepth_max, +zdepth_max);
+        // render all additive then translucent groups
+        sprite_render_meshes_group(&sprite_group[0], GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, mvp2d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_CENTERED], GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, mvp2d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_CENTERED|SPRITE_ADDITIVE], GL_SRC_ALPHA, GL_ONE, mvp2d );
+        sprite_render_meshes_group(&sprite_group[SPRITE_ADDITIVE], GL_SRC_ALPHA, GL_ONE, mvp2d );
+
+        // restore rendering state
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+        glDepthFunc(GL_LESS);
+        glUseProgram(0);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// tilemaps
+
+tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr) {
+    tilemap_t t = {0};
+    t.tint = ~0u; // WHITE
+    t.blank_chr = blank_chr;
+    for( ; *map ; ++map ) {
+        if( map[0] == linefeed_chr ) ++t.rows;
+        else {
+            array_push(t.map, map[0]);
+            ++t.cols;
+        }
+    }
+    return t;
+}
+
+void tilemap_render_ext( tilemap_t m, tileset_t t, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive ) {
+    vec3 old_pos = camera_get_active()->position;
+    sprite_flush();
+    camera_get_active()->position = vec3(window_width()/2,window_height()/2,1);
+
+    float scale[2] = {xy_zoom[2], xy_zoom[2]};
+    xy_zoom[2] = zindex;
+
+    float offset[2] = {0,0};
+    float spritesheet[3] = {0,t.cols,t.rows}; // selected tile index and spritesheet dimensions (cols,rows)
+
+    for( unsigned y = 0, c = 0; y < m.rows; ++y ) {
+        for( unsigned x = 0; x < m.cols; ++x, ++c ) {
+            if( m.map[c] != m.blank_chr ) {
+                spritesheet[0] = m.map[c];
+                sprite_sheet(t.tex, spritesheet, xy_zoom, tilt, offset, scale, tint, is_additive ? SPRITE_ADDITIVE : 0);
+            }
+            offset[0] += t.tile_w;
+        }
+        offset[0] = 0, offset[1] += t.tile_h;
+    }
+
+    sprite_flush();
+    camera_get_active()->position = old_pos;
+}
+
+void tilemap_render( tilemap_t map, tileset_t set ) {
+    map.position.x += set.tile_w;
+    map.position.y += set.tile_h;
+    tilemap_render_ext( map, set, map.zindex, &map.position.x, map.tilt, map.tint, map.is_additive );
+}
+
+tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows) {
+    tileset_t t = {0};
+    t.tex = tex;
+    t.cols = cols, t.rows = rows;
+    t.tile_w = tile_w, t.tile_h = tile_h;
+    return t;
+}
+
+int ui_tileset( tileset_t t ) {
+    ui_subimage(va("Selection #%d (%d,%d)", t.selected, t.selected % t.cols, t.selected / t.cols), t.tex.id, t.tex.w, t.tex.h, (t.selected % t.cols) * t.tile_w, (t.selected / t.cols) * t.tile_h, t.tile_w, t.tile_h);
+    int choice;
+    if( (choice = ui_image(0, t.tex.id, t.tex.w,t.tex.h)) ) {
+        int px = ((choice / 100) / 100.f) * t.tex.w / t.tile_w;
+        int py = ((choice % 100) / 100.f) * t.tex.h / t.tile_h;
+        t.selected = px + py * t.cols;
+    }
+    // if( (choice = ui_buttons(3, "load", "save", "clear")) ) {}
+    return t.selected;
+}
+
+// -----------------------------------------------------------------------------
+// tiled
+
+tiled_t tiled(const char *file_tmx) {
+    tiled_t zero = {0}, ti = zero;
+
+    // read file and parse json
+    if( !xml_push(file_tmx) ) return zero;
+
+    // sanity checks
+    bool supported = !strcmp(xml_string("/map/@orientation"), "orthogonal") && !strcmp(xml_string("/map/@renderorder"), "right-down");
+    if( !supported ) return xml_pop(), zero;
+
+    // tileset
+    const char *file_tsx = xml_string("/map/tileset/@source");
+    if( !xml_push(vfs_read(file_tsx)) ) return zero;
+        const char *set_src = xml_string("/tileset/image/@source");
+        int set_w = xml_int("/tileset/@tilewidth");
+        int set_h = xml_int("/tileset/@tileheight");
+        int set_c = xml_int("/tileset/@columns");
+        int set_r = xml_int("/tileset/@tilecount") / set_c;
+        tileset_t set = tileset(texture(set_src,0), set_w, set_h, set_c, set_r );
+    xml_pop();
+
+    // actual parsing
+    ti.w = xml_int("/map/@width");
+    ti.h = xml_int("/map/@height");
+    ti.tilew = xml_int("/map/@tilewidth");
+    ti.tileh = xml_int("/map/@tileheight");
+    ti.first_gid = xml_int("/map/tileset/@firstgid");
+    ti.map_name = STRDUP( xml_string("/map/tileset/@source") ); // @leak
+
+    for(int l = 0, layers = xml_count("/map/layer"); l < layers; ++l ) {
+        if( strcmp(xml_string("/map/layer[%d]/data/@encoding",l), "base64") || strcmp(xml_string("/map/layer[%d]/data/@compression",l), "zlib") ) {
+            PRINTF("Warning: layer encoding not supported: '%s' -> layer '%s'\n", file_tmx, *array_back(ti.names));
+            continue;
+        }
+
+        int cols = xml_int("/map/layer[%d]/@width",l);
+        int rows = xml_int("/map/layer[%d]/@height",l);
+
+        tilemap_t tm = tilemap("", ' ', '\n');
+        tm.blank_chr = ~0u; //ti.first_gid - 1;
+        tm.cols = cols;
+        tm.rows = rows;
+        array_resize(tm.map, tm.cols * tm.rows);
+        memset(tm.map, 0xFF, tm.cols * tm.rows * sizeof(int));
+
+        for( int c = 0, chunks = xml_count("/map/layer[%d]/data/chunk", l); c <= chunks; ++c ) {
+            int cw, ch;
+            int cx, cy;
+            array(char) b64 = 0;
+
+            if( !chunks ) { // non-infinite mode
+                b64 = xml_blob("/map/layer[%d]/data/$",l);
+                cw = tm.cols, ch = tm.rows;
+                cx = 0, cy = 0;
+            } else { // infinite mode
+                b64 = xml_blob("/map/layer[%d]/data/chunk[%d]/$",l,c);
+                cw = xml_int("/map/layer[%d]/data/chunk[%d]/@width",l,c), ch = xml_int("/map/layer[%d]/data/chunk[%d]/@height",l,c); // 20x20
+                cx = xml_int("/map/layer[%d]/data/chunk[%d]/@x",l,c), cy = xml_int("/map/layer[%d]/data/chunk[%d]/@y",l,c); // (-16,-32)
+                cx = abs(cx), cy = abs(cy);
+            }
+
+            int outlen = cw * ch * 4;
+            static __thread int *out = 0; out = (int *)REALLOC( 0, outlen + zexcess(COMPRESS_ZLIB) ); // @leak
+            if( zdecode( out, outlen, b64, array_count(b64), COMPRESS_ZLIB ) > 0 ) {
+                for( int y = 0, p = 0; y < ch; ++y ) {
+                    for( int x = 0; x < cw; ++x, ++p ) {
+                        if( out[p] >= ti.first_gid ) {
+                            int offset = (x + cx) + (y + cy) * tm.cols;
+                            if( offset >= 0 && offset < (cw * ch) )
+                            tm.map[ offset ] = out[ p ] - ti.first_gid;
+                        }
+                    }
+                }
+            }
+            else {
+                PRINTF("Warning: bad zlib stream: '%s' -> layer #%d -> chunk #%d\n", file_tmx, l, c);
+            }
+
+            array_free(b64);
+        }
+
+        array_push(ti.layers, tm);
+        array_push(ti.names, STRDUP(xml_string("/map/layer[%d]/@name",l)));
+        array_push(ti.visible, true);
+        array_push(ti.sets, set);
+    }
+
+    xml_pop();
+    return ti;
+}
+
+void tiled_render(tiled_t tmx, vec3 pos) {
+    for( unsigned i = 0, end = array_count(tmx.layers); i < end; ++i ) {
+        tmx.layers[i].position = pos; // add3(camera_get_active()->position, pos);
+        if( tmx.parallax ) tmx.layers[i].position.x /= (3+i), tmx.layers[i].position.y /= (5+i);
+        if( tmx.visible[i] ) tilemap_render(tmx.layers[i], tmx.sets[i]);
+    }
+}
+
+void ui_tiled(tiled_t *t) {
+    ui_label2("Loaded map", t->map_name ? t->map_name : "(none)");
+    ui_label2("Map dimensions", va("%dx%d", t->w, t->h));
+    ui_label2("Tile dimensions", va("%dx%d", t->tilew, t->tileh));
+    ui_separator();
+    ui_bool("Parallax", &t->parallax);
+    ui_separator();
+    ui_label2("Layers", va("%d", array_count(t->layers)));
+    for( int i = 0; i < array_count(t->layers); ++i ) {
+        if( ui_label2_toolbar(va("- %s (%dx%d)", t->names[i], t->layers[i].cols, t->layers[i].rows ), t->visible[i] ? "\xee\xa3\xb4" : "\xee\xa3\xb5") > 0 ) { // ICON_MD_VISIBILITY / ICON_MD_VISIBILITY_OFF
+            t->visible[i] ^= true;
+        }
+    }
+    ui_separator();
+    if( ui_collapse(va("Sets: %d", array_count(t->layers)), va("%p",t))) {
+        for( int i = 0; i < array_count(t->layers); ++i ) {
+            if( ui_collapse(va("%d", i+1), va("%p%d",t,i)) ) {
+                t->sets[i].selected = ui_tileset( t->sets[i] );
+                ui_collapse_end();
+            }
+        }
+        ui_collapse_end();
+    }
+}
+
+// -----------------------------------------------------------------------------
+// spine json loader (wip)
+// - rlyeh, public domain
+//
+// [ref] http://es.esotericsoftware.com/spine-json-format
+//
+// notable misses:
+// - mesh deforms
+// - cubic beziers
+// - shears
+// - bounding boxes
+
+enum { SPINE_MAX_BONES = 64 }; // max bones
+
+typedef struct spine_bone_t {
+    char *name, *parent;
+    struct spine_bone_t *parent_bone;
+
+    float z; // draw order usually matches bone-id. ie, zindex == bone_id .. root(0) < chest (mid) < finger(top)
+
+    float len;
+    float x, y, deg;        // base
+    float x2, y2, deg2;     // accum / temporaries during bone transform time
+    float x3, y3, deg3;     // values from timeline
+
+    unsigned rect_id;
+    unsigned atlas_id;
+} spine_bone_t;
+
+typedef struct spine_slot_t {
+    char *name, *bone, *attach;
+} spine_slot_t;
+
+typedef struct spine_rect_t {
+    char *name;
+    float x,y,w,h,sx,sy,deg;
+} spine_rect_t;
+
+typedef struct spine_skin_t {
+    char *name;
+    array(spine_rect_t) rects;
+} spine_skin_t;
+
+typedef struct spine_animkey_t { // offline; only during loading
+    float time, curve[4];        // time is mandatory, curve is optional
+    union {
+        char *name;              // type: attachment (mode-1)
+        struct { float deg; };   // type: rotate (mode-2)
+        struct { float x,y; };   // type: translate (mode-3)
+    };
+} spine_animkey_t;
+
+#if 0
+typedef struct spine_pose_t { // runtime; only during playing
+    unsigned frame;
+    array(vec4) xform; // entry per bone. translation(x,y),rotation(z),attachment-id(w)
+} spine_pose_t;
+#endif
+
+typedef struct spine_anim_t {
+    char *name;
+    union {
+#if 0
+        struct {
+            unsigned frames;
+            array(spine_pose_t) poses;
+        };
+#endif
+        struct {
+            array(spine_animkey_t) attach_keys[SPINE_MAX_BONES];
+            array(spine_animkey_t) rotate_keys[SPINE_MAX_BONES];
+            array(spine_animkey_t) translate_keys[SPINE_MAX_BONES];
+        };
+    };
+} spine_anim_t;
+
+typedef struct spine_atlas_t {
+    char *name;
+    float x,y,w,h,deg;
+} spine_atlas_t;
+
+typedef struct spine_t {
+    char *name;
+    texture_t texture;
+    unsigned skin;
+    array(spine_bone_t) bones;
+    array(spine_slot_t) slots;
+    array(spine_skin_t) skins;
+    array(spine_anim_t) anims;
+    array(spine_atlas_t) atlas;
+    // anim controller
+    unsigned inuse;
+    float time, maxtime;
+    unsigned debug_atlas_id;
+} spine_t;
+
+// ---
+
+static
+void spine_convert_animkeys_to_animpose(spine_anim_t *input) {
+    spine_anim_t copy = *input; // @todo
+    // @leak: attach/rot/tra keys
+}
+
+static
+int find_bone_id(spine_t *s, const char *bone_name) {
+    for( unsigned i = 0, end = array_count(s->bones); i < end; ++i )
+        if( !strcmp(s->bones[i].name, bone_name)) return i;
+    return -1;
+}
+static
+spine_bone_t *find_bone(spine_t *s, const char *bone_name) {
+    int bone_id = find_bone_id(s, bone_name);
+    return bone_id >= 0 ? &s->bones[bone_id] : NULL;
+}
+
+void spine_skin(spine_t *p, unsigned skin) {
+    if( !p->texture.id ) return;
+    if( skin >= array_count(p->skins) ) return;
+
+    p->skin = skin;
+
+    char *skin_name = va("%s/", p->skins[skin].name);
+    int header = strlen(skin_name);
+
+    for( int i = 0; i < array_count(p->atlas); ++i) {
+        if(!strbeg(p->atlas[i].name, skin_name)) continue;
+
+        int bone_id = find_bone_id(p, p->atlas[i].name+header );
+        if( bone_id < 0 ) continue;
+
+        p->bones[bone_id].atlas_id = i;
+    }
+
+    for( int i = 0; i < array_count(p->skins[p->skin].rects); ++i) {
+        int bone_id = find_bone_id(p, p->skins[p->skin].rects[i].name );
+        if( bone_id < 0 ) continue;
+
+        p->bones[bone_id].rect_id = i;
+    }
+}
+
+static
+bool spine_(spine_t *t, const char *file_json, const char *file_atlas, unsigned flags) {
+    char *atlas = vfs_read(file_atlas);
+    if(!atlas || !atlas[0]) return false;
+
+    memset(t, 0, sizeof(spine_t));
+
+    // goblins.png
+    //   size: 1024, 128
+    //   filter: Linear, Linear
+    //   pma: true
+    // dagger
+    //   bounds: 2, 18, 26, 108
+    // goblin/eyes-closed
+    //   bounds: 2, 4, 34, 12
+    spine_atlas_t *sa = 0;
+    const char *last_id = 0;
+    const char *texture_name = 0;
+    const char *texture_filter = 0;
+    const char *texture_format = 0;
+    const char *texture_repeat = 0;
+    float texture_width = 0, texture_height = 0, temp;
+    for each_substring(atlas, "\r\n", it) {
+        it += strspn(it, " \t\f\v");
+        /**/ if( strbeg(it, "pma:" ) || strbeg(it, "index:") ) {} // ignored
+        else if( strbeg(it, "size:" ) ) sscanf(it+5, "%f,%f", &texture_width, &texture_height);
+        else if( strbeg(it, "rotate:" ) ) { float tmp; tmp=sa->w,sa->w=sa->h,sa->h=tmp; sa->deg = 90; } // assert(val==90)
+        else if( strbeg(it, "repeat:" ) ) texture_repeat = it+7; // temp string
+        else if( strbeg(it, "filter:" ) ) texture_filter = it+7; // temp string
+        else if( strbeg(it, "format:" ) ) texture_format = it+7; // temp string
+        else if( strbeg(it, "bounds:" ) ) {
+            sscanf(it+7, "%f,%f,%f,%f", &sa->x, &sa->y, &sa->w, &sa->h);
+        }
+        else if( !texture_name ) texture_name = va("%s", it);
+        else {
+            array_push(t->atlas, ((spine_atlas_t){0}) );
+            sa = &t->atlas[array_count(t->atlas) - 1];
+            sa->name = STRDUP(it);
+        }
+    }
+    for( int i = 0; i < array_count(t->atlas); ++i ) {
+        sa = &t->atlas[i];
+        sa->x /= texture_width, sa->y /= texture_height;
+        sa->w /= texture_width, sa->h /= texture_height;
+    }
+
+    if(!texture_name) return false;
+
+    t->texture = texture(texture_name, TEXTURE_LINEAR);
+
+    json_push(vfs_read(file_json)); // @fixme: json_push_from_file() ?
+
+    array_resize(t->bones, json_count("/bones"));
+    array_reserve(t->slots, json_count("/slots"));
+    array_resize(t->skins, json_count("/skins"));
+    array_resize(t->anims, json_count("/animations"));
+
+    for( int i = 0, end = json_count("/bones"); i < end; ++i ) {
+        spine_bone_t v = {0};
+        v.name = STRDUP(json_string("/bones[%d]/name", i));
+        v.parent = STRDUP(json_string("/bones[%d]/parent", i));
+        v.x = json_float("/bones[%d]/x", i);
+        v.y = json_float("/bones[%d]/y", i);
+        v.z = i;
+        v.len = json_float("/bones[%d]/length", i);
+        v.deg = json_float("/bones[%d]/rotation", i);
+        t->bones[i] = v;
+
+        for( int j = i-1; j > 0; --j ) {
+            if( strcmp(t->bones[j].name,v.parent) ) continue;
+            t->bones[i].parent_bone = &t->bones[j];
+            break;
+        }
+    }
+
+    for( int i = 0, end = json_count("/slots"); i < end; ++i ) {
+        spine_slot_t v = {0};
+        v.name = STRDUP(json_string("/slots[%d]/name", i));
+        v.bone = STRDUP(json_string("/slots[%d]/bone", i));
+        v.attach = STRDUP(json_string("/slots[%d]/attachment", i));
+
+        array_push(t->slots, v);
+
+        // slots define draw-order. so, update draw-order/zindex in bone
+        spine_bone_t *b = find_bone(t, v.name);
+        if( b ) b->z = i;
+    }
+
+    for( int i = 0, end = json_count("/skins"); i < end; ++i ) {
+        spine_skin_t v = {0};
+        v.name = STRDUP(json_string("/skins[%d]/name", i));
+
+        for( int j = 0, jend = json_count("/skins[%d]/attachments",i); j < jend; ++j ) // /skins/default/
+        for( int k = 0, kend = json_count("/skins[%d]/attachments[%d]",i,j); k < kend; ++k ) { // /skins/default/left hand item/
+            spine_rect_t r = {0};
+            r.name = STRDUP(json_key("/skins[%d]/attachments[%d][%d]",i,j,k)); // stringf("%s-%s-%s", json_key("/skins[%d]",i), json_key("/skins[%d][%d]",i,j), json_key("/skins[%d][%d][%d]",i,j,k));
+            r.x = json_float("/skins[%d]/attachments[%d][%d]/x",i,j,k);
+            r.y = json_float("/skins[%d]/attachments[%d][%d]/y",i,j,k);
+            r.sx= json_float("/skins[%d]/attachments[%d][%d]/scaleX",i,j,k); r.sx += !r.sx;
+            r.sy= json_float("/skins[%d]/attachments[%d][%d]/scaleY",i,j,k); r.sy += !r.sy;
+            r.w = json_float("/skins[%d]/attachments[%d][%d]/width",i,j,k);
+            r.h = json_float("/skins[%d]/attachments[%d][%d]/height",i,j,k);
+            r.deg = json_float("/skins[%d]/attachments[%d][%d]/rotation",i,j,k);
+            array_push(v.rects, r);
+        }
+
+        t->skins[i] = v;
+    }
+
+#if 1
+    // simplify:
+    // merge /skins/default into existing /skins/*, then delete /skins/default
+    if( array_count(t->skins) > 1 ) {
+        for( int i = 1; i < array_count(t->skins); ++i ) {
+            for( int j = 0; j < array_count(t->skins[0].rects); ++j ) {
+                array_push(t->skins[i].rects, t->skins[0].rects[j]);
+            }
+        }
+        // @leak @fixme: FREE(t->skins[0])
+        for( int i = 0; i < array_count(t->skins)-1; ++i ) {
+            t->skins[i] = t->skins[i+1];
+        }
+        array_pop(t->skins);
+    }
+#endif
+
+    for( int i = 0, end = json_count("/animations"); i < end; ++i ) {
+        int id;
+        const char *name;
+
+        spine_anim_t v = {0};
+        v.name = STRDUP(json_key("/animations[%d]", i));
+
+        // slots / attachments
+
+        for( int j = 0, jend = json_count("/animations[%d]/slots",i); j < jend; ++j )
+        for( int k = 0, kend = json_count("/animations[%d]/slots[%d]",i,j); k < kend; ++k ) // ids
+        {
+            int bone_id = find_bone_id(t, json_key("/animations[%d]/bones[%d]",i,j));
+            if( bone_id < 0 ) continue;
+
+            for( int l = 0, lend = json_count("/animations[%d]/slots[%d][%d]",i,j,k); l < lend; ++l ) { // channels (rot,tra,attach)
+                spine_animkey_t key = {0};
+
+                key.name = STRDUP(json_string("/animations[%d]/slots[%d][%d][%d]/name",i,j,k,l));
+                key.time = json_float("/animations[%d]/slots[%d][%d][%d]/time",i,j,k,l);
+                if( json_count("/animations[%d]/slots[%d][%d][%d]/curve",i,j,k,l) == 4 ) {
+                key.curve[0] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[0]",i,j,k,l);
+                key.curve[1] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[1]",i,j,k,l);
+                key.curve[2] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[2]",i,j,k,l);
+                key.curve[3] = json_float("/animations[%d]/slots[%d][%d][%d]/curve[3]",i,j,k,l);
+                }
+
+                // @todo: convert name to id
+                // for(id = 0; t->bones[id].name && strcmp(t->bones[id].name,key.name); ++id)
+                // printf("%s vs %s\n", key.name, t->bones[id].name);
+
+                array_push(v.attach_keys[bone_id], key);
+            }
+        }
+
+        // bones
+
+        for( int j = 0, jend = json_count("/animations[%d]/bones",i); j < jend; ++j ) // slots or bones
+        for( int k = 0, kend = json_count("/animations[%d]/bones[%d]",i,j); k < kend; ++k ) { // bone ids
+            int bone_id = find_bone_id(t, json_key("/animations[%d]/bones[%d]",i,j));
+            if( bone_id < 0 ) continue;
+
+            // parse bones
+            for( int l = 0, lend = json_count("/animations[%d]/bones[%d][%d]",i,j,k); l < lend; ++l ) { // channels (rot,tra,attach)
+                const char *channel = json_key("/animations[%d]/bones[%d][%d]",i,j,k);
+                int track = !strcmp(channel, "rotate") ? 1 : !strcmp(channel, "translate") ? 2 : 0;
+                if( !track ) continue;
+
+                spine_animkey_t key = {0};
+
+                key.time = json_float("/animations[%d]/bones[%d][%d][%d]/time",i,j,k,l);
+                if( json_count("/animations[%d]/bones[%d][%d][%d]/curve",i,j,k,l) == 4 ) {
+                key.curve[0] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[0]",i,j,k,l);
+                key.curve[1] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[1]",i,j,k,l);
+                key.curve[2] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[2]",i,j,k,l);
+                key.curve[3] = json_float("/animations[%d]/bones[%d][%d][%d]/curve[3]",i,j,k,l);
+                }
+
+                if( track == 1 )
+                key.deg = json_float("/animations[%d]/bones[%d][%d][%d]/value",i,j,k,l), // "/angle"
+                array_push(v.rotate_keys[bone_id], key);
+                else
+                key.x = json_float("/animations[%d]/bones[%d][%d][%d]/x",i,j,k,l),
+                key.y = json_float("/animations[%d]/bones[%d][%d][%d]/y",i,j,k,l),
+                array_push(v.translate_keys[bone_id], key);
+            }
+        }
+
+        t->anims[i] = v;
+    }
+
+    json_pop();
+
+    spine_skin(t, 0);
+
     return true;
 }
 
-#undef XMACRO
+spine_t* spine(const char *file_json, const char *file_atlas, unsigned flags) {
+    spine_t *t = MALLOC(sizeof(spine_t));
+    if( !spine_(t, file_json, file_atlas, flags) ) return FREE(t), NULL;
+    return t;
+}
+
+void spine_render(spine_t *p, vec3 offset, unsigned flags) {
+    if( !p->texture.id ) return;
+    if( !flags ) return;
+
+    ddraw_push_2d();
+        // if( flags & 2 ) ddraw_line(vec3(0,0,0), vec3(window_width(),window_height(),0));
+        // if( flags & 2 ) ddraw_line(vec3(window_width(),0,0), vec3(0,window_height(),0));
+
+        // int already_computed[SPINE_MAX_BONES] = {0}; // @fixme: optimize: update longest chains first, then remnant branches
+
+        for( int i = 1; i < array_count(p->bones); ++i ) {
+            spine_bone_t *self = &p->bones[i];
+            if( !self->rect_id ) continue;
+
+            int num_bones = 0;
+            static array(spine_bone_t*) chain = 0; array_resize(chain, 0);
+            for( spine_bone_t *next = self; next ; next = next->parent_bone, ++num_bones ) {
+                array_push(chain, next);
+            }
+
+            vec3 target = {0}, prev = {0};
+            for( int j = 0, end = array_count(chain); j < end; ++j ) { // traverse from root(skipped) -> `i` bone direction
+                int j_opposite = end - 1 - j;
+
+                spine_bone_t *b = chain[j_opposite]; // bone
+                spine_bone_t *pb = b->parent_bone; // parent bone
+
+                float pb_x2 = 0, pb_y2 = 0, pb_deg2 = 0;
+                if( pb ) pb_x2 = pb->x2, pb_y2 = pb->y2, pb_deg2 = pb->deg2;
+
+                const float deg2rad = C_PI / 180;
+                b->x2 =      b->x3 + pb_x2   + b->x * cos( -pb_deg2 * deg2rad ) - b->y * sin( -pb_deg2 * deg2rad );
+                b->y2 =     -b->y3 + pb_y2   - b->y * cos(  pb_deg2 * deg2rad ) + b->x * sin(  pb_deg2 * deg2rad );
+                b->deg2 = -b->deg3 + pb_deg2 - b->deg;
+
+                prev = target;
+                target = vec3(b->x2,b->y2,b->deg2);
+            }
+
+            target.z = 0;
+            target = add3(target, offset);
+            prev.z = 0;
+            prev = add3(prev, offset);
+
+            if( flags & 2 ) {
+                ddraw_point( target );
+                ddraw_text( target, -0.25f, self->name );
+                ddraw_bone( prev, target ); // from parent to bone
+            }
+            if( flags & 1 ) {
+                spine_atlas_t *a = &p->atlas[self->atlas_id];
+                spine_rect_t *r = &p->skins[p->skin].rects[self->rect_id];
+
+                vec4 rect = ptr4(&a->x);
+                float zindex = self->z;
+                float offsx = 0;
+                float offsy = 0;
+                float tilt = self->deg2 + (a->deg - r->deg);
+                unsigned tint = self->atlas_id == p->debug_atlas_id ? 0xFF<<24 | 0xFF : ~0u;
+
+                if( 1 ) {
+                    vec3 dir = vec3(r->x,r->y,0);
+                    dir = rotatez3(dir, self->deg2);
+                    offsx = dir.x * r->sx;
+                    offsy = dir.y * r->sy;
+                }
+
+                sprite_rect(p->texture, rect, vec4(target.x,target.y,0,zindex), vec4(1,1,offsx,offsy), tilt, tint, 0);
+            }
+         }
+
+    ddraw_pop_2d();
+    ddraw_flush();
+}
+
+static
+void spine_animate_(spine_t *p, float *time, float *maxtime, float delta) {
+    if( !p->texture.id ) return;
+
+    if( delta > 1/120.f ) delta = 1/120.f;
+    if( *time >= *maxtime ) *time = 0; else *time += delta;
+
+    // reset root // needed?
+    p->bones[0].x2 = 0;
+    p->bones[0].y2 = 0;
+    p->bones[0].deg2 = 0;
+    p->bones[0].x3 = 0;
+    p->bones[0].y3 = 0;
+    p->bones[0].deg3 = 0;
+
+    for( int i = 0, end = array_count(p->bones); i < end; ++i) {
+        // @todo: attach channel
+        // @todo: per channel: if curve == linear || curve == stepped || array_count(curve) == 4 {...}
+        for each_array_ptr(p->anims[p->inuse].rotate_keys[i], spine_animkey_t, r) {
+            double r0 = r->time;
+            *maxtime = maxf( *maxtime, r0 );
+            if( absf(*time - r0) < delta ) {
+                p->bones[i].deg3 = r->deg;
+            }
+        }
+        for each_array_ptr(p->anims[p->inuse].translate_keys[i], spine_animkey_t, r) {
+            double r0 = r->time;
+            *maxtime = maxf( *maxtime, r0 );
+            if( absf(*time - r0) < delta ) {
+                p->bones[i].x3 = r->x;
+                p->bones[i].y3 = r->y;
+            }
+        }
+    }
+}
+
+void spine_animate(spine_t *p, float delta) {
+    spine_animate_(p, &p->time, &p->maxtime, delta);
+}
+
+void ui_spine(spine_t *p) {
+    if( ui_collapse(va("Anims: %d", array_count(p->anims)), va("%p-a", p))) {
+        for each_array_ptr(p->anims, spine_anim_t, q) {
+            if(ui_slider2("", &p->time, va("%.2f/%.0f %.2f%%", p->time, p->maxtime, p->time * 100.f))) {
+                spine_animate(p, 0);
+            }
+
+            int choice = ui_label2_toolbar(q->name, ICON_MD_PAUSE_CIRCLE " " ICON_MD_PLAY_CIRCLE);
+            if( choice == 1 ) window_pause( 0 ); // play
+            if( choice == 2 ) window_pause( 1 ); // pause
+
+            for( int i = 0; i < SPINE_MAX_BONES; ++i ) {
+                ui_separator();
+                ui_label(va("Bone %d: Attachment keys", i));
+                for each_array_ptr(q->attach_keys[i], spine_animkey_t, r) {
+                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] %s", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->name));
+                }
+                ui_label(va("Bone %d: Rotate keys", i));
+                for each_array_ptr(q->rotate_keys[i], spine_animkey_t, r) {
+                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] %.2f deg", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->deg));
+                }
+                ui_label(va("Bone %d: Translate keys", i));
+                for each_array_ptr(q->translate_keys[i], spine_animkey_t, r) {
+                    ui_label(va("%.2f [%.2f %.2f %.2f %.2f] (%.2f,%.2f)", r->time, r->curve[0], r->curve[1], r->curve[2], r->curve[3], r->x, r->y));
+                }
+            }
+        }
+        ui_collapse_end();
+    }
+    if( ui_collapse(va("Bones: %d", array_count(p->bones)), va("%p-b", p))) {
+        for each_array_ptr(p->bones, spine_bone_t, q)
+        if( ui_collapse(q->name, va("%p-b2", q)) ) {
+            ui_label2("Parent:", q->parent);
+            ui_label2("X:", va("%.2f", q->x));
+            ui_label2("Y:", va("%.2f", q->y));
+            ui_label2("Length:", va("%.2f", q->len));
+            ui_label2("Rotation:", va("%.2f", q->deg));
+            ui_collapse_end();
+        }
+        ui_collapse_end();
+    }
+    if( ui_collapse(va("Slots: %d", array_count(p->slots)), va("%p-s", p))) {
+        for each_array_ptr(p->slots, spine_slot_t, q)
+        if( ui_collapse(q->name, va("%p-s2", q)) ) {
+            ui_label2("Bone:", q->bone);
+            ui_label2("Attachment:", q->attach);
+            ui_collapse_end();
+        }
+        ui_collapse_end();
+    }
+    if( ui_collapse(va("Skins: %d", array_count(p->skins)), va("%p-k", p))) {
+        for each_array_ptr(p->skins, spine_skin_t, q)
+        if( ui_collapse(q->name, va("%p-k2", q)) ) {
+            for each_array_ptr(q->rects, spine_rect_t, r)
+            if( ui_collapse(r->name, va("%p-k3", r)) ) {
+                ui_label2("X:", va("%.2f", r->x));
+                ui_label2("Y:", va("%.2f", r->y));
+                ui_label2("Scale X:", va("%.2f", r->sx));
+                ui_label2("Scale Y:", va("%.2f", r->sy));
+                ui_label2("Width:", va("%.2f", r->w));
+                ui_label2("Height:", va("%.2f", r->h));
+                ui_label2("Rotation:", va("%.2f", r->deg));
+                ui_collapse_end();
+
+                spine_bone_t *b = find_bone(p, r->name);
+                if( b ) {
+                    p->debug_atlas_id = b->atlas_id;
+
+                    static float tilt = 0;
+                    if( input(KEY_LCTRL) ) tilt += 60*1/60.f; else tilt = 0;
+                    spine_atlas_t *r = p->atlas + b->atlas_id;
+                    sprite_flush();
+                    camera_get_active()->position = vec3(0,0,2);
+                        vec4 rect = ptr4(&r->x); float zindex = 0; vec4 scale_offset = vec4(1,1,0,0);
+                        sprite_rect(p->texture, ptr4(&r->x), vec4(0,0,0,zindex), scale_offset, r->deg + tilt, ~0u, 0);
+                        sprite_flush();
+                    camera_get_active()->position = vec3(+window_width()/3,window_height()/2.25,2);
+                }
+            }
+            ui_collapse_end();
+        }
+        ui_collapse_end();
+    }
+
+    if( ui_int("Use skin", &p->skin) ) {
+    p->skin = clampf(p->skin, 0, array_count(p->skins) - 1);
+    spine_skin(p, p->skin);
+    }
+
+    if( p->texture.id ) ui_texture(0, p->texture);
+}
+
+// ----------------------------------------------------------------------------
+
+// texture_t texture_createclip(unsigned cx,unsigned cy,unsigned cw,unsigned ch, unsigned tw,unsigned th,unsigned tn,void *pixels, unsigned flags) {
+//     return texture_create(tw,th,tn,pixels,flags);
+//     static array(unsigned) clip = 0;
+//     array_resize(clip, cw*ch*4);
+//     for( unsigned y = 0; y < ch; ++y )
+//     memcpy((char *)clip + (0+(0+y)*cw)*tn, (char*)pixels + (cx+(cy+y)*tw)*tn, cw*tn);
+//     return texture_create(cw,ch,tn,clip,flags);
+// }
+
+typedef unsigned quark_t;
+
+#define array_reserve_(arr,x) (array_count(arr) > (x) ? (arr) : array_resize(arr, 1+(x)))
+
+#define ui_array(label,type,ptr) do { \
+    int changed = 0; \
+    if( ui_collapse(label, va(#type "%p",ptr)) ) { \
+        char label_ex[8]; \
+        for( int idx = 0, iend = array_count(*(ptr)); idx < iend; ++idx ) { \
+            type* it = *(ptr) + idx; \
+            snprintf(label_ex, sizeof(label_ex), "[%d]", idx); \
+            changed |= ui_##type(label_ex, it); \
+        } \
+        ui_collapse_end(); \
+    } \
+} while(0)
+
+int ui_vec2i(const char *label, vec2i *v) { return ui_unsigned2(label, (unsigned*)v); }
+int ui_vec3i(const char *label, vec3i *v) { return ui_unsigned3(label, (unsigned*)v); }
+int ui_vec2(const char *label, vec2 *v) { return ui_float2(label, (float*)v); }
+int ui_vec3(const char *label, vec3 *v) { return ui_float3(label, (float*)v); }
+int ui_vec4(const char *label, vec4 *v) { return ui_float4(label, (float*)v); }
+
+char *trimspace(char *str) {
+    for( char *s = str; *s; ++s )
+        if(*s <= 32) memmove(s, s+1, strlen(s));
+    return str;
+}
+
+char *file_parent(const char *f) {   // folder/folder/abc
+    char *p = file_path(f);          // folder/folder/
+    char *last = strrchr(p, '/');    //              ^
+    if( !last ) return p;            // return parent if no sep
+    *last = '\0';                    // folder/folder
+    last = strrchr(p, '/');          //       ^
+    return last ? last + 1 : p;      // return parent if no sep
+}
+
+int ui_obj(const char *fmt, obj *o) {
+    int changed = 0, item = 1;
+    for each_objmember(o, TYPE,NAME,PTR) {
+        char *label = va(fmt, NAME);
+        /**/ if(!strcmp(TYPE,"float"))    { if(ui_float(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"int"))      { if(ui_int(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"unsigned")) { if(ui_unsigned(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"vec2"))     { if(ui_float2(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"vec3"))     { if(ui_float3(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"vec4"))     { if(ui_float4(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"rgb"))      { if(ui_color3(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"rgba"))     { if(ui_color4(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"color"))    { if(ui_color4f(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"color3f"))  { if(ui_color3f(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"color4f"))  { if(ui_color4f(label, PTR)) changed = item; }
+        else if(!strcmp(TYPE,"char*"))    { if(ui_string(label, PTR)) changed = item; }
+        else ui_label2(label, va("(%s)", TYPE)); // INFO instead of (TYPE)?
+        ++item;
+    }
+    return changed;
+}
+
+#define OBJTYPEDEF2(...) OBJTYPEDEF(__VA_ARGS__); AUTORUN
+
+// ----------------------------------------------------------------------------
+// atlas
+
+int ui_atlas_frame(atlas_frame_t *f) {
+    ui_unsigned("delay", &f->delay);
+    ui_vec4("sheet", &f->sheet);
+    ui_array("indices", vec3i, &f->indices);
+    ui_array("coords", vec2, &f->coords);
+    ui_array("uvs", vec2, &f->uvs);
+    return 0;
+}
+
+int ui_atlas_slice_frame(atlas_slice_frame_t *f) {
+    ui_vec4("bounds", &f->bounds);
+    ui_bool("9-slice", &f->has_9slice);
+    ui_vec4("core", &f->core);
+    return 0;
+}
+
+int ui_atlas(atlas_t *a) {
+    int changed = 0;
+    ui_texture(NULL, a->tex);
+    for( int i = 0; i < array_count(a->anims); ++i ) {
+        if( ui_collapse(quark_string(&a->db, a->anims[i].name), va("%p%d", a, a->anims[i].name) ) ) {
+            changed = i+1;
+            for( int j = 0; j < array_count(a->anims[i].frames); ++j ) {
+                if( ui_collapse(va("[%d]",j), va("%p%d.%d", a, a->anims[i].name,j) ) ) {
+                    ui_unsigned("Frame", &a->anims[i].frames[j]);
+                    ui_atlas_frame(a->frames + a->anims[i].frames[j]);
+                    ui_collapse_end();
+                }
+            }
+            ui_collapse_end();
+        }
+    }
+    for( int i = 0; i < array_count(a->slices); ++i ) {
+        if( ui_collapse(quark_string(&a->db, a->slices[i].name), va("%p%d", a, a->slices[i].name) ) ) {
+            changed = i+1;
+            for( int j = 0; j < array_count(a->slices[i].frames); ++j ) {
+                if( ui_collapse(va("[%d]",j), va("%p%d.%d", a, a->slices[i].name,j) ) ) {
+                    // ui_unsigned("Frame", &a->slices[i].frames[j]);
+                    ui_atlas_slice_frame(a->slice_frames + a->slices[i].frames[j]);
+                    ui_collapse_end();
+                }
+            }
+            ui_collapse_end();
+        }
+    }
+    return changed;
+}
+
+void atlas_destroy(atlas_t *a) {
+    if( a ) {
+        texture_destroy(&a->tex);
+        memset(a, 0, sizeof(atlas_t));
+    }
+}
+atlas_t atlas_create(const char *inifile, unsigned flags) {
+    atlas_t a = {0};
+    int padding = 0, border = 0;
+
+    ini_t kv = ini(inifile);
+    for each_map(kv, char*,k, char*,v ) {
+        unsigned index = atoi(k);
+        // printf("aaa %s=%s\n", k, v);
+        /**/ if( strend(k, ".name") ) {
+            array_reserve_(a.anims, index);
+
+            a.anims[index].name = quark_intern(&a.db, v);
+        }
+        else if ( strend(k, ".sl_name") ) {
+            array_reserve_(a.slices, index);
+
+            a.slices[index].name = quark_intern(&a.db, v);
+        }
+        else if ( strend(k, ".sl_frames") ) {
+            array_reserve_(a.slices, index);
+
+            const char *text = v;
+            array(char*) frames = strsplit(text, ",");
+            for( int i = 0; i < array_count(frames); i++ ) {
+                unsigned frame = atoi(frames[i]);
+                array_push(a.slices[index].frames, frame);
+            }
+        }
+        else if ( strend(k, ".sl_bounds") ) {
+            array_reserve_(a.slice_frames, index);
+
+            float x,y,z,w;
+            sscanf(v, "%f,%f,%f,%f", &x, &y, &z, &w);
+
+            a.slice_frames[index].bounds = vec4(x,y,x+z,y+w);
+        }
+        else if ( strend(k, ".sl_9slice") ) {
+            array_reserve_(a.slice_frames, index);
+
+            a.slice_frames[index].has_9slice = atoi(v);
+        }
+        else if ( strend(k, ".sl_core") ) {
+            array_reserve_(a.slice_frames, index);
+
+            float x,y,z,w;
+            sscanf(v, "%f,%f,%f,%f", &x, &y, &z, &w);
+
+            a.slice_frames[index].core = vec4(x,y,x+z,y+w);
+        }
+        else if ( strend(k, ".sl_pivot") ) {
+            array_reserve_(a.slice_frames, index);
+
+            float x,y;
+            sscanf(v, "%f,%f", &x, &y);
+
+            a.slice_frames[index].pivot = vec2(x,y);
+        }
+        else if( strend(k, ".frames") ) {
+            array_reserve_(a.anims, index);
+
+            array(char*) pairs = strsplit(v, ",");
+            for( int i = 0, end = array_count(pairs); i < end; i += 2 ) {
+                unsigned frame = atoi(pairs[i]);
+                unsigned delay = atoi(pairs[i+1]);
+
+                array_reserve_(a.frames, frame);
+                a.frames[frame].delay = delay;
+
+                array_push(a.anims[index].frames, frame);
+            }
+        }
+        else if( strend(k, ".sheet") ) {
+            array_reserve_(a.frames, index);
+
+            vec4 sheet = atof4(v); //x,y,x2+2,y2+2 -> x,y,w,h (for 2,2 padding)
+            a.frames[index].sheet = vec4(sheet.x,sheet.y,sheet.z-sheet.x,sheet.w-sheet.y);
+        }
+        else if( strend(k, ".indices") ) {
+            array_reserve_(a.frames, index);
+
+            const char *text = v;
+            array(char*) tuples = strsplit(text, ",");
+            for( int i = 0, end = array_count(tuples); i < end; i += 3 ) {
+                unsigned p1 = atoi(tuples[i]);
+                unsigned p2 = atoi(tuples[i+1]);
+                unsigned p3 = atoi(tuples[i+2]);
+                array_push(a.frames[index].indices, vec3i(p1,p2,p3));
+            }
+        }
+        else if( strend(k, ".coords") ) {
+            array_reserve_(a.frames, index);
+
+            const char *text = v;
+            array(char*) pairs = strsplit(text, ",");
+            for( int i = 0, end = array_count(pairs); i < end; i += 2 ) {
+                unsigned x = atoi(pairs[i]);
+                unsigned y = atoi(pairs[i+1]);
+                array_push(a.frames[index].coords, vec2(x,y));
+            }
+        }
+        else if( strend(k, ".uvs") ) {
+            array_reserve_(a.frames, index);
+
+            const char *text = v;
+            array(char*) pairs = strsplit(text, ",");
+            for( int i = 0, end = array_count(pairs); i < end; i += 2 ) {
+                unsigned u = atoi(pairs[i]);
+                unsigned v = atoi(pairs[i+1]);
+                array_push(a.frames[index].uvs, vec2(u,v));
+            }
+        }
+        else if( strend(k, "padding") ) {
+            padding = atoi(v);
+        }
+        else if( strend(k, "border") ) {
+            border = atoi(v);
+        }
+        else if( strend(k, "file") ) {
+            a.tex = texture(v, 0);
+        }
+        else if( strend(k, "bitmap") ) {
+            const char *text = v;
+            array(char) bin = base64_decode(text, strlen(text));
+            a.tex = texture_from_mem(bin, array_count(bin), 0);
+            array_free(bin);
+        }
+#if 0
+        else if( strend(k, ".frame") ) {
+            array_reserve_(a.frames, index);
+            puts(k), puts(v);
+        }
+#endif
+    }
+
+    // post-process: normalize uvs and coords into [0..1] ranges
+    for each_array_ptr(a.frames, atlas_frame_t, f) {
+        for each_array_ptr(f->uvs, vec2, uv) {
+            uv->x /= a.tex.w;
+            uv->y /= a.tex.h;
+        }
+        for each_array_ptr(f->coords, vec2, xy) {
+            xy->x /= a.tex.w;
+            xy->y /= a.tex.h;
+        }
+        // @todo: adjust padding/border
+    }
+    for each_array_ptr(a.slice_frames, atlas_slice_frame_t, f) {
+        f->bounds.x += padding+border;
+        f->bounds.y += padding+border;
+        f->bounds.z += padding+border;
+        f->bounds.w += padding+border;
+    }
+#if 0
+    // post-process: specify an anchor for each anim based on 1st frame dims
+    for each_array_ptr(a.anims, atlas_anim_t, anim) {
+        atlas_frame_t *first = a.frames + *anim->frames;
+        for( int i = 0; i < array_count(anim->frames); i += 2) {
+            atlas_frame_t *ff = a.frames + anim->frames[ i ];
+            ff->anchor.x = (ff->sheet.z - first->sheet.z) / 2;
+            ff->anchor.y = (ff->sheet.w - first->sheet.w) / 2;
+        }
+    }
+#endif
+
+    return a;
+}
+
+// ----------------------------------------------------------------------------
+// sprite v2
+
+void sprite_ctor(sprite_t *s) {
+    s->tint = WHITE;
+    s->timer_ms = 100;
+    s->flipped = 1;
+    s->sca.x += !s->sca.x;
+    s->sca.y += !s->sca.y;
+}
+void sprite_dtor(sprite_t *s) {
+    memset(s, 0, sizeof(*s));
+}
+void sprite_tick(sprite_t *s) {
+    int right = input(s->gamepad.array[3]) - input(s->gamepad.array[2]); // RIGHT - LEFT
+    int forward = input(s->gamepad.array[1]) - input(s->gamepad.array[0]); // DOWN - UP
+    int move = right || forward;
+    int dt = 16; // window_delta() * 1000;
+
+    unsigned over = (s->timer - dt) > s->timer;
+    if(!s->paused) s->timer -= dt;
+    if( over ) {
+        int len = array_count(s->a->anims[s->play].frames);
+        unsigned next = (s->frame + 1) % (len + !len);
+        unsigned eoa = next < s->frame;
+        s->frame = next;
+
+        atlas_frame_t *f = &s->a->frames[ s->a->anims[s->play].frames[s->frame] ];
+        s->timer_ms = f->delay;
+        s->timer += s->timer_ms;
+    }
+
+    if( s->play == 0 && move ) sprite_setanim(s, 1);
+    if( s->play == 1 ) { //<
+        if(right) s->flip_ = right < 0, sprite_setanim(s, 1);
+        if(!right && !forward) sprite_setanim(s, 0);
+
+        float speed = s->sca.x*2;
+        s->pos = add4(s->pos, scale4(norm4(vec4(right,0,forward,0)),speed));
+    }
+}
+void sprite_draw(sprite_t *s) {
+    atlas_frame_t *f = &s->a->frames[ s->a->anims[s->play].frames[s->frame] ];
+
+#if 1
+    // @todo {
+        unsigned sample = s->a->anims[s->play].frames[s->frame];
+        sample = 0;
+        f->anchor.x = (-s->a->frames[sample].sheet.z + f->sheet.z) / 2;
+        f->anchor.y = (+s->a->frames[sample].sheet.w - f->sheet.w) / 2;
+    // }
+#endif
+
+    // rect(x,y,w,h) is [0..1] normalized, z-index, pos(x,y,scale), rotation (degrees), color (rgba)
+    vec4 rect = { f->sheet.x / s->a->tex.w, f->sheet.y / s->a->tex.h, f->sheet.z / s->a->tex.w, f->sheet.w / s->a->tex.h };
+    sprite_rect(s->a->tex, rect, s->pos, vec4(s->flip_ ^ s->flipped?s->sca.x:-s->sca.x,s->sca.y,f->anchor.x,f->anchor.y), s->tilt, s->tint, 0|SPRITE_PROJECTED);
+}
+void sprite_edit(sprite_t *s) {
+    const char *name = obj_name(s);
+    const char *id = vac("%p", s);
+    if( s && ui_collapse(name ? name : id, id) ) {
+        ui_obj("%s", (obj*)s);
+
+        ui_bool("paused", &s->paused);
+        ui_label(va("frame anim [%d]", s->a->anims[s->play].frames[s->frame]));
+
+        int k = s->play;
+        if( ui_int("anim", &k) ) {
+            sprite_setanim(s, k);
+        }
+
+        int selected = ui_atlas(s->a);
+        if( selected ) sprite_setanim(s, selected - 1);
+
+        ui_collapse_end();
+    }
+}
+
+sprite_t* sprite_new(const char *ase, int bindings[6]) {
+    sprite_t *s = obj_new(sprite_t, {bindings[0],bindings[1],bindings[2],bindings[3]}, {bindings[4],bindings[5]});
+    atlas_t own = atlas_create(ase, 0);
+    memcpy(s->a = MALLOC(sizeof(atlas_t)), &own, sizeof(atlas_t)); // s->a = &s->own;
+    return s;
+}
+void sprite_del(sprite_t *s) {
+    if( s ) {
+        if( s->a ) atlas_destroy(s->a), FREE(s->a); // if( s->a == &s->own )
+        obj_free(s);
+        memset(s, 0, sizeof(sprite_t));
+    }
+}
+void sprite_setanim(sprite_t *s, unsigned name) {
+    if( s->play != name ) {
+        s->play = name;
+        s->frame = 0;
+
+        atlas_frame_t *f = &s->a->frames[ s->a->anims[s->play].frames[s->frame] ];
+
+        s->timer_ms = f->delay;
+        s->timer = s->timer_ms;
+    }
+}
+
+AUTORUN {
+    STRUCT(sprite_t, vec4, pos);
+    STRUCT(sprite_t, vec2, sca);
+    STRUCT(sprite_t, float, tilt);
+    STRUCT(sprite_t, vec4, gamepad);
+    STRUCT(sprite_t, vec2, fire);
+    STRUCT(sprite_t, rgba,  tint);
+    STRUCT(sprite_t, unsigned, frame);
+    STRUCT(sprite_t, unsigned, timer);
+    STRUCT(sprite_t, unsigned, timer_ms);
+    STRUCT(sprite_t, unsigned, flipped);
+    STRUCT(sprite_t, unsigned, play);
+    EXTEND_T(sprite, ctor,edit,draw,tick);
+}
 #line 0
 
 #line 1 "fwk_system.c"
@@ -22299,6 +23345,16 @@ int __argc; char **__argv;
 __attribute__((constructor)) void init_argcv(int argc, char **argv) { __argc = argc; __argv = argv; }
 #endif
 #endif
+
+void argvadd(const char *arg) {
+    char **argv = MALLOC( sizeof(char*) * (__argc+1) );
+    for( int i = 0; i < __argc; ++i ) {
+        argv[i] = __argv[i];
+    }
+    argv[__argc] = STRDUP(arg);
+    __argv = argv;
+    ++__argc;
+}
 
 const char *app_path() { // @fixme: should return absolute path always. see tcc -g -run
     static char buffer[1024] = {0};
@@ -22385,28 +23441,72 @@ const char *app_cache() {
 
 const char * app_exec( const char *cmd ) {
     static __thread char output[4096+16] = {0};
+    char *buf = output + 16; buf[0] = 0; // memset(buf, 0, 4096);
 
     if( !cmd[0] ) return "0               ";
     cmd = file_normalize(cmd);
 
     int rc = -1;
-    char *buf = output + 16; buf[0] = 0; // memset(buf, 0, 4096);
+
+    // pick the fastest code path per platform
+#if is(osx)
     for( FILE *fp = popen( cmd, "r" ); fp; rc = pclose(fp), fp = 0) {
-        while( fgets(buf, 4096 - 1, fp) ) {
-        }
+        // while( fgets(buf, 4096 - 1, fp) ) {}
     }
-    if( rc != 0 ) {
-        char *r = strrchr(buf, '\r'); if(r) *r = 0;
-        char *n = strrchr(buf, '\n'); if(n) *n = 0;
+    // if( rc != 0 ) {
+    //     char *r = strrchr(buf, '\r'); if(r) *r = 0;
+    //     char *n = strrchr(buf, '\n'); if(n) *n = 0;
+    // }
+#elif is(win32)
+    STARTUPINFOA si = {0}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+
+    snprintf(output+16, 4096, "cmd /c \"%s\"", cmd);
+
+    int prio = //strstr(cmd, "ffmpeg") || strstr(cmd, "furnace") || strstr(cmd, "ass2iqe") ?
+    REALTIME_PRIORITY_CLASS; //: 0;
+
+//prio |= DETACHED_PROCESS;
+//si.dwFlags = STARTF_USESTDHANDLES;
+
+    if( CreateProcessA(
+        NULL, output+16, // cmdline
+        NULL,
+        NULL,
+        FALSE, // FALSE: dont inherit handles
+        prio /*CREATE_DEFAULT_ERROR_MODE|CREATE_NO_WINDOW*/, // 0|HIGH_PRIORITY_CLASS
+        NULL, // "", // NULL would inherit env
+        NULL, // current dir
+        &si, &pi) )
+    {
+        // Wait for process
+        DWORD dwExitCode2 = WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD dwExitCode; GetExitCodeProcess(pi.hProcess, &dwExitCode);
+        rc = dwExitCode;
     }
+    else
+    {
+        // CreateProcess() failed
+        rc = GetLastError();
+    }
+#else
+    rc = system(cmd);
+#endif
+
     return snprintf(output, 16, "%-15d", rc), buf[-1] = ' ', output;
 }
 
 int app_spawn( const char *cmd ) {
-    if( !cmd[0] ) return -1;
+    if( !cmd[0] ) return false;
     cmd = file_normalize(cmd);
 
-    return system(cmd);
+#if _WIN32
+    bool ok = WinExec(va("cmd /c \"%s\"", cmd), SW_HIDE) > 31;
+#else
+    bool ok = system(va("%s &", cmd)) == 0;
+#endif
+
+    return ok;
 }
 
 #if is(osx)
@@ -22451,8 +23551,8 @@ static char **backtrace_symbols(void *const *list,int size) {
 
     static __thread char **symbols = 0; //[32][64] = {0};
     if( !symbols ) {
-        symbols = SYS_REALLOC(0, 128 * sizeof(char*));
-        for( int i = 0; i < 128; ++i) symbols[i] = SYS_REALLOC(0, 128 * sizeof(char));
+        symbols = SYS_MEM_REALLOC(0, 128 * sizeof(char*));
+        for( int i = 0; i < 128; ++i) symbols[i] = SYS_MEM_REALLOC(0, 128 * sizeof(char));
     }
 
     if(size > 128) size = 128;
@@ -22485,7 +23585,7 @@ static char **backtrace_symbols(void *const *sym,int num) { return 0; }
 
 char *callstack( int traces ) {
     static __thread char *output = 0;
-    if(!output ) output = SYS_REALLOC( 0, 128 * (64+2) );
+    if(!output ) output = SYS_MEM_REALLOC( 0, 128 * (64+2) );
     if( output ) output[0] = '\0';
     char *ptr = output;
 
@@ -22856,9 +23956,9 @@ void tty_color(unsigned color) {
     #endif
     if( color ) {
         // if( color == RED ) alert("break on error message (RED)"), breakpoint(); // debug
-        unsigned r = (color >> 16) & 255;
+        unsigned r = (color >>  0) & 255;
         unsigned g = (color >>  8) & 255;
-        unsigned b = (color >>  0) & 255;
+        unsigned b = (color >> 16) & 255;
         // 24-bit console ESC[ … 38;2;<r>;<g>;<b> … m Select RGB foreground color
         // 256-color console ESC[38;5;<fgcode>m
         // 0x00-0x07:  standard colors (as in ESC [ 30..37 m)
@@ -23044,7 +24144,7 @@ int (PRINTF)(const char *text, const char *stack, const char *file, int line, co
 
 static void *panic_oom_reserve; // for out-of-memory recovery
 int (PANIC)(const char *error, const char *file, int line) {
-    panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 0);
+    panic_oom_reserve = SYS_MEM_REALLOC(panic_oom_reserve, 0);
 
     tty_color(RED);
 
@@ -23102,9 +24202,9 @@ void app_crash() {
     *p = 42;
 }
 void app_beep() {
-    ifdef(win32, system("rundll32 user32.dll,MessageBeep"); return; );
-    ifdef(linux, system("paplay /usr/share/sounds/freedesktop/stereo/message.oga"); return; );
-    ifdef(osx,   system("tput bel"); return; );
+    ifdef(win32, app_spawn("rundll32 user32.dll,MessageBeep"); return; );
+    ifdef(linux, app_spawn("paplay /usr/share/sounds/freedesktop/stereo/message.oga"); return; );
+    ifdef(osx,   app_spawn("tput bel"); return; );
 
     //fallback:
     fputc('\x7', stdout);
@@ -23159,7 +24259,7 @@ bool app_open_folder(const char *file) {
 #else
     snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
 #endif
-    return system(buf) == 0;
+    return app_spawn(buf);
 }
 
 static
@@ -23172,7 +24272,7 @@ bool app_open_file(const char *file) {
 #else
     snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
 #endif
-    return system(buf) == 0;
+    return app_spawn(buf);
 }
 
 static
@@ -23326,8 +24426,8 @@ static uint64_t nanotimer(uint64_t *out_freq) {
 }
 
 uint64_t time_ns() {
-    static uint64_t epoch = 0;
-    static uint64_t freq = 0;
+    static __thread uint64_t epoch = 0;
+    static __thread uint64_t freq = 0;
     if( !freq ) {
         epoch = nanotimer(&freq);
     }
@@ -23469,9 +24569,7 @@ guid guid_create() {
 
     return c.v3;
 }
-#line 0
 
-#line 1 "fwk_tween.c"
 // ----------------------------------------------------------------------------
 // ease
 
@@ -23709,6 +24807,156 @@ void tween_delkey(tween_t *tw, float t) { // @todo: untested
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// curve
+
+curve_t curve() {
+    curve_t c = {0};
+    return c;
+}
+
+static INLINE
+vec3 catmull( vec3 p0, vec3 p1, vec3 p2, vec3 p3, float t ) {
+    float t2 = t*t;
+    float t3 = t*t*t;
+
+    vec3 c;
+    c.x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+    c.y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+    c.z = 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+    return c;
+}
+
+void curve_add(curve_t *c, vec3 p) {
+    array_push(c->points, p);
+}
+
+void curve_end( curve_t *c, int k ) {
+    ASSERT( k > 0 );
+
+    array_free(c->lengths);
+    array_free(c->samples);
+    array_free(c->indices);
+    array_free(c->colors);
+
+    // refit points[N] to samples[K]
+    int N = array_count(c->points);
+    if( k < N ) {
+        // truncate: expected k-points lesser or equal than existing N points
+        for( int i = 0; i <= k; ++i ) {
+            float s = (float)i / k;
+            int t = s * (N-1);
+            array_push(c->samples, c->points[t]);
+
+            float p = fmod(i, N-1) / (N-1); // [0..1)
+            int is_control_point = p <= 0 || p >= 1;
+            array_push(c->colors, is_control_point ? ORANGE: BLUE);
+        }
+
+    } else {
+        // interpolate: expected k-points greater than existing N-points
+        --N;
+        int upper = N - (k%N);
+        int lower = (k%N);
+        if(upper < lower)
+        k += upper;
+        else
+        k -= lower;
+
+        int points_per_segment = (k / N);
+        ++N;
+
+        int looped = len3sq(sub3(c->points[0], *array_back(c->points))) < 0.1;
+
+        for( int i = 0; i <= k; ++i ) {
+            int point = i % points_per_segment;
+            float p = point / (float)points_per_segment; // [0..1)
+            int t = i / points_per_segment;
+
+            // linear
+            vec3 l = mix3(c->points[t], c->points[t+(i!=k)], p);
+
+            // printf("%d) %d>%d %f\n", i, t, t+(i!=k), p);
+            ASSERT(p <= 1);
+
+            // catmull
+            int p0 = t - 1;
+            int p1 = t + 0;
+            int p2 = t + 1;
+            int p3 = t + 2;
+            if( looped )
+            {
+                int M = N-1;
+                if(p0<0) p0+=M; else if(p0>=M) p0-=M;
+                if(p1<0) p1+=M; else if(p1>=M) p1-=M;
+                if(p2<0) p2+=M; else if(p2>=M) p2-=M;
+                if(p3<0) p3+=M; else if(p3>=M) p3-=M;
+            }
+            else
+            {
+                int M = N-1;
+                if(p0<0) p0=0; else if(p0>=M) p0=M;
+                if(p1<0) p1=0; else if(p1>=M) p1=M;
+                if(p2<0) p2=0; else if(p2>=M) p2=M;
+                if(p3<0) p3=0; else if(p3>=M) p3=M;
+            }
+            vec3 m = catmull(c->points[p0],c->points[p1],c->points[p2],c->points[p3],p);
+            l = m;
+
+            array_push(c->samples, l);
+
+            int is_control_point = p <= 0 || p >= 1;
+            array_push(c->colors, is_control_point ? ORANGE: BLUE);
+        }
+    }
+
+    array_push(c->lengths, 0 );
+    for( int i = 1; i <= k; ++i ) {
+        // approximate curve length at every sample point
+        array_push(c->lengths, len3(sub3(c->samples[i], c->samples[i-1])) + c->lengths[i-1] );
+    }
+    // normalize lengths to be between 0 and 1
+    float maxv = c->lengths[k];
+    for( int i = 1; i <= k; ++i ) c->lengths[i] /= maxv;
+
+    array_push(c->indices, 0 );
+    for( int i = 0/*1*/; i </*=*/ k; ++i ) {
+        float s = (float)i / (k-1); //k;
+        int j; // j = so that lengths[j] <= s < lengths[j+1];
+
+        // j = Index of the highest length that is less or equal to s
+        // Can be optimized with a binary search instead
+        for( j = *array_back(c->indices) + 1; j </*=*/ k; ++j ) {
+            if( c->lengths[j] </*=*/ s ) continue;
+            break;
+        }
+
+        if (c->lengths[j] > 0.01)
+        array_push(c->indices, j );
+    }
+}
+
+vec3 curve_eval(curve_t *c, float dt, unsigned *color) {
+    dt = clampf(dt, 0.0f, 1.0f);
+    int l = (int)(array_count(c->indices) - 1);
+    int p = (int)(dt * l);
+    int t = c->indices[p];
+
+    t %= (array_count(c->indices)-1);
+    vec3 pos = mix3(c->samples[t], c->samples[t+1], dt * l - p);
+    if(color) *color = c->colors[t];
+
+    return pos;
+}
+
+void curve_destroy(curve_t *c) {
+    array_free(c->lengths);
+    array_free(c->colors);
+    array_free(c->samples);
+    array_free(c->points);
+    array_free(c->indices);
+}
 #line 0
 
 #line 1 "fwk_profile.c"
@@ -23724,16 +24972,15 @@ void (ui_profiler)() {
     double fps = window_fps();
     profile_setstat("Render.num_fps", fps);
 
-    // draw fps-meter: 300 samples, [0..70] range each, 70px height plot.
-    nk_layout_row_dynamic(ui_ctx, 70, 1);
-
     enum { COUNT = 300 };
-
     static float values[COUNT] = {0}; static int offset = 0;
     values[offset=(offset+1)%COUNT] = fps;
 
-    // draw chart unless filterig is enabled
+    // draw fps-meter: 300 samples, [0..70] range each, 70px height plot ...
+    // ... unless filtering is enabled
     if( !(ui_filter && ui_filter[0]) ) {
+        nk_layout_row_dynamic(ui_ctx, 70, 1);
+
         int index = -1;
         if( nk_chart_begin(ui_ctx, NK_CHART_LINES, COUNT, 0.f, 70.f) ) {
             for( int i = 0; i < COUNT; ++i ) {
@@ -24173,7 +25420,7 @@ void window_drop_callback(GLFWwindow* window, int count, const char** paths) {
 void window_hints(unsigned flags) {
     #ifdef __APPLE__
     //glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );
-    //glfwWindowHint( GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE );
+    glfwWindowHint( GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE ); // @todo: remove silicon mac M1 hack
     //glfwWindowHint( GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_FALSE );
     //glfwWindowHint( GLFW_COCOA_MENUBAR, GLFW_FALSE );
     #endif
@@ -24322,6 +25569,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             //glfwWindowHint(GLFW_FLOATING, GLFW_TRUE); // always on top
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
         }
+        if( flags & WINDOW_BORDERLESS ) {
+            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        }
         #endif
         // windowed
         float ratio = (float)winWidth / (winHeight + !winHeight);
@@ -24392,7 +25642,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     PRINTF("GPU OpenGL: %d.%d\n", GLAD_VERSION_MAJOR(gl_version), GLAD_VERSION_MINOR(gl_version));
 
     if( FLAGS_TRANSPARENT ) { // @transparent
-        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
         if( scale >= 1 ) glfwMaximizeWindow(window);
     }
     #endif
@@ -24426,7 +25676,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
                 #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
                    /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
                    float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
-                   float speed = progress < 1 ? 0.2f : 0.5f; \
+                   float speed = progress < 1 ? 0.05f : 0.75f; \
                    float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
                    \
                    float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
@@ -24526,7 +25776,7 @@ int window_frame_begin() {
     ui_create();
 
 #if !ENABLE_RETAIL
-    bool has_menu = 0; // ui_has_menubar();
+    bool has_menu = ui_has_menubar();
     bool may_render_debug_panel = 1;
 
     if( have_tools() ) {
@@ -24541,8 +25791,7 @@ int window_frame_begin() {
     // generate Debug panel contents
     if( may_render_debug_panel ) {
         if( has_menu ? ui_window("Debug " ICON_MD_SETTINGS, 0) : ui_panel("Debug " ICON_MD_SETTINGS, 0) ) {
-            API int ui_debug();
-            ui_debug();
+            ui_engine();
 
             (has_menu ? ui_window_end : ui_panel_end)();
         }
@@ -24769,9 +26018,9 @@ void window_title(const char *title_) {
     if( !title[0] ) glfwSetWindowTitle(window, title);
 }
 void window_color(unsigned color) {
-    unsigned b = (color >>  0) & 255;
+    unsigned r = (color >>  0) & 255;
     unsigned g = (color >>  8) & 255;
-    unsigned r = (color >> 16) & 255;
+    unsigned b = (color >> 16) & 255;
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
@@ -24830,7 +26079,7 @@ int window_record(const char *outfile_mp4) {
 
 vec2 window_dpi() {
     vec2 dpi = vec2(1,1);
-#ifndef __EMSCRIPTEN__
+#if !is(ems) && !is(osx) // @todo: remove silicon mac M1 hack
     glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &dpi.x, &dpi.y);
 #endif
     return dpi;
@@ -24967,22 +26216,19 @@ void window_focus() {
 int window_has_focus() {
     return !!glfwGetWindowAttrib(window, GLFW_FOCUSED);
 }
-void window_cursor(int visible) {
-    glfwSetInputMode(window, GLFW_CURSOR, visible ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-}
-int window_has_cursor() {
-    return glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_NORMAL;
-}
+static int cursorshape = 1;
 void window_cursor_shape(unsigned mode) {
+    cursorshape = (mode &= 7);
+
     static GLFWcursor* cursors[7] = { 0 };
     static unsigned enums[7] = {
         0,
         GLFW_ARROW_CURSOR,
         GLFW_IBEAM_CURSOR,
-        GLFW_CROSSHAIR_CURSOR,
-        GLFW_HAND_CURSOR,
         GLFW_HRESIZE_CURSOR,
         GLFW_VRESIZE_CURSOR,
+        GLFW_HAND_CURSOR,
+        GLFW_CROSSHAIR_CURSOR,
     };
     do_once {
         static unsigned pixels[16 * 16] = { 0x01000000 }; // ABGR(le) glfw3 note: A(0x00) means 0xFF for some reason
@@ -25001,6 +26247,14 @@ void window_cursor_shape(unsigned mode) {
         glfwSetCursor(window, mode < countof(enums) ? cursors[mode] : NULL);
     }
 }
+void window_cursor(int visible) {
+    (cursorshape == CURSOR_SW_AUTO && visible ? nk_style_show_cursor : nk_style_hide_cursor)(ui_handle());
+    glfwSetInputMode(window, GLFW_CURSOR, visible ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+}
+int window_has_cursor() {
+    return glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_NORMAL;
+}
+
 void window_visible(int visible) {
     if(!window) return;
     //if(window) (visible ? glfwRestoreWindow : glfwIconifyWindow)(window);
@@ -25067,10 +26321,195 @@ int window_has_maximize() {
     return ifdef(ems, 0, glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
 }
 
+const char *window_clipboard() {
+    return glfwGetClipboardString(window);
+}
+void window_setclipboard(const char *text) {
+    glfwSetClipboardString(window, text);
+}
 
+static
+double window_scale() { // ok? @testme
+    float xscale, yscale;
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+    return maxi(xscale, yscale);
+}
 #line 0
 
 #line 1 "fwk_obj.c"
+// -----------------------------------------------------------------------------
+// factory of handle ids, based on code by randy gaul (PD/Zlib licensed)
+// - rlyeh, public domain
+//
+// [src] http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp
+// [ref] http://bitsquid.blogspot.com.es/2011/09/managing-decoupling-part-4-id-lookup.html
+// [ref] http://glampert.com/2016/05-04/dissecting-idhashindex/
+// [ref] https://github.com/nlguillemot/dof/blob/master/viewer/packed_freelist.h
+// [ref] https://gist.github.com/pervognsen/ffd89e45b5750e9ce4c6c8589fc7f253
+
+// you cannot change this one: the number of ID_DATA_BITS you can store in a handle depends on ID_COUNT_BITS
+#define ID_DATA_BITS (64-ID_COUNT_BITS)
+
+typedef union id64 {
+    uint64_t h;
+    struct {
+#if (ID_INDEX_BITS+ID_COUNT_BITS) != 64
+        uint64_t padding : 64-ID_INDEX_BITS-ID_COUNT_BITS;
+#endif
+        uint64_t index : ID_INDEX_BITS;
+        uint64_t count : ID_COUNT_BITS;
+    };
+} id64;
+
+typedef struct id_factory id_factory;
+id_factory id_factory_create(uint64_t capacity /*= 256*/);
+id64        id_factory_insert(id_factory *f, uint64_t data);
+uint64_t     id_factory_getvalue(id_factory *f, id64 handle);
+void         id_factory_setvalue(id_factory *f, id64 handle, uint64_t data);
+void        id_factory_erase(id_factory *f, id64 handle);
+bool        id_factory_isvalid(id_factory *f, id64 handle);
+void       id_factory_destroy(id_factory *f);
+
+// ---
+
+typedef struct id_factory {
+    uint64_t freelist;
+    uint64_t capacity;
+    uint64_t canary;
+    union entry* entries;
+} id_factory;
+
+typedef union entry {
+    struct {
+        uint64_t data  : ID_DATA_BITS;
+        uint64_t count : ID_COUNT_BITS;
+    };
+    uint64_t h;
+} entry;
+
+id_factory id_factory_create(uint64_t capacity) {
+    if(!capacity) capacity = 1ULL << ID_INDEX_BITS;
+
+    id_factory f = {0};
+    f.entries = CALLOC(1, sizeof(entry) * capacity);
+    f.capacity = capacity;
+
+    for (int i = 0; i < capacity - 1; ++i) {
+        f.entries[i].data = i + 1;
+        f.entries[i].count = 0;
+    }
+    f.entries[capacity - 1].h = 0;
+    f.entries[capacity - 1].data = ~0;
+    f.entries[capacity - 1].count = ~0;
+    f.canary = f.entries[capacity - 1].data;
+
+    return f;
+}
+
+void id_factory_destroy(id_factory *f) {
+    FREE(f->entries);
+}
+
+id64 id_factory_insert(id_factory *f, uint64_t data) {
+    // pop element off the free list
+    assert(f->freelist != f->canary && "max alive capacity reached");
+    uint64_t index = f->freelist;
+    f->freelist = f->entries[f->freelist].data;
+
+    // create new id64
+    f->entries[index].data = data;
+    id64 handle = {0};
+    handle.index = index;
+    handle.count = f->entries[index].count;
+    return handle;
+}
+
+void id_factory_erase(id_factory *f, id64 handle) {
+    // push id64 onto the freelist
+    uint64_t index = handle.index;
+    f->entries[index].data = f->freelist;
+    f->freelist = index;
+
+    // increment the count. this signifies a change in lifetime (this particular id64 is now dead)
+    // the next time this particular index is used in alloc, a new `count` will be used to uniquely identify
+    f->entries[index].count++;
+}
+
+uint64_t id_factory_getvalue(id_factory *f, id64 handle) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    assert(f->entries[index].count == count);
+    return f->entries[index].data;
+}
+
+void id_factory_setvalue(id_factory *f, id64 handle, uint64_t data) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    assert(f->entries[index].count == count);
+    f->entries[index].data = data;
+}
+
+bool id_factory_isvalid(id_factory *f, id64 handle) {
+    uint64_t index = handle.index;
+    uint64_t count = handle.count;
+    if (index >= f->capacity) return false;
+    return f->entries[index].count == count;
+}
+
+#if 0
+// monitor history of a single entity by running `id_factory | find " 123."`
+AUTORUN {
+    trap_install();
+
+    id_factory f = id_factory_create(optioni("--NUM",256));
+
+    array(id64) ids = 0;
+    for( int i = 0 ; ; ++i, i &= ((1ULL << ID_INDEX_BITS) - 1) ) { // infinite wrap
+        printf("count_ids(%d) ", array_count(ids));
+        bool insert = randf() < 0.49; // biased against deletion
+        if( insert ) {
+            id64 h = id_factory_insert(&f, i);
+            array_push(ids, h);
+            printf("add %llu.%llu\n", h.index, h.count);
+        } else {
+            int count = array_count(ids);
+            if( count ) {
+                int chosen = randi(0,count);
+                printf("del %d.\n", chosen);
+                id64 h = ids[chosen];
+                id_factory_erase(&f, h);
+                array_erase(ids, chosen);
+            }
+        }
+    }
+}
+#endif
+
+// ----------------------------------------------------------------------
+// public api
+
+static id_factory fid; // @fixme: threadsafe
+
+uintptr_t id_make(void *ptr) {
+    do_once fid = id_factory_create(0), id_factory_insert(&fid, 0); // init and reserve id(0)
+    id64 newid = id_factory_insert(&fid, (uint64_t)(uintptr_t)ptr ); // 48-bit effective addr
+    return newid.h;
+}
+
+void *id_handle(uintptr_t id) {
+    return (void *)(uintptr_t)id_factory_getvalue(&fid, ((id64){ (uint64_t)id }) );
+}
+
+void id_dispose(uintptr_t id) {
+    id_factory_erase(&fid, ((id64){ (uint64_t)id }) );
+}
+
+bool id_valid(uintptr_t id) {
+    return id_factory_isvalid(&fid, ((id64){ (uint64_t)id }) );
+}
+
+// ----------------------------------------------------------------------
 // C objects framework
 // - rlyeh, public domain.
 
@@ -25090,6 +26529,9 @@ obj_vtable_null(draw, int   );
 
 obj_vtable_null(lerp, int   );
 obj_vtable_null(edit, int   ); // OSC cmds: argc,argv "undo","redo","cut","copy","paste","edit","view","menu"
+obj_vtable_null(menu, int   );
+obj_vtable_null(aabb, int   );
+obj_vtable_null(icon, char* );
 
 // ----------------------------------------------------------------------------
 
@@ -25361,21 +26803,23 @@ void test_obj_scene() {
 static map(int,int) oms;
 static thread_mutex_t *oms_lock;
 void *obj_setmeta(void *o, const char *key, const char *value) {
+    void *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
         int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
         if(!*q && !value[0]) {} else *q = intern(value);
-        return quark(*q), o;
+        quark(*q), ret = o;
     }
-    return 0; // unreachable
+    return ret;
 }
 const char* obj_meta(const void *o, const char *key) {
+    const char *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
         int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
-        return quark(*q);
+        ret = quark(*q);
     }
-    return 0; // unreachable
+    return ret;
 }
 
 void *obj_setname(void *o, const char *name) {
@@ -25535,6 +26979,8 @@ const char *p2s(const char *type, void *p) {
     else if( !strcmp(type, "vec2") ) return ftoa2(*(vec2*)p);
     else if( !strcmp(type, "vec3") ) return ftoa3(*(vec3*)p);
     else if( !strcmp(type, "vec4") ) return ftoa4(*(vec4*)p);
+    else if( !strcmp(type, "rgb") ) return rgbatoa(*(unsigned*)p);
+    else if( !strcmp(type, "rgba") ) return rgbatoa(*(unsigned*)p);
     else if( !strcmp(type, "char*") || !strcmp(type, "string") ) return va("%s", *(char**)p);
     // @todo: if strchr('*') assume obj, if reflected save guid: obj_id();
     return tty_color(YELLOW), printf("p2s: cannot serialize `%s` type\n", type), tty_color(0), "";
@@ -25551,6 +26997,8 @@ bool s2p(void *P, const char *type, const char *str) {
     else if( !strcmp(type, "vec2") )      return !!memcpy(P, (v2 = atof2(str), &v2), sizeof(v2));
     else if( !strcmp(type, "vec3") )      return !!memcpy(P, (v3 = atof3(str), &v3), sizeof(v3));
     else if( !strcmp(type, "vec4") )      return !!memcpy(P, (v4 = atof4(str), &v4), sizeof(v4));
+    else if( !strcmp(type, "rgb") )       return !!memcpy(P, (u = atorgba(str), &u), sizeof(u));
+    else if( !strcmp(type, "rgba") )      return !!memcpy(P, (u = atorgba(str), &u), sizeof(u));
     else if( !strcmp(type, "uintptr_t") ) return !!memcpy(P, (p = strtol(str, NULL, 16), &p), sizeof(p));
     else if( !strcmp(type, "char*") || !strcmp(type, "string") ) {
         char substring[128] = {0};
@@ -26475,9 +27923,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
 
     return path_count;
 }
-#line 0
 
-#line 1 "fwk_bt.c"
 // Behavior trees: decision planning and decision making.
 // Supersedes finite state-machines (FSM) and hierarchical finite state-machines (HFSM).
 // - rlyeh, public domain.
@@ -26741,7 +28187,7 @@ int ui_bt(bt_t *b) {
 }
 #line 0
 
-#line 1 "fwk_editor.c"
+#line 1 "fwk_editor0.c"
 // editing:
 // nope > functions: add/rem property
 
@@ -26934,7 +28380,7 @@ int engine_tick() {
     return 0;
 }
 
-int ui_debug() {
+int ui_engine() {
     static int time_factor = 0;
     static int playing = 0;
     static int paused = 0;
@@ -27162,268 +28608,7 @@ int ui_debug() {
 
     return 0;
 }
-
-static int gizmo__mode;
-static int gizmo__active;
-static int gizmo__hover;
-bool gizmo_active() {
-    return gizmo__active;
-}
-bool gizmo_hover() {
-    return gizmo__hover;
-}
-int gizmo(vec3 *pos, vec3 *rot, vec3 *sca) {
-#if 0
-    ddraw_flush();
-    mat44 copy; copy44(copy, camera_get_active()->view);
-    if( 1 ) {
-        float *mv = camera_get_active()->view;
-        float d = sqrt(mv[4*0+0] * mv[4*0+0] + mv[4*1+1] * mv[4*1+1] + mv[4*2+2] * mv[4*2+2]);
-        if(4) mv[4*0+0] = d, mv[4*0+1] = 0, mv[4*0+2] = 0;
-        if(2) mv[4*1+0] = 0, mv[4*1+1] = d, mv[4*1+2] = 0;
-        if(1) mv[4*2+0] = 0, mv[4*2+1] = 0, mv[4*2+2] = d;
-    }
-#endif
-
-    ddraw_color_push(dd_color);
-    ddraw_ontop_push(1);
-
-    int enabled = !ui_active() && !ui_hover();
-    vec3 mouse = enabled ? vec3(input(MOUSE_X),input(MOUSE_Y),input_down(MOUSE_L)) : vec3(0,0,0); // x,y,l
-    vec3 from = camera_get_active()->position;
-    vec3 to = editor_pick(mouse.x, mouse.y);
-    ray r = ray(from, to);
-
-    static vec3 src3, hit3, off3; static vec2 src2;
-    #define on_gizmo_dragged(X,Y,Z,COLOR,DRAWCMD, ...) do { \
-        vec3 dir = vec3(X,Y,Z); \
-        line axis = {add3(*pos, scale3(dir,100)), add3(*pos, scale3(dir,-100))}; \
-        plane ground = { vec3(0,0,0), vec3(Y?1:0,Y?0:1,0) }; \
-        vec3 unit = vec3(X+(1.0-X)*0.3,Y+(1.0-Y)*0.3,Z+(1.0-Z)*0.3); \
-        aabb arrow = { sub3(*pos,unit), add3(*pos,unit) }; \
-        hit *hit_arrow = ray_hit_aabb(r, arrow), *hit_ground = ray_hit_plane(r, ground); \
-        ddraw_color( hit_arrow || gizmo__active == (X*4+Y*2+Z) ? gizmo__hover = 1, YELLOW : COLOR ); \
-        DRAWCMD; \
-        if( !gizmo__active && hit_arrow && mouse.z ) src2 = vec2(mouse.x,mouse.y), src3 = *pos, hit3 = hit_ground->p, off3 = mul3(sub3(src3,hit3),vec3(X,Y,Z)), gizmo__active = X*4+Y*2+Z; \
-        if( (gizmo__active && gizmo__active==(X*4+Y*2+Z)) || (!gizmo__active && hit_arrow) ) { ddraw_color( COLOR ); ( 1 ? ddraw_line : ddraw_line_dashed)(axis.a, axis.b); } \
-        if( gizmo__active == (X*4+Y*2+Z) && hit_ground ) {{ __VA_ARGS__ }; modified = 1; gizmo__active *= !!input(MOUSE_L); } \
-    } while(0)
-    #define gizmo_translate(X,Y,Z,COLOR) \
-        on_gizmo_dragged(X,Y,Z,COLOR, ddraw_arrow(*pos,add3(*pos,vec3(X,Y,Z))), { \
-            *pos = add3(line_closest_point(axis, hit_ground->p), off3); \
-        } )
-    #define gizmo_scale(X,Y,Z,COLOR) \
-        on_gizmo_dragged(X,Y,Z,COLOR, (ddraw_line(*pos,add3(*pos,vec3(X,Y,Z))),ddraw_sphere(add3(*pos,vec3(X-0.1*X,Y-0.1*Y,Z-0.1*Z)),0.1)), { /*ddraw_aabb(arrow.min,arrow.max)*/ \
-            int component = (X*1+Y*2+Z*3)-1; \
-            float mag = len2(sub2(vec2(mouse.x, mouse.y), src2)); \
-            float magx = (mouse.x - src2.x) * (mouse.x - src2.x); \
-            float magy = (mouse.y - src2.y) * (mouse.y - src2.y); \
-            float sgn = (magx > magy ? mouse.x > src2.x : mouse.y > src2.y) ? 1 : -1; \
-            sca->v3[component] -= sgn * mag * 0.01; \
-            src2 = vec2(mouse.x, mouse.y); \
-        } )
-    #define gizmo_rotate(X,Y,Z,COLOR) do { \
-            vec3 dir = vec3(X,Y,Z); \
-            line axis = {add3(*pos, scale3(dir,100)), add3(*pos, scale3(dir,-100))}; \
-            plane ground = { vec3(0,0,0), vec3(0,1,0) }; \
-                vec3 unit = vec3(X+(1.0-X)*0.3,Y+(1.0-Y)*0.3,Z+(1.0-Z)*0.3); \
-                aabb arrow = { sub3(*pos,unit), add3(*pos,unit) }; \
-                hit *hit_arrow = ray_hit_aabb(r, arrow), *hit_ground = ray_hit_plane(r, ground); \
-                int hover = (hit_arrow ? (X*4+Y*2+Z) : 0); \
-            if( gizmo__active == (X*4+Y*2+Z) ) { ddraw_color(gizmo__active ? gizmo__hover = 1, YELLOW : WHITE); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
-            else if( !gizmo__active && hover == (X*4+Y*2+Z) ) { gizmo__hover = 1; ddraw_color(COLOR); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
-            else if( !gizmo__active ) { ddraw_color(WHITE); ddraw_circle(*pos, vec3(X,Y,Z), 1); } \
-            if( !gizmo__active && hit_arrow && mouse.z ) src2 = vec2(mouse.x,mouse.y), gizmo__active = hover; \
-            if( (!gizmo__active && hover == (X*4+Y*2+Z)) || gizmo__active == (X*4+Y*2+Z) ) { gizmo__hover = 1; ddraw_color( COLOR ); ( 1 ? ddraw_line_thin : ddraw_line_dashed)(axis.a, axis.b); } \
-            if( gizmo__active && gizmo__active == (X*4+Y*2+Z) && hit_ground && enabled ) { \
-                int component = (Y*1+X*2+Z*3)-1; /*pitch,yaw,roll*/ \
-                float mag = len2(sub2(vec2(mouse.x, mouse.y), src2)); \
-                float magx = (mouse.x - src2.x) * (mouse.x - src2.x); \
-                float magy = (mouse.y - src2.y) * (mouse.y - src2.y); \
-                float sgn = (magx > magy ? mouse.x > src2.x : mouse.y > src2.y) ? 1 : -1; \
-                rot->v3[component] += sgn * mag; \
-                /*rot->v3[component] = clampf(rot->v3[component], -360, +360);*/ \
-                src2 = vec2(mouse.x, mouse.y); \
-                \
-            } \
-            gizmo__active *= enabled && !!input(MOUSE_L); \
-        } while(0)
-
-    gizmo__hover = 0;
-
-    int modified = 0;
-    if(enabled && input_down(KEY_SPACE)) gizmo__active = 0, gizmo__mode = (gizmo__mode + 1) % 3;
-    if(gizmo__mode == 0) gizmo_translate(1,0,0, RED);
-    if(gizmo__mode == 0) gizmo_translate(0,1,0, GREEN);
-    if(gizmo__mode == 0) gizmo_translate(0,0,1, BLUE);
-    if(gizmo__mode == 1) gizmo_scale(1,0,0, RED);
-    if(gizmo__mode == 1) gizmo_scale(0,1,0, GREEN);
-    if(gizmo__mode == 1) gizmo_scale(0,0,1, BLUE);
-    if(gizmo__mode == 2) gizmo_rotate(1,0,0, RED);
-    if(gizmo__mode == 2) gizmo_rotate(0,1,0, GREEN);
-    if(gizmo__mode == 2) gizmo_rotate(0,0,1, BLUE);
-
-#if 0
-    ddraw_flush();
-    copy44(camera_get_active()->view, copy);
-#endif
-
-    ddraw_ontop_pop();
-    ddraw_color_pop();
-
-    return modified;
-}
-
-// -- localization kit
-
-static const char *kit_lang = "enUS", *kit_langs =
-    "enUS,enGB,"
-    "frFR,"
-    "esES,esAR,esMX,"
-    "deDE,deCH,deAT,"
-    "itIT,itCH,"
-    "ptBR,ptPT,"
-    "zhCN,zhSG,zhTW,zhHK,zhMO,"
-    "ruRU,elGR,trTR,daDK,noNB,svSE,nlNL,plPL,fiFI,jaJP,"
-    "koKR,csCZ,huHU,roRO,thTH,bgBG,heIL"
-;
-
-static map(char*,char*) kit_ids;
-static map(char*,char*) kit_vars;
-
-#ifndef KIT_FMT_ID2
-#define KIT_FMT_ID2 "%s.%s"
-#endif
-
-void kit_init() {
-    do_once map_init(kit_ids, less_str, hash_str);
-    do_once map_init(kit_vars, less_str, hash_str);
-}
-
-void kit_insert( const char *id, const char *translation) {
-    char *id2 = va(KIT_FMT_ID2, kit_lang, id);
-
-    char **found = map_find_or_add_allocated_key(kit_ids, STRDUP(id2), NULL);
-    if(*found) FREE(*found);
-    *found = STRDUP(translation);
-}
-
-bool kit_merge( const char *filename ) {
-    // @todo: xlsx2ini
-    return false;
-}
-
-void kit_clear() {
-    map_clear(kit_ids);
-}
-
-bool kit_load( const char *filename ) {
-    return kit_clear(), kit_merge( filename );
-}
-
-void kit_set( const char *key, const char *value ) {
-    value = value && value[0] ? value : "";
-
-    char **found = map_find_or_add_allocated_key(kit_vars, STRDUP(key), NULL );
-    if(*found) FREE(*found);
-    *found = STRDUP(value);
-}
-
-void kit_reset() {
-    map_clear(kit_vars);
-}
-
-char *kit_translate2( const char *id, const char *lang ) {
-    char *id2 = va(KIT_FMT_ID2, lang, id);
-
-    char **found = map_find(kit_ids, id2);
-
-    // return original [[ID]] if no translation is found
-    if( !found ) return va("[[%s]]", id);
-
-    // return translation if no {{moustaches}} are found
-    if( !strstr(*found, "{{") ) return *found;
-
-    // else replace all found {{moustaches}} with context vars
-    {
-        // make room
-        static __thread char *results[16] = {0};
-        static __thread unsigned counter = 0; counter = (counter+1) % 16;
-
-        char *buffer = results[ counter ];
-        if( buffer ) FREE(buffer), buffer = 0;
-
-        // iterate moustaches
-        const char *begin, *end, *text = *found;
-        while( NULL != (begin = strstr(text, "{{")) ) {
-            end = strstr(begin+2, "}}");
-            if( end ) {
-                char *var = va("%.*s", (int)(end - (begin+2)), begin+2);
-                char **found_var = map_find(kit_vars, var);
-
-                if( found_var && 0[*found_var] ) {
-                    strcatf(&buffer, "%.*s%s", (int)(begin - text), text, *found_var);
-                } else {
-                    strcatf(&buffer, "%.*s{{%s}}", (int)(begin - text), text, var);
-                }
-
-                text = end+2;
-            } else {
-                strcatf(&buffer, "%.*s", (int)(begin - text), text);
-
-                text = begin+2;
-            }
-        }
-
-        strcatf(&buffer, "%s", text);
-        return buffer;
-    }
-}
-
-char *kit_translate( const char *id ) {
-    return kit_translate2( id, kit_lang );
-}
-
-void kit_locale( const char *lang ) {
-    kit_lang = STRDUP(lang); // @leak
-}
-
-void kit_dump_state( FILE *fp ) {
-    for each_map(kit_ids, char *, k, char *, v) {
-        fprintf(fp, "[ID ] %s=%s\n", k, v);
-    }
-    for each_map(kit_vars, char *, k, char *, v) {
-        fprintf(fp, "[VAR] %s=%s\n", k, v);
-    }
-}
-
-/*
-int main() {
-    kit_init();
-
-    kit_locale("enUS");
-    kit_insert("HELLO_PLAYERS", "Hi {{PLAYER1}} and {{PLAYER2}}!");
-    kit_insert("GREET_PLAYERS", "Nice to meet you.");
-
-    kit_locale("esES");
-    kit_insert("HELLO_PLAYERS", "Hola {{PLAYER1}} y {{PLAYER2}}!");
-    kit_insert("GREET_PLAYERS", "Un placer conoceros.");
-
-    kit_locale("enUS");
-    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hi {{PLAYER1}} and {{PLAYER2}}! Nice to meet you.
-
-    kit_locale("esES");
-    kit_set("PLAYER1", "John");
-    kit_set("PLAYER2", "Karl");
-    printf("%s %s\n", kit_translate("HELLO_PLAYERS"), kit_translate("GREET_PLAYERS")); // Hola John y Karl! Un placer conoceros.
-
-    assert( 0 == strcmp(kit_translate("NON_EXISTING"), "[[NON_EXISTING]]")); // [[NON_EXISTING]]
-    assert(~puts("Ok"));
-}
-*/
 #line 0
-
-// editor is last in place, so it can use all internals from above headers
 
 #line 1 "fwk_main.c"
 // ----------------------------------------------------------------------------
@@ -27492,7 +28677,7 @@ void fwk_init() {
         ifdef(debug, trap_install());
 
         // init panic handler
-        panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 1<<20); // 1MiB
+        panic_oom_reserve = SYS_MEM_REALLOC(panic_oom_reserve, 1<<20); // 1MiB
 
         // init glfw
         glfw_init();
@@ -27515,6 +28700,2223 @@ void fwk_init() {
 
         atexit(fwk_quit);
     }
+}
+#line 0
+
+// editor is last in place, so it can use all internals from above headers
+#line 1 "fwk_editor.c"
+// ## Editor long-term plan
+// - editor = tree of nodes. levels and objects are nodes, and their widgets are also nodes
+// - you can perform actions on nodes, with or without descendants, top-bottom or bottom-top
+// - these operations include load/save, undo/redo, reset, play/render, ddraw, etc
+// - nodes are saved to disk as a filesystem layout: parents are folders, and leafs are files
+// - network replication can be done by external tools by comparing the filesystems and by sending the resulting diff zipped
+//
+// ## Editor roadmap
+// - Gizmos✱, scene tree, property editor✱, load/save✱, undo/redo✱, copy/paste, on/off (vis,tick,ddraw,log), vcs.
+// - Scenenode pass: node singleton display, node console, node labels, node outlines✱.<!-- node == gameobj ? -->
+// - Render pass: billboards✱, materials, un/lit, cast shadows, wireframe, skybox✱/mie✱, fog/atmosphere
+// - Level pass: volumes, triggers, platforms, level streaming, collide✱, physics
+// - Edit pass: Procedural content, brushes, noise and CSG.
+// - GUI pass: timeline and data tracks, node graphs. <!-- worthy: will be reused into materials, animgraphs and blueprints -->
+
+// ## Alt plan
+// editor is a database + window/tile manager + ui toolkit; all network driven.
+// to be precise, editor is a dumb app and ...
+// - does not know a thing about what it stores.
+// - does not know how to render the game graphics.
+// - does not know how to run the game logic.
+//
+// the editor will create a canvas for your game to render.
+// your game will be responsible to tick the logic and render the window inside the editor.
+//
+// that being said, editor...
+// - can store datas hierarchically.
+// - can perform diffs and merges, and version the datas into repositories.
+// - can be instructed to render UI on top of game and window views.
+// - can download new .natvis and plugins quickly.
+// - can dump whole project in a filesystem form (zip).
+
+// - editor reflects database contents up-to-date.
+// - database can be queried and modified via OSC(UDP) commands.
+
+// editor database uses one table, and stores two kind of payload types:
+// - classes: defines typename and dna. class names are prefixed by '@'
+// - instances: defines typename and datas. instance names are as-is, not prefixed.
+//
+// every save contains 5Ws: what, who, when, where, how,
+// every save can be diffed/merged.
+
+// ----------------------------------------------------------------------------
+
+array(editor_bind_t) editor_binds;
+
+void editor_addbind(editor_bind_t bind) {
+    array_push(editor_binds, bind);
+}
+
+// ----------------------------------------------------------------------------
+
+typedef void (*editor_no_property)(void *);
+array(void*) editor_persist_kv;
+array(editor_no_property) editor_no_properties;
+
+#define EDITOR_PROPERTY(T,property_name,defaults) \
+editor_##property_name##_map_t *editor_##property_name##_map() { \
+    static editor_##property_name##_map_t map = 0; do_once map_init_ptr(map); \
+    return &map; \
+} \
+T editor_##property_name(const void *obj) { \
+    return *map_find_or_add(*editor_##property_name##_map(), (void*)obj, ((T) defaults)); \
+} \
+void editor_set##property_name(const void *obj, T value) { \
+    *map_find_or_add(*editor_##property_name##_map(), (void*)obj, ((T) value)) = ((T) value); \
+} \
+void editor_alt##property_name(const void *obj) { \
+    T* found = map_find_or_add(*editor_##property_name##_map(), (void*)obj, ((T) defaults)); \
+    *found = (T)(uintptr_t)!(*found); \
+} \
+void editor_no##property_name(void *obj) { \
+    T* found = map_find_or_add(*editor_##property_name##_map(), (void*)obj, ((T) defaults)); \
+    map_erase(*editor_##property_name##_map(), (void*)obj); \
+} \
+AUTORUN { array_push(editor_persist_kv, #T); array_push(editor_persist_kv, editor_##property_name##_map()); array_push(editor_no_properties, editor_no##property_name); }
+
+EDITOR_PROPERTY(int,    open,         0); // whether object is tree opened in tree editor
+EDITOR_PROPERTY(int,    selected,     0); // whether object is displaying a contextual popup or not
+EDITOR_PROPERTY(int,    changed,      0); // whether object is displaying a contextual popup or not
+EDITOR_PROPERTY(int,    popup,        0); // whether object is displaying a contextual popup or not
+EDITOR_PROPERTY(int,    bookmarked,   0);
+EDITOR_PROPERTY(int,    visible,      0);
+EDITOR_PROPERTY(int,    script,       0);
+EDITOR_PROPERTY(int,    event,        0);
+EDITOR_PROPERTY(char*,  iconinstance, 0);
+EDITOR_PROPERTY(char*,  iconclass,    0);
+EDITOR_PROPERTY(int,    treeoffsety,  0);
+// new prop: breakpoint: request to break on any given node
+// new prop: persist: objects with this property will be saved on disk
+
+void editor_destroy_properties(void *o) {
+    for each_array(editor_no_properties,editor_no_property,fn) {
+        fn(o);
+    }
+}
+
+void editor_load_on_boot(void) {
+}
+void editor_save_on_quit(void) {
+}
+AUTORUN {
+    editor_load_on_boot();
+    (atexit)(editor_save_on_quit);
+}
+
+// ----------------------------------------------------------------------------
+
+typedef int(*subeditor)(int mode);
+
+struct editor_t {
+    // time
+    unsigned   frame;
+    double     t, dt, slomo;
+    // controls
+    int        transparent;
+    int        attached;
+    int        active; // focus? does_grabinput instead?
+    int        key;
+    vec2       mouse; // 2d coord for ray/picking
+    bool       gamepad; // mask instead? |1|2|4|8
+    int        hz_high, hz_medium, hz_low;
+    int        filter;
+    bool       battery; // battery mode: low fps
+    bool       unlit;
+    bool       ddraw;
+    // event root nodes
+    obj* root;
+    obj*  on_init;
+    obj*   on_tick;
+    obj*   on_draw;
+    obj*   on_edit;
+    obj*  on_quit;
+    // all of them (hierarchical)
+    array(obj*) objs; // @todo:set() world?
+    // all of them (flat)
+    set(obj*) world;
+    //
+    array(char*) cmds;
+    // subeditors
+    array(subeditor) subeditors;
+} editor = {
+    .active = 1,
+    .gamepad = 1,
+    .hz_high = 60, .hz_medium = 18, .hz_low = 5,
+};
+
+int editor_begin(const char *title, int mode) {
+    if( mode == 0 ) return ui_panel(title, PANEL_OPEN);
+    if( mode == 1 ) return ui_window(title, 0);
+
+    int ww = window_width(),  w = ww * 0.66;
+    int hh = window_height(), h = hh * 0.66;
+
+    struct nk_rect position = { (ww-w)/2,(hh-h)/2, w,h };
+    nk_flags win_flags = NK_WINDOW_TITLE | NK_WINDOW_BORDER |
+        NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE |
+        NK_WINDOW_CLOSABLE | NK_WINDOW_MINIMIZABLE |
+        // NK_WINDOW_SCALE_LEFT|NK_WINDOW_SCALE_TOP| //< @fixme: move this logic into nuklear
+        // NK_WINDOW_MAXIMIZABLE | NK_WINDOW_PINNABLE |
+        0; // NK_WINDOW_SCROLL_AUTO_HIDE;
+
+    if( mode == 3 ) {
+        mode = 2, position.x = input(MOUSE_X), position.w = w/3, win_flags =
+            NK_WINDOW_TITLE|NK_WINDOW_CLOSABLE|
+            NK_WINDOW_SCALABLE|NK_WINDOW_MOVABLE| //< nuklear requires these two to `remember` popup rects
+            0;
+    }
+
+    if( mode == 2 || mode == 3 )
+    if (nk_begin(ui_ctx, title, position, win_flags))
+        return 1;
+    else
+        return nk_end(ui_ctx), 0;
+
+    return 0;
+}
+int editor_end(int mode) {
+    if( mode == 0 ) return ui_panel_end();
+    if( mode == 1 ) return ui_window_end();
+    if( mode == 2 ) nk_end(ui_ctx);
+    if( mode == 3 ) nk_end(ui_ctx);
+    return 0;
+}
+
+#if 0 // deprecate
+bool editor_active() {
+    return ui_hover() || ui_active() || gizmo_active() ? editor.active : 0;
+}
+#endif
+
+int editor_filter() {
+    if( editor.filter ) {
+        if (nk_begin(ui_ctx, "Filter", nk_rect(window_width()-window_width()*0.33,32, window_width()*0.33, 40),
+            NK_WINDOW_NO_SCROLLBAR)) {
+
+            char *bak = ui_filter; ui_filter = 0;
+            ui_string(ICON_MD_CLOSE " Filter " ICON_MD_SEARCH, &bak);
+            ui_filter = bak;
+
+            if( input(KEY_ESC) || ( ui_label_icon_clicked_L.x > 0 && ui_label_icon_clicked_L.x <= 24 )) {
+                if( ui_filter ) ui_filter[0] = '\0';
+                editor.filter = 0;
+            }
+        }
+        nk_end(ui_ctx);
+    }
+
+    return editor.filter;
+}
+
+static
+int editor_select_(void *o, const char *mask) {
+    int matches = 0;
+    int off = mask[0] == '!', inv = mask[0] == '~';
+    int match = strmatchi(obj_type(o), mask+off+inv) || strmatchi(obj_name(o), mask+off+inv);
+    if( match ) {
+        editor_setselected(o, inv ? editor_selected(o) ^ 1 : !off);
+        ++matches;
+    }
+    for each_objchild(o, obj*, oo) {
+        matches += editor_select_(oo, mask);
+    }
+    return matches;
+}
+void editor_select(const char *mask) {
+    for each_array( editor.objs, obj*, o )
+        editor_select_(o, mask);
+}
+void editor_unselect() { // same than editor_select("!**");
+    for each_map_ptr(*editor_selected_map(), void*,o, int, k) {
+        if( *k ) *k = 0;
+    }
+}
+
+void editor_select_aabb(aabb box) {
+    int is_inv = input_held(KEY_CTRL);
+    int is_add = input_held(KEY_SHIFT);
+    if( !is_inv && !is_add ) editor_unselect();
+
+    aabb item = {0};
+    for each_set_ptr( editor.world, obj*, o ) {
+        if( obj_hasmethod(*o,aabb) && obj_aabb(*o, &item) ) {
+            if( aabb_test_aabb(item, box) ) {
+                if( is_inv )
+                editor_altselected(*o);
+                else
+                editor_setselected(*o, 1);
+            }
+        }
+    }
+}
+
+static obj* active_ = 0;
+static void editor_selectgroup_(obj *o, obj *first, obj *last) {
+    // printf("%s (looking for %s in [%s..%s])\n", obj_name(o), active_ ? obj_name(active_) : "", obj_name(first), obj_name(last));
+    if( !active_ ) if( o == first || o == last ) active_ = o == first ? last : first;
+    if( active_ ) editor_setselected(o, 1);
+    if( o == active_ ) active_ = 0;
+    for each_objchild(o, obj*, oo) {
+        editor_selectgroup_(oo, first, last);
+    }
+}
+void editor_selectgroup(obj *first, obj *last) {
+    if( last ) {
+        if( !first ) first = array_count(editor.objs) ? editor.objs[0] : NULL;
+        if( !first ) editor_setselected(last, 1);
+        else {
+            active_ = 0;
+            for each_array(editor.objs,obj*,o) {
+                editor_selectgroup_(o, first, last);
+            }
+        }
+    }
+}
+
+static obj *find_any_selected_(obj *o) {
+    if( editor_selected(o) ) return o;
+    for each_objchild(o,obj*,oo) {
+        obj *ooo = find_any_selected_(oo);
+        if( ooo )
+            return ooo;
+    }
+    return 0;
+}
+void* editor_first_selected() {
+    for each_array(editor.objs,obj*,o) {
+        obj *oo = find_any_selected_(o);
+        // if( oo ) printf("1st found: %s\n", obj_name(oo));
+        if( oo ) return oo;
+    }
+    return 0;
+}
+
+static obj *find_last_selected_(obj *o) {
+    void *last = 0;
+    if( editor_selected(o) ) last = o;
+    for each_objchild(o,obj*,oo) {
+        obj *ooo = find_last_selected_(oo);
+        if( ooo )
+            last = ooo;
+    }
+    return last;
+}
+void* editor_last_selected() {
+    void *last = 0;
+    for each_array(editor.objs,obj*,o) {
+        obj *oo = find_last_selected_(o);
+        // if( oo ) printf("last found: %s\n", obj_name(oo));
+        if( oo ) last = oo;
+    }
+    return last;
+}
+
+// ----------------------------------------------------------------------------------------
+
+void editor_addtoworld(obj *o) {
+    set_find_or_add(editor.world, o);
+    for each_objchild(o, obj*, oo) {
+        editor_addtoworld(oo);
+    }
+}
+
+void editor_watch(const void *o) {
+    array_push(editor.objs, (obj*)o);
+    obj_push(o); // save state
+
+    editor_addtoworld((obj*)o);
+}
+void* editor_spawn(const char *ini) { // deprecate?
+    obj *o = obj_make(ini);
+    editor_watch(o);
+    return o;
+}
+void editor_spawn1() {
+    obj *selected = editor_first_selected();
+    obj *o = selected ? obj_make(obj_saveini(selected)) : obj_new(obj);
+    if( selected ) obj_attach(selected, o), editor_setopen(selected, 1);
+    else
+    editor_watch(o);
+
+    editor_unselect();
+    editor_setselected(o, 1);
+}
+
+typedef set(obj*) set_objp_t;
+static
+void editor_glob_recurse(set_objp_t*list, obj *o) {
+    set_find_or_add(*list, o);
+    for each_objchild(o,obj*,oo) {
+        editor_glob_recurse(list, oo);
+    }
+}
+void editor_destroy_selected() {
+    set_objp_t list = 0;
+    set_init_ptr(list);
+    for each_map_ptr(*editor_selected_map(), obj*,o, int,selected) {
+        if( *selected ) { editor_glob_recurse(&list, *o); }
+    }
+    for each_set(list, obj*, o) {
+        obj_detach(o);
+    }
+    for each_set(list, obj*, o) {
+        // printf("deleting %p %s\n", o, obj_name(o));
+        // remove from watched items
+        for (int i = 0, end = array_count(editor.objs); i < end; ++i) {
+            if (editor.objs[i] == o) {
+                editor.objs[i] = 0;
+                array_erase_slow(editor.objs, i);
+                --end;
+                --i;
+            }
+        }
+        // delete from world
+        set_erase(editor.world, o);
+        // delete properties + obj
+        editor_destroy_properties(o);
+        obj_free(o);
+    }
+    set_free(list);
+}
+void editor_inspect(obj *o) {
+    ui_section(va("%s (%s)", obj_type(o), obj_name(o)));
+
+    if( obj_hasmethod(o, menu) ) {
+        obj_menu(o);
+    }
+
+    for each_objmember(o,TYPE,NAME,PTR) {
+        if( !editor_changed(PTR) ) {
+            obj_push(o);
+        }
+        ui_label_icon_highlight = editor_changed(PTR); // @hack: remove ui_label_icon_highlight hack
+        char *label = va(ICON_MD_UNDO "%s", NAME);
+        int changed = 0;
+        /**/ if( !strcmp(TYPE,"float") )   changed = ui_float(label, PTR);
+        else if( !strcmp(TYPE,"int") )     changed = ui_int(label, PTR);
+        else if( !strcmp(TYPE,"vec2") )    changed = ui_float2(label, PTR);
+        else if( !strcmp(TYPE,"vec3") )    changed = ui_float3(label, PTR);
+        else if( !strcmp(TYPE,"vec4") )    changed = ui_float4(label, PTR);
+        else if( !strcmp(TYPE,"rgb") )     changed = ui_color3(label, PTR);
+        else if( !strcmp(TYPE,"rgba") )    changed = ui_color4(label, PTR);
+        else if( !strcmp(TYPE,"color") )   changed = ui_color4f(label, PTR);
+        else if( !strcmp(TYPE,"color3f") ) changed = ui_color3f(label, PTR);
+        else if( !strcmp(TYPE,"color4f") ) changed = ui_color4f(label, PTR);
+        else if( !strcmp(TYPE,"char*") )   changed = ui_string(label, PTR);
+        else ui_label2(label, va("(%s)", TYPE)); // INFO instead of (TYPE)?
+        if( changed ) {
+            editor_setchanged(PTR, 1);
+        }
+        if( ui_label_icon_highlight )
+        if( ui_label_icon_clicked_L.x >= 6 && ui_label_icon_clicked_L.x <= 26 ) { // @hack: if clicked on UNDO icon (1st icon)
+            editor_setchanged(PTR, 0);
+        }
+        if( !editor_changed(PTR) ) {
+            obj_pop(o);
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------------------
+// tty
+
+static thread_mutex_t *console_lock;
+static array(char*) editor_jobs;
+int editor_send(const char *cmd) { // return job-id
+    int skip = strspn(cmd, " \t\r\n");
+    char *buf = STRDUP(cmd + skip);
+    strswap(buf, "\r\n", "");
+    int jobid;
+    do_threadlock(console_lock) {
+        array_push(editor_jobs, buf);
+        jobid = array_count(editor_jobs) - 1;
+    }
+    return jobid;
+}
+const char* editor_recv(int jobid, double timeout_ss) {
+    char *answer = 0;
+
+    while(!answer && timeout_ss >= 0 ) {
+        do_threadlock(console_lock) {
+            if( editor_jobs[jobid][0] == '\0' )
+                answer = editor_jobs[jobid];
+        }
+        timeout_ss -= 0.1;
+        if( timeout_ss > 0 ) sleep_ms(100); // thread_yield()
+    }
+
+    return answer + 1;
+}
+
+// plain and ctrl keys
+EDITOR_BIND(play, "down(F5)",                               { window_pause(0); /* if(!editor.slomo) editor.active = 0; */ editor.slomo = 1; } );
+EDITOR_BIND(stop, "down(ESC)",                              { if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; editor_select("**"); editor_destroy_selected(); }} );
+EDITOR_BIND(eject, "down(F1)",                              { /*window_pause(!editor.active); editor.slomo = !!editor.active;*/ editor.active ^= 1; } );
+EDITOR_BIND(pause, "(held(CTRL) & down(P)) | down(PAUSE)",  { window_pause( window_has_pause() ^ 1 ); } );
+EDITOR_BIND(frame, "held(CTRL) & down(LEFT)",               { window_pause(1); editor.frame++, editor.t += (editor.dt = 1/60.f); } );
+EDITOR_BIND(slomo, "held(CTRL) & down(RIGHT)",              { window_pause(0); editor.slomo = maxf(fmod(editor.slomo * 2, 16), 0.125); } );
+EDITOR_BIND(reload, "held(CTRL) & down(F5)",                { window_reload(); } );
+EDITOR_BIND(filter, "held(CTRL) & down(F)",                 { editor.filter ^= 1; } );
+
+// alt keys
+EDITOR_BIND(quit, "held(ALT) & down(F4)",                   { record_stop(), exit(0); } );
+EDITOR_BIND(mute, "held(ALT) & down(M)",                    { audio_volume_master( 1 ^ !!audio_volume_master(-1) ); } );
+EDITOR_BIND(gamepad, "held(ALT) & down(G)",                 { editor.gamepad ^= 1; } );
+EDITOR_BIND(transparent, "held(ALT) & down(T)",             { editor.transparent ^= 1; } );
+EDITOR_BIND(record, "held(ALT) & down(Z)",                  { if(record_active()) record_stop(), ui_notify(va("Video recorded"), date_string()); else { char *name = file_counter(va("%s.mp4",app_name())); app_beep(), window_record(name); } } );
+EDITOR_BIND(screenshot, "held(ALT) & down(S)",              { char *name = file_counter(va("%s.png",app_name())); window_screenshot(name), ui_notify(va("Screenshot: %s", name), date_string()); } );
+EDITOR_BIND(battery, "held(ALT) & down(B)",                 { editor.battery ^= 1; } );
+EDITOR_BIND(outliner, "held(ALT) & down(O)",                { ui_show("Outliner", ui_visible("Outliner") ^ true); } );
+EDITOR_BIND(profiler, "held(ALT) & down(P)",                { ui_show("Profiler", profiler_enable(ui_visible("Profiler") ^ true)); } );
+EDITOR_BIND(fullscreen, "(held(ALT)&down(ENTER))|down(F11)",{ record_stop(), window_fullscreen( window_has_fullscreen() ^ 1 ); } ); // close any recording before framebuffer resizing, which would corrupt video stream
+EDITOR_BIND(unlit, "held(ALT) & down(U)",                   { editor.unlit ^= 1; } );
+EDITOR_BIND(ddraw, "held(ALT) & down(D)",                   { editor.ddraw ^= 1; } );
+
+void editor_pump() {
+    for each_array(editor_binds,editor_bind_t,b) {
+        if( input_eval(b.bindings) ) {
+            editor_send(b.command);
+        }
+    }
+
+    do_threadlock(console_lock) {
+        for each_array_ptr(editor_jobs,char*,cmd) {
+            if( (*cmd)[0] ) {
+                int found = 0;
+                for each_array(editor_binds,editor_bind_t,b) {
+                    if( !strcmpi(b.command, *cmd)) {
+                        b.fn();
+                        found = 1;
+                        break;
+                    }
+                }
+
+                if( !found ) {
+                    // alert(va("Editor: could not handle `%s` command.", *cmd));
+                    (*cmd)[0] = '\0'; strcatf(&(*cmd), "\1%s\n", "Err\n"); (*cmd)[0] = '\0';
+                }
+
+                if( (*cmd)[0] ) {
+                    (*cmd)[0] = '\0'; strcatf(&(*cmd), "\1%s\n", "Ok\n"); (*cmd)[0] = '\0';
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------------------
+
+void editor_setmouse(int x, int y) {
+    glfwSetCursorPos( window_handle(), x, y );
+}
+
+vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint) {
+    do_once {
+    // style: atlas size, unicode ranges and 6 font faces max
+    font_face(FONT_FACE2, "MaterialIconsSharp-Regular.otf", 24.f, FONT_EM|FONT_2048);
+    font_face(FONT_FACE3, "materialdesignicons-webfont.ttf", 24.f, FONT_EM|FONT_2048); //  {0xF68C /*ICON_MDI_MIN*/, 0xF1CC7/*ICON_MDI_MAX*/, 0}},
+    // style: 10 colors max
+    font_color(FONT_COLOR1,  WHITE);
+    font_color(FONT_COLOR2, RGBX(0xE8F1FF,128)); //  GRAY);
+    font_color(FONT_COLOR3, YELLOW);
+    font_color(FONT_COLOR4, ORANGE);
+    font_color(FONT_COLOR5,   CYAN);
+    }
+
+    font_goto(x,y);
+    vec2 pos = {x,y};
+    const char *sym = codepoint_to_utf8(codepoint);
+    return add2(pos, font_print(va("%s%s%s", style ? style : "", codepoint >= ICON_MDI_MIN ? FONT_FACE3 : FONT_FACE2, sym)));
+}
+
+vec2 editor_glyphs(int x, int y, const char *style, const char *utf8) {
+    vec2 pos = {x,y};
+    array(unsigned) codepoints = string32(utf8);
+    for( int i = 0, end = array_count(codepoints); i < end; ++i)
+        pos = add2(pos, editor_glyph(pos.x,pos.y,style,codepoints[i]));
+    return pos;
+}
+
+void editor_frame( void (*game)(unsigned, float, double) ) {
+    do_once {
+        set_init_ptr(editor.world);
+        //set_init_ptr(editor.selection);
+        profiler_enable( false );
+
+        window_pause( true );
+        window_cursor_shape(CURSOR_SW_AUTO);
+        editor.hz_high = window_fps_target();
+
+        fx_load("**/editorOutline.fs");
+        fx_enable(0, 1);
+
+        obj_setname(editor.root = obj_new(obj), "Signals");
+        obj_setname(editor.on_init = obj_new(obj), "onInit");
+        obj_setname(editor.on_tick = obj_new(obj),  "onTick");
+        obj_setname(editor.on_draw = obj_new(obj),  "onDraw");
+        obj_setname(editor.on_edit = obj_new(obj),  "onEdit");
+        obj_setname(editor.on_quit = obj_new(obj), "onQuit");
+
+        obj_attach(editor.root, editor.on_init);
+        obj_attach(editor.root, editor.on_tick);
+        obj_attach(editor.root, editor.on_draw);
+        obj_attach(editor.root, editor.on_edit);
+        obj_attach(editor.root, editor.on_quit);
+
+        editor_seticoninstance(editor.root, ICON_MDI_SIGNAL_VARIANT);
+        editor_seticoninstance(editor.on_init, ICON_MDI_SIGNAL_VARIANT);
+        editor_seticoninstance(editor.on_tick, ICON_MDI_SIGNAL_VARIANT);
+        editor_seticoninstance(editor.on_draw, ICON_MDI_SIGNAL_VARIANT);
+        editor_seticoninstance(editor.on_edit, ICON_MDI_SIGNAL_VARIANT);
+        editor_seticoninstance(editor.on_quit, ICON_MDI_SIGNAL_VARIANT);
+
+        editor_seticonclass(obj_type(editor.root), ICON_MDI_CUBE_OUTLINE);
+    }
+
+    // game tick
+    game(editor.frame, editor.dt, editor.t);
+
+    // timing
+    editor.dt = clampf(window_delta(), 0, 1/60.f) * !window_has_pause() * editor.slomo;
+    editor.t += editor.dt;
+    editor.frame += !window_has_pause();
+    editor.frame += !editor.frame;
+
+    // process inputs & messages
+    editor_pump();
+
+    // adaptive framerate
+    int app_on_background = !window_has_focus();
+    int hz = app_on_background ? editor.hz_low : editor.battery ? editor.hz_medium : editor.hz_high;
+    window_fps_lock( hz < 5 ? 5 : hz );
+
+    // draw menubar
+    static int stats_mode = 1;
+    static double last_fps = 0; if(!window_has_pause()) last_fps = window_fps();
+    const char *STATS = va("x%4.3f %03d.%03dss %02dF %s",
+        editor.slomo, (int)editor.t, (int)(1000 * (editor.t - (int)editor.t)),
+        (editor.frame-1) % ((int)window_fps_target() + !(int)window_fps_target()),
+        stats_mode == 1 ? va("%5.2f/%dfps", last_fps, (int)window_fps_target()) : stats_mode == 0 ? "0/0 KiB" : xstats());
+    const char *ICON_PL4Y = window_has_pause() ? ICON_MDI_PLAY : ICON_MDI_PAUSE;
+    const char *ICON_SKIP = window_has_pause() ? ICON_MDI_STEP_FORWARD/*ICON_MDI_SKIP_NEXT*/ : ICON_MDI_FAST_FORWARD;
+
+    int is_borderless = !glfwGetWindowAttrib(window, GLFW_DECORATED);
+    int ingame = !editor.active;
+    static double clicked_titlebar = 0;
+    UI_MENU(14+2*is_borderless, \
+        if(ingame) ui_disable(); \
+        UI_MENU_POPUP(ICON_MD_SETTINGS, vec2(0.33,1.00), ui_engine()) \
+        if(ingame) ui_enable(); \
+        UI_MENU_ITEM(ICON_PL4Y, if(editor.t == 0) editor_send("eject"); editor_send(window_has_pause() ? "play" : "pause")) \
+        UI_MENU_ITEM(ICON_SKIP, editor_send(window_has_pause() ? "frame" : "slomo")) \
+        UI_MENU_ITEM(ICON_MDI_STOP, editor_send("stop")) \
+        UI_MENU_ITEM(ICON_MDI_EJECT, editor_send("eject")) \
+        UI_MENU_ITEM(STATS, stats_mode = (++stats_mode) % 3) \
+        UI_MENU_ALIGN_RIGHT(32+32+32+32+32+32+32 + 32*2*is_borderless + 10, clicked_titlebar = time_ms()) \
+        if(ingame) ui_disable(); \
+        UI_MENU_ITEM(ICON_MD_FOLDER_SPECIAL, editor_send("browser")) \
+        UI_MENU_ITEM(ICON_MDI_FILE_TREE, editor_send("scene")) \
+        UI_MENU_ITEM(ICON_MDI_SCRIPT_TEXT, editor_send("script")) \
+        UI_MENU_ITEM(ICON_MDI_CHART_TIMELINE, editor_send("timeline")) \
+        UI_MENU_ITEM(ICON_MDI_CONSOLE, editor_send("console")) \
+        UI_MENU_ITEM(ICON_MDI_GRAPH, editor_send("nodes")) \
+        UI_MENU_ITEM(ICON_MDI_MAGNIFY, editor_send("filter")) /*MD_SEARCH*/ \
+        if(ingame) ui_enable(); \
+        UI_MENU_ITEM(window_has_maximize() ? ICON_MDI_WINDOW_MINIMIZE : ICON_MDI_WINDOW_MAXIMIZE, window_maximize(1 ^ window_has_maximize())) \
+        UI_MENU_ITEM(ICON_MDI_CLOSE, editor_send("quit")) \
+    );
+
+    if( is_borderless ) {
+        static vec3 drag = {0};
+        if( clicked_titlebar ) {
+            static double clicks = 0;
+            if( input_up(MOUSE_L) ) ++clicks;
+            if( input_up(MOUSE_L) && clicks == 2 ) window_visible(false), window_maximize( window_has_maximize() ^ 1 ), window_visible(true);
+            if( (time_ms() - clicked_titlebar) > 400 ) clicks = 0, clicked_titlebar = 0;
+
+            if( input_down(MOUSE_L) ) drag = vec3(input(MOUSE_X), input(MOUSE_Y), 1);
+        }
+        if( drag.z *= !input_up(MOUSE_L) ) {
+            int wx = 0, wy = 0;
+            glfwGetWindowPos(window_handle(), &wx, &wy);
+            glfwSetWindowPos(window_handle(), wx + input(MOUSE_X) - drag.x, wy + input(MOUSE_Y) - drag.y);
+        }
+    }
+
+    if( !editor.active ) return;
+
+    // draw edit view (gizmos, position markers, etc).
+    for each_set_ptr(editor.world,obj*,o) {
+        if( obj_hasmethod(*o,edit) ) {
+            obj_edit(*o);
+        }
+    }
+
+    // draw silhouettes
+    sprite_flush();
+    fx_begin();
+    for each_map_ptr(*editor_selected_map(),void*,o,int,selected) {
+        if( !*selected ) continue;
+        if( obj_hasmethod(*o,draw) ) {
+            obj_draw(*o);
+        }
+        if( obj_hasmethod(*o,edit) ) {
+            obj_edit(*o);
+        }
+    }
+    sprite_flush();
+    fx_end();
+
+    // draw box selection
+    if( !ui_active() && window_has_cursor() && cursorshape ) { //< check that we're not moving a window + not in fps cam
+        static vec2 from = {0}, to = {0};
+        if( input_down(MOUSE_L) ) to = vec2(input(MOUSE_X), input(MOUSE_Y)), from = to;
+        if( input(MOUSE_L)      ) to = vec2(input(MOUSE_X), input(MOUSE_Y));
+        if( len2sq(sub2(from,to)) > 0 ) {
+            vec2 a = min2(from, to), b = max2(from, to);
+            ddraw_push_2d();
+            ddraw_color_push(YELLOW);
+            ddraw_line( vec3(a.x,a.y,0),vec3(b.x-1,a.y,0) );
+            ddraw_line( vec3(b.x,a.y,0),vec3(b.x,b.y-1,0) );
+            ddraw_line( vec3(b.x,b.y,0),vec3(a.x-1,b.y,0) );
+            ddraw_line( vec3(a.x,b.y,0),vec3(a.x,a.y-1,0) );
+            ddraw_color_pop();
+            ddraw_pop_2d();
+        }
+        if( input_up(MOUSE_L) ) {
+            vec2 a = min2(from, to), b = max2(from, to);
+            from = to = vec2(0,0);
+
+            editor_select_aabb(aabb(vec3(a.x,a.y,0),vec3(b.x,b.y,0)));
+        }
+    }
+
+    // draw mouse aabb
+    aabb mouse = { vec3(input(MOUSE_X),input(MOUSE_Y),0), vec3(input(MOUSE_X),input(MOUSE_Y),1)};
+    if( 1 ) {
+        ddraw_color_push(YELLOW);
+        ddraw_push_2d();
+        ddraw_aabb(mouse.min, mouse.max);
+        ddraw_pop_2d();
+        ddraw_color_pop();
+    }
+
+    // tick mouse aabb selection and contextual tab (RMB)
+    aabb box = {0};
+    for each_set(editor.world,obj*,o) {
+        if( !obj_hasmethod(o, aabb) ) continue;
+        if( !obj_aabb(o, &box) ) continue;
+
+        // trigger contextual inspector
+        if( input_down(MOUSE_R) ) {
+            int is_selected = editor_selected(o);
+            editor_setpopup(o, is_selected);
+        }
+
+        // draw contextual inspector
+        if( editor_popup(o) ) {
+            if( editor_begin(va("%s (%s)", obj_name(o), obj_type(o)),EDITOR_WINDOW_NK_SMALL) ) {
+                ui_label2(obj_name(o), obj_type(o));
+                editor_inspect(o);
+                editor_end(EDITOR_WINDOW_NK_SMALL);
+            } else {
+                editor_setpopup(o, 0);
+            }
+        }
+    }
+
+
+    // draw subeditors
+    static int preferred_window_mode = EDITOR_WINDOW;
+    static struct nk_color bak, *on = 0; do_once bak = ui_ctx->style.window.fixed_background.data.color; // ui_ctx->style.window.fixed_background.data.color = !!(on = (on ? NULL : &bak)) ? AS_NKCOLOR(0) : bak;  };
+    if( editor.transparent ) ui_ctx->style.window.fixed_background.data.color = AS_NKCOLOR(0);
+    for each_array(editor.subeditors, subeditor, fn) {
+        fn(preferred_window_mode);
+    }
+    ui_ctx->style.window.fixed_background.data.color = bak;
+
+    // draw ui filter (note: render at end-of-frame, so it's hopefully on-top)
+    editor_filter();
+}
+
+
+void editor_gizmos(int dim) {
+    // debugdraw
+    if(dim == 2) ddraw_push_2d();
+    ddraw_ontop_push(0);
+
+    // draw gizmos, aabbs, markers, etc
+    for each_map_ptr(*editor_selected_map(),void*,o,int,selected) {
+        if( !*selected ) continue;
+
+        void *obj = *o;
+
+        // get transform
+        vec3 *p = NULL;
+        vec3 *r = NULL;
+        vec3 *s = NULL;
+        aabb *a = NULL;
+
+        for each_objmember(obj,TYPE,NAME,PTR) {
+            /**/ if( !strcmp(NAME, "position") ) p = PTR;
+            else if( !strcmp(NAME, "pos") ) p = PTR;
+            else if( !strcmp(NAME, "rotation") ) r = PTR;
+            else if( !strcmp(NAME, "rot") ) r = PTR;
+            else if( !strcmp(NAME, "scale") ) s = PTR;
+            else if( !strcmp(NAME, "sca") ) s = PTR;
+            else if( !strcmp(NAME, "aabb") ) a = PTR;
+        }
+
+        ddraw_ontop(0);
+
+        // bounding box 3d
+        if( 0 ) {
+            aabb box;
+            if( obj_hasmethod(*o, aabb) && obj_aabb(*o, &box) ) {
+                ddraw_color_push(YELLOW);
+                ddraw_aabb(box.min, box.max);
+                ddraw_color_pop();
+            }
+        }
+
+        // position marker
+        if( p ) {
+            static map(void*, vec3) prev_dir = 0;
+            do_once map_init_ptr(prev_dir);
+            vec3* dir = map_find_or_add(prev_dir, obj, vec3(1,0,0));
+
+            static map(void*, vec3) prev_pos = 0;
+            do_once map_init_ptr(prev_pos);
+            vec3* found = map_find_or_add(prev_pos, obj, *p), fwd = sub3(*p, *found);
+            if( (fwd.y = 0, len3sq(fwd)) ) {
+                *found = *p;
+                *dir = norm3(fwd);
+            }
+
+            // float diameter = len2( sub2(vec2(box->max.x,box->max.z), vec2(box->min.x,box->min.z) ));
+            // float radius = diameter * 0.5;
+            ddraw_position_dir(*p, *dir, 1);
+        }
+
+        ddraw_ontop(1);
+
+        // transform gizmo
+        if( p && r && s ) {
+            gizmo(p,r,s);
+        }
+    }
+
+    ddraw_ontop_pop();
+    if(dim == 2) ddraw_pop_2d();
+}
+#line 0
+#line 1 "fwk_editor_scene.h"
+#define SCENE_ICON ICON_MDI_FILE_TREE
+#define SCENE_TITLE "Scene " SCENE_ICON
+
+EDITOR_BIND(scene, "held(CTRL)&down(1)", { ui_show(SCENE_TITLE, ui_visible(SCENE_TITLE) ^ true); });
+
+EDITOR_BIND(node_new, "down(INS)",                      { editor_spawn1(); } );
+EDITOR_BIND(node_del, "down(DEL)",                      { editor_destroy_selected(); } );
+EDITOR_BIND(node_save, "held(CTRL)&down(S)",            { puts("@todo"); } );
+EDITOR_BIND(scene_save, "held(CTRL)&down(S)&held(SHIFT)",{ puts("@todo"); } );
+EDITOR_BIND(select_all, "held(CTRL) & down(A)",         { editor_select("**"); } );
+EDITOR_BIND(select_none, "held(CTRL) & down(D)",        { editor_select("!**"); } );
+EDITOR_BIND(select_invert, "held(CTRL) & down(I)",      { editor_select("~**"); } );
+EDITOR_BIND(bookmark, "held(CTRL) & down(B)",           { editor_selected_map_t *map = editor_selected_map(); \
+    int on = 0; \
+    for each_map_ptr(*map,void*,o,int,selected) if(*selected) on |= !editor_bookmarked(*o); \
+    for each_map_ptr(*map,void*,o,int,selected) if(*selected) editor_setbookmarked(*o, on); \
+} );
+
+enum {
+    SCENE_RECURSE = 1,
+    SCENE_SELECTION = 2,
+    SCENE_CHECKBOX = 4,
+    SCENE_INDENT = 8,
+    SCENE_ALL = ~0u
+};
+
+static
+void editor_scene_(obj *o, unsigned flags) {
+    static unsigned tabs = ~0u;
+    ++tabs;
+
+    if( o ) {
+        unsigned do_tags = 1;
+        unsigned do_indent    = !!(flags & SCENE_INDENT);
+        unsigned do_checkbox  = !!(flags & SCENE_CHECKBOX);
+        unsigned do_recurse = !!(flags & SCENE_RECURSE);
+        unsigned do_selection = !!(flags & SCENE_SELECTION);
+
+        nk_layout_row_dynamic(ui_ctx, 25, 1);
+
+        const char *objicon = editor_iconinstance(o);
+        if(!objicon) objicon = editor_iconclass(obj_type(o));
+        if(!objicon) objicon = ICON_MDI_CUBE_OUTLINE;
+
+        const char *objname = va("%s (%s)", obj_type(o), obj_name(o));
+
+        const char *objchevron =
+            !do_recurse || array_count(*obj_children(o)) <= 1 ? ICON_MDI_CIRCLE_SMALL :
+            editor_open(o) ? ICON_MDI_CHEVRON_DOWN : ICON_MDI_CHEVRON_RIGHT;
+
+        char *label = va("%*s%s%s %s", do_indent*(4+2*tabs), "", objchevron, objicon, objname);
+
+        const char *iconsL =
+            //editor_selected(o) ? ICON_MD_CHECK_BOX : ICON_MD_CHECK_BOX_OUTLINE_BLANK;
+            editor_selected(o) ? ICON_MDI_CHECKBOX_MARKED : ICON_MDI_CHECKBOX_BLANK_OUTLINE;
+
+        const char *iconsR = va("%s%s%s",
+            editor_script(o) ? ICON_MDI_SCRIPT : ICON_MDI_CIRCLE_SMALL,
+            editor_event(o) ? ICON_MDI_CALENDAR : ICON_MDI_CIRCLE_SMALL,
+            editor_visible(o) ? ICON_MDI_EYE_OUTLINE : ICON_MDI_EYE_CLOSED );
+
+        UI_TOOLBAR_OVERLAY_DECLARE(int choiceL, choiceR);
+
+        struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+        struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx);
+
+        int clicked = nk_hovered_text(ui_ctx, label, strlen(label), NK_TEXT_LEFT, editor_selected(o));
+        if( clicked && nk_input_is_mouse_hovering_rect(&ui_ctx->input, ((struct nk_rect) { bounds.x,bounds.y,bounds.w*0.66,bounds.h })) )
+            editor_altselected( o );
+
+        vec2i offset_in_tree = {0};
+
+        if( do_indent ) {
+            float thickness = 2.f;
+            struct nk_color color = {255,255,255,64};
+
+            int offsx = 30;
+            int spacx = 10;
+            int lenx = (tabs+1)*spacx;
+            int halfy = bounds.h / 2;
+            int offsy = halfy + 2;
+
+            offset_in_tree = vec2i(bounds.x+offsx+lenx-spacx,bounds.y+offsy);
+
+            editor_settreeoffsety(o, offset_in_tree.y);
+
+            for( obj *p = obj_parent(o); p ; p = 0 )
+            nk_stroke_line(canvas, offset_in_tree.x-6,offset_in_tree.y, offset_in_tree.x-spacx,offset_in_tree.y, thickness, color),
+            nk_stroke_line(canvas, offset_in_tree.x-spacx,offset_in_tree.y,offset_in_tree.x-spacx,editor_treeoffsety(p)+4, thickness, color);
+        }
+
+        if( ui_contextual() ) {
+            int choice = ui_label(ICON_MD_BOOKMARK_ADDED "Toggle bookmarks (CTRL+B)");
+            if( choice & 1 ) editor_send("bookmark");
+
+            ui_contextual_end(!!choice);
+        }
+
+        UI_TOOLBAR_OVERLAY(choiceL,iconsL,nk_rgba_f(1,1,1,do_checkbox*ui_alpha*0.65),NK_TEXT_LEFT);
+
+        if( do_tags )
+        UI_TOOLBAR_OVERLAY(choiceR,iconsR,nk_rgba_f(1,1,1,ui_alpha*0.65),NK_TEXT_RIGHT);
+
+        if( choiceR == 3 ) editor_altscript( o );
+        if( choiceR == 2 ) editor_altevent( o);
+        if( choiceR == 1 ) editor_altvisible( o );
+
+        if( do_recurse && editor_open(o) ) {
+            for each_objchild(o,obj*,oo) {
+                editor_scene_(oo,flags);
+            }
+        }
+
+        if( clicked && !choiceL && !choiceR ) {
+            int is_picking = input(KEY_CTRL);
+            if( !is_picking ) {
+                if( input(KEY_SHIFT) ) {
+                    editor_selectgroup( editor_first_selected(), editor_last_selected() );
+                } else {
+                    editor_unselect();
+                    editor_setselected(o, 1);
+                }
+            }
+            for( obj *p = obj_parent(o); p; p = obj_parent(p) ) {
+                editor_setopen(p, 1);
+            }
+            if( nk_input_is_mouse_hovering_rect(&ui_ctx->input, ((struct nk_rect) { bounds.x,bounds.y,offset_in_tree.x-bounds.x+UI_ICON_FONTSIZE/2,bounds.h })) ) {
+                editor_altopen( o );
+            }
+        }
+    }
+
+    --tabs;
+}
+
+int editor_scene(int window_mode) {
+    window_mode = EDITOR_WINDOW; // force window
+
+    if( editor_begin(SCENE_TITLE, window_mode)) {
+        // #define HELP ICON_MDI_INFORMATION_OUTLINE "@-A\n-B\n-C\n" ";"
+        int choice = ui_toolbar(ICON_MDI_PLUS "@New node (CTRL+N);" ICON_MDI_DOWNLOAD "@Save node (CTRL+S);" ICON_MDI_DOWNLOAD "@Save scene (SHIFT+CTRL+S);" ICON_MD_BOOKMARK_ADDED "@Toggle Bookmark (CTRL+B);");
+        if( choice == 1 ) editor_send("node_new");
+        if( choice == 2 ) editor_send("node_save");
+        if( choice == 3 ) editor_send("scene_save");
+        if( choice == 4 ) editor_send("bookmark");
+
+        array(obj*) bookmarks = 0;
+        for each_map_ptr(*editor_bookmarked_map(), void*,o,int,bookmarked) {
+            if( *bookmarked ) {
+                array_push(bookmarks, *o);
+            }
+        }
+        if( ui_collapse("!" ICON_MD_BOOKMARK "Bookmarks", "DEBUG:BOOKMARK")) {
+            for each_array( bookmarks, obj*, o )
+                editor_scene_( o, SCENE_ALL & ~(SCENE_RECURSE|SCENE_INDENT|SCENE_CHECKBOX) );
+            ui_collapse_end();
+        }
+        array_free(bookmarks);
+
+        editor_scene_( editor.root, SCENE_ALL );
+
+        for each_array( editor.objs, obj*, o )
+            editor_scene_( o, SCENE_ALL );
+
+        ui_separator();
+
+        // edit selection
+        for each_map(*editor_selected_map(), void*,o, int, k) {
+            if( k ) editor_inspect(o);
+        }
+
+        editor_end(window_mode);
+    }
+
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_scene);
+}
+#line 0
+#line 1 "fwk_editor_browser.h"
+#define BROWSER_ICON  ICON_MD_FOLDER_SPECIAL
+#define BROWSER_TITLE "Browser " BROWSER_ICON
+
+EDITOR_BIND(browser, "held(CTRL)&down(2)", { ui_show(BROWSER_TITLE, ui_visible(BROWSER_TITLE) ^ true); });
+
+int editor_browser(int window_mode) {
+    window_mode = EDITOR_WINDOW; // force window
+    if( editor_begin(BROWSER_TITLE, window_mode) ) {
+        const char *file = 0;
+        if( ui_browse(&file, NULL) ) {
+            const char *sep = ifdef(win32, "\"", "'");
+            app_exec(va("%s %s%s%s", ifdef(win32, "start \"\"", ifdef(osx, "open", "xdg-open")), sep, file, sep));
+        }
+        editor_end(window_mode);
+    }
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_browser);
+}
+#line 0
+#line 1 "fwk_editor_timeline.h"
+#define TIMELINE_ICON ICON_MDI_CHART_TIMELINE
+#define TIMELINE_TITLE "Timeline " TIMELINE_ICON
+
+EDITOR_BIND(timeline, "held(CTRL)&down(3)", { ui_show(TIMELINE_TITLE, ui_visible(TIMELINE_TITLE) ^ true); });
+
+int ui_tween(const char *label, tween_t *t) {
+    if( ui_filter && ui_filter[0] ) if( !strstr(label, ui_filter) ) return 0;
+
+    int expand_keys = label[0] == '!'; label += expand_keys;
+    const char *id = label;
+    if( strchr(id, '@') ) *strchr((char*)(id = (const char*)va("%s", label)), '@') = '\0';
+
+    enum { LABEL_SPACING = 250 };
+    enum { ROUNDING = 0 };
+    enum { THICKNESS = 1 };
+    enum { PIXELS_PER_SECOND = 60 };
+    enum { KEY_WIDTH = 5, KEY_HEIGHT = 5 };
+    enum { TIMELINE_HEIGHT = 25 };
+    enum { MARKER1_HEIGHT = 5, MARKER10_HEIGHT = 20, MARKER5_HEIGHT = (MARKER1_HEIGHT + MARKER10_HEIGHT) / 2 };
+    unsigned base_color = WHITE;
+    unsigned time_color = YELLOW;
+    unsigned duration_color = ORANGE;
+    unsigned key_color = GREEN;
+
+    int changed = 0;
+
+#if 0
+    // two rows with height:30 composed of three widgets
+    nk_layout_row_template_begin(ui_ctx, 30);
+    nk_layout_row_template_push_variable(ui_ctx, t->duration * PIXELS_PER_SECOND); // min 80px. can grow
+    nk_layout_row_template_end(ui_ctx);
+#endif
+
+        char *sid = va("%s.%d", id, 0);
+        uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
+        for(int i = 0; sid[i]; ++i) hash = (hash ^ sid[i]) * mult;
+        ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
+
+    ui_label(label);
+
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+    struct nk_rect bounds; nk_layout_peek(&bounds, ui_ctx);
+    bounds.y -= 30;
+
+    struct nk_rect baseline = bounds; baseline.y += 30/2;
+    baseline.x += LABEL_SPACING;
+    baseline.w -= LABEL_SPACING;
+
+    // tween duration
+    {
+        struct nk_rect pos = baseline;
+        pos.w  = pos.x + t->duration * PIXELS_PER_SECOND;
+        pos.y -= TIMELINE_HEIGHT/2;
+        pos.h  = TIMELINE_HEIGHT;
+        nk_stroke_rect(canvas, pos, ROUNDING, THICKNESS*2, AS_NKCOLOR(duration_color));
+    }
+
+    // tween ranges
+    for(int i = 0, end = array_count(t->keyframes) - 1; i < end; ++i) {
+        tween_keyframe_t *k = t->keyframes + i;
+        tween_keyframe_t *next = k + 1;
+
+        struct nk_rect pos = baseline;
+        pos.x += k->t * PIXELS_PER_SECOND;
+        pos.w  = (next->t - k->t) * PIXELS_PER_SECOND;
+        pos.y -= TIMELINE_HEIGHT/2;
+        pos.h  = TIMELINE_HEIGHT;
+
+        char *sid = va("%s.%d", id, i);
+        uint64_t hash = 14695981039346656037ULL, mult = 0x100000001b3ULL;
+        for(int i = 0; sid[i]; ++i) hash = (hash ^ sid[i]) * mult;
+        ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
+
+        struct nk_color c = nk_hsva_f(ui_hue, 0.75f, 0.8f, ui_alpha);
+        nk_fill_rect(canvas, pos, ROUNDING, k->ease == EASE_NOP ? AS_NKCOLOR(0) : c); // AS_NKCOLOR(track_color));
+    }
+
+    // horizontal line
+    nk_stroke_line(canvas, baseline.x, baseline.y, baseline.x+baseline.w,baseline.y, THICKNESS, AS_NKCOLOR(base_color));
+
+    // unit, 5-unit and 10-unit markers
+    for( float i = 0, j = 0; i < baseline.w; i += PIXELS_PER_SECOND/10, ++j ) {
+        int len = !((int)j%10) ? MARKER10_HEIGHT : !((int)j%5) ? MARKER5_HEIGHT : MARKER1_HEIGHT;
+        nk_stroke_line(canvas, baseline.x+i, baseline.y-len, baseline.x+i, baseline.y+len, THICKNESS, AS_NKCOLOR(base_color));
+    }
+
+    // time marker
+    float px = t->time * PIXELS_PER_SECOND;
+    nk_stroke_line(canvas, baseline.x+px, bounds.y, baseline.x+px, bounds.y+bounds.h, THICKNESS*2, AS_NKCOLOR(time_color));
+    nk_draw_symbol(canvas, NK_SYMBOL_TRIANGLE_DOWN, ((struct nk_rect){ baseline.x+px-4,bounds.y-4-8,8,8}), /*bg*/AS_NKCOLOR(0), /*fg*/AS_NKCOLOR(time_color), 0.f/*border_width*/, ui_ctx->style.font);
+
+    // key markers
+    for each_array_ptr(t->keyframes, tween_keyframe_t, k) {
+        struct nk_rect pos = baseline;
+        pos.x += k->t * PIXELS_PER_SECOND;
+
+        vec2 romboid[] = {
+            {pos.x-KEY_WIDTH,pos.y}, {pos.x,pos.y-KEY_HEIGHT},
+            {pos.x+KEY_WIDTH,pos.y}, {pos.x,pos.y+KEY_HEIGHT}
+        };
+
+        nk_fill_polygon(canvas, (float*)romboid, countof(romboid), AS_NKCOLOR(key_color));
+    }
+
+    // keys ui
+    if( expand_keys )
+    for(int i = 0, end = array_count(t->keyframes); i < end; ++i) {
+        tween_keyframe_t *k = t->keyframes + i;
+        if( ui_collapse(va("Key %d", i), va("%s.%d", id, i))) {
+            changed |= ui_float("Time", &k->t);
+            changed |= ui_float3("Value", &k->v.x);
+            changed |= ui_list("Ease", ease_enums(), EASE_NUM, &k->ease );
+            ui_collapse_end();
+        }
+    }
+
+    return changed;
+}
+
+tween_t* rand_tween() {
+    tween_t demo = tween();
+    int num_keys = randi(2,8);
+    double t = 0;
+    for( int i = 0; i < num_keys; ++i) {
+        tween_setkey(&demo, t, scale3(vec3(randf(),randf(),randf()),randi(-5,5)), randi(0,EASE_NUM) );
+        t += randi(1,5) / ((float)(1 << randi(0,2)));
+    }
+    tween_t *p = CALLOC(1, sizeof(tween_t));
+    memcpy(p, &demo, sizeof(tween_t));
+    return p;
+}
+
+int editor_timeline(int window_mode) {
+    static array(tween_t*) tweens = 0;
+
+    do_once {
+        array_push(tweens, rand_tween());
+    }
+
+    if( editor.t == 0 )
+    for each_array(tweens, tween_t*,t) {
+        tween_reset(t);
+    }
+    else
+    for each_array(tweens, tween_t*,t) {
+        tween_update(t, editor.dt);
+    }
+
+    static void *selected = NULL;
+    if( editor_begin(TIMELINE_TITLE, window_mode) ) {
+
+        int choice = ui_toolbar(ICON_MDI_PLUS ";" ICON_MDI_MINUS );
+        if( choice == 1 ) array_push(tweens, rand_tween());
+        if( choice == 2 && selected ) {
+            int target = -1;
+            for( int i = 0, end = array_count(tweens); i < end; ++i ) if( tweens[i] == selected ) { target = i; break; }
+            if( target >= 0 ) { array_erase_slow(tweens, target); selected = NULL; }
+        }
+
+        for each_array(tweens, tween_t*,t) {
+            ui_tween(va("%s%p@%05.2fs Value: %s", t == selected ? "!":"", t, t->time, ftoa3(t->result)), t);
+            if(ui_label_icon_clicked_L.x) selected = (t != selected) ? t : NULL;
+        }
+
+        editor_end(window_mode);
+    }
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_timeline);
+}
+#line 0
+#line 1 "fwk_editor_console.h"
+#define CONSOLE_ICON  ICON_MDI_CONSOLE
+#define CONSOLE_TITLE "Console " CONSOLE_ICON
+
+EDITOR_BIND(console, "held(CTRL)&down(4)", { ui_show(CONSOLE_TITLE, ui_visible(CONSOLE_TITLE) ^ true); });
+
+int editor_console(int window_mode) {
+    if( editor_begin(CONSOLE_TITLE, window_mode) ) {
+
+        // peek complete window space
+        struct nk_rect bounds = nk_window_get_content_region(ui_ctx);
+
+        enum { CONSOLE_LINE_HEIGHT = 20 };
+        static array(char*) lines = 0;
+        do_once {
+            array_push(lines, stringf("> Editor v%s. Type `%s` for help.", EDITOR_VERSION, ""));
+        }
+        int max_lines = (bounds.h - UI_ROW_HEIGHT) / (CONSOLE_LINE_HEIGHT * 2);
+        if( max_lines >= 1 ) {
+            nk_layout_row_static(ui_ctx, bounds.h - UI_ROW_HEIGHT, bounds.w, 1);
+            if(nk_group_begin(ui_ctx, "console.group", NK_WINDOW_NO_SCROLLBAR|NK_WINDOW_BORDER)) {
+                nk_layout_row_static(ui_ctx, CONSOLE_LINE_HEIGHT, bounds.w, 1);
+                for( int i = array_count(lines); i < max_lines; ++i )
+                    array_push_front(lines, 0);
+                for( int i = array_count(lines) - max_lines; i < array_count(lines); ++i ) {
+                    if( !lines[i] ) {
+                        #if 0 // debug
+                        nk_label_wrap(ui_ctx, va("%d.A/%d",i+1,max_lines));
+                        nk_label_wrap(ui_ctx, va("%d.B/%d",i+1,max_lines));
+                        #else
+                        nk_label_wrap(ui_ctx, "");
+                        nk_label_wrap(ui_ctx, "");
+                        #endif
+                    } else {
+                        nk_label_wrap(ui_ctx, lines[i]);
+                        const char *answer = isdigit(*lines[i]) ? editor_recv( atoi(lines[i]), 0 ) : NULL;
+                        nk_label_wrap(ui_ctx, answer ? answer : "");
+                    }
+                }
+                nk_group_end(ui_ctx);
+            }
+        }
+        static char *cmd = 0;
+        if( ui_string(NULL, &cmd) ) {
+            int jobid = editor_send(cmd);
+            array_push(lines, stringf("%d> %s", jobid, cmd));
+            cmd[0] = 0;
+        }
+
+        editor_end(window_mode);
+    }
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_console);
+}
+#line 0
+#line 1 "fwk_editor_nodes.h"
+#define NODES_ICON  ICON_MDI_GRAPH
+#define NODES_TITLE "Nodes " NODES_ICON
+
+EDITOR_BIND(nodes, "held(CTRL)&down(5)", { ui_show(NODES_TITLE, ui_visible(NODES_TITLE) ^ true); });
+
+/*
+A basic node-based UI built with Nuklear.
+Builds on the node editor example included in Nuklear v1.00, with the aim of
+being used as a prototype for implementing a functioning node editor.
+
+Features:
+- Nodes of different types. Currently their implementations are #included in
+  the main file, but they could easily be turned into eg. a plugin system.
+- Pins/pins of different types -- currently float values and colors.
+- Adding and removing nodes.
+- Linking nodes, with validation (one link per input, only link similar pins).
+- Detaching and moving links.
+- Evaluation of output values of connected nodes.
+- Memory management based on fixed size arrays for links and node pointers
+- Multiple node types
+- Multiple pin types
+- Linking between pins of the same type
+- Detaching and reattaching links
+- Getting value from linked node if pin is connected
+
+Todo:
+- Complete pin types.
+- Allow dragging from output to input pin.
+- Cut link by CTRL+clicking input pin.
+- Cut link by drawing intersect line on a link.
+- Group elemnts together with mouse, or LSHIFT+clicking.
+- Drag groups.
+- DEL elements.
+- DEL groups.
+- CTRL-C/CTRL-V/CTRL-X elements.
+- CTRL-C/CTRL-V/CTRL-X groups.
+- CTRL-Z,CTRL-Y.
+- CTRL-N.
+- CTRL-L,CTRL-S.
+- CTRL-F.
+- CTRL-Wheel Zooming.
+- Allow to extend node types from Lua.
+
+Extra todo:
+- Execution Flow (see: nk_stroke_triangle, nk_fill_triangle)
+- Complete missing nodes (see: nk_draw_image, nk_draw_text)
+- Right-click could visualize node/board diagram as Lua script.
+- Once that done, copy/pasting scripts should work within editor.
+
+Sources:
+- https://github.com/Immediate-Mode-UI/Nuklear/pull/561
+- https://github.com/vurtun/nuklear/blob/master/demo/node_editor.c
+*/
+
+typedef enum pin_type_t {
+    type_flow,
+    type_int,type_float,
+    type_block,type_texture,type_image,
+    type_color,
+    /*
+    type_bool,
+    type_char, type_string,
+    type_int2, type_int3, type_int4,
+    type_float2, type_float3, type_float4,
+    type_array, type_map,
+    */
+
+    type_total
+} pin_type_t;
+
+struct node_pin {
+    pin_type_t pin_type;
+    nk_bool is_connected;
+    struct node* connected_node;
+    int connected_pin;
+};
+
+struct node {
+    int ID;
+    char name[32];
+    struct nk_rect bounds;
+    int input_count;
+    int output_count;
+    struct node_pin *inputs;
+    struct node_pin *outputs;
+    struct {
+        float in_padding_x;
+        float in_padding_y;
+        float in_spacing_y;
+        float out_padding_x;
+        float out_padding_y;
+        float out_spacing_y;
+    } pin_spacing; /* Maybe this should be called "node_layout" and include the bounds? */
+    struct node *next; /* Z ordering only */
+    struct node *prev; /* Z ordering only */
+
+    void* (*eval_func)(struct node*, int oIndex);
+    void (*display_func)(struct nk_context*, struct node*);
+};
+
+struct node_link {
+    struct node* input_node;
+    int input_pin;
+    struct node* output_node;
+    int output_pin;
+    nk_bool is_active;
+};
+
+struct node_linking {
+    int active;
+    struct node *node;
+    int input_id;
+    int input_pin;
+};
+
+struct node_editor {
+    int initialized;
+    struct node *node_buf[32];
+    struct node_link links[64];
+    struct node *output_node;
+    struct node *begin;
+    struct node *end;
+    int node_count;
+    int link_count;
+    struct nk_rect bounds;
+    struct node *selected;
+    int show_grid;
+    struct nk_vec2 scrolling;
+    struct node_linking linking;
+};
+
+/* === PROTOTYPES === */
+/* The node implementations need these two functions. */
+/* These could/should go in a header file along with the node and node_pin structs and be #included in the node implementations */
+
+struct node* node_editor_add(struct node_editor *editor, size_t nodeSize, const char *name, struct nk_rect bounds, int in_count, int out_count);
+void* node_editor_eval_connected(struct node *node, int input_pin_number);
+/* ================== */
+
+/* === NODE TYPE IMPLEMENTATIONS === */
+
+#define NODE_DEFAULT_ROW_HEIGHT 25
+
+
+// ----------------------------------------------------------------------------------------------------
+// #include "node_output.h"
+
+struct node_type_output {
+    struct node node;
+    struct nk_colorf input_val;
+};
+
+struct nk_colorf *node_output_get(struct node* node) {
+    struct node_type_output *output_node = (struct node_type_output*)node;
+    if (!node->inputs[0].is_connected) {
+        struct nk_colorf black = {0.0f, 0.0f, 0.0f, 0.0f};
+        output_node->input_val = black;
+    }
+    return &output_node->input_val;
+}
+
+static void node_output_display(struct nk_context *ctx, struct node *node) {
+    if (node->inputs[0].is_connected) {
+        struct node_type_output *output_node = (struct node_type_output*)node;
+        output_node->input_val = *(struct nk_colorf*)node_editor_eval_connected(node, 0);
+        nk_layout_row_dynamic(ctx, 60, 1);
+        nk_button_color(ctx, nk_rgba_cf(output_node->input_val));
+    }
+}
+
+struct node* node_output_create(struct node_editor *editor, struct nk_vec2 position) {
+    struct node_type_output *output_node = (struct node_type_output*)node_editor_add(editor, sizeof(struct node_type_output), "Output", nk_rect(position.x, position.y, 100, 100), 1, 0);
+    if (output_node){
+        output_node->node.inputs[0].pin_type = type_color;
+        output_node->node.display_func = node_output_display;
+    }
+    return (struct node*)output_node;
+}
+
+// ----------------------------------------------------------------------------------------------------
+// #include "node_float.h"
+
+struct node_type_float {
+    struct node node;
+    float output_val;
+};
+
+static float *node_float_eval(struct node* node, int oIndex) {
+    struct node_type_float *float_node = (struct node_type_float*)node;
+    NK_ASSERT(oIndex == 0);
+    return &float_node->output_val;
+}
+
+static void node_float_draw(struct nk_context *ctx, struct node *node) {
+    struct node_type_float *float_node = (struct node_type_float*)node;
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
+    float_node->output_val = nk_propertyf(ctx, "#Value:", 0.0f, float_node->output_val, 1.0f, 0.01f, 0.01f);
+}
+
+void node_float_create(struct node_editor *editor, struct nk_vec2 position) {
+    struct node_type_float *float_node = (struct node_type_float*)node_editor_add(editor, sizeof(struct node_type_float), "Float", nk_rect(position.x, position.y, 180, 75), 0, 1);
+    if (float_node)
+    {
+        float_node->output_val = 1.0f;
+        float_node->node.display_func = node_float_draw;
+        float_node->node.eval_func = (void*(*)(struct node*, int)) node_float_eval;
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------
+// #include "node_color.h"
+
+struct node_type_color {
+    struct node node;
+    float input_val[4];
+    struct nk_colorf output_val;
+};
+
+static struct nk_colorf *node_color_eval(struct node* node, int oIndex)
+{
+    struct node_type_color *color_node = (struct node_type_color*)node;
+    NK_ASSERT(oIndex == 0); /* only one output connector */
+
+    return &color_node->output_val;
+}
+
+
+static void node_color_draw(struct nk_context *ctx, struct node *node)
+{
+    struct node_type_color *color_node = (struct node_type_color*)node;
+    float eval_result; /* Get the values from connected nodes into this so the inputs revert on disconnect */
+    const char* labels[4] = {"#R:","#G:","#B:","#A:"};
+    float color_val[4]; /* Because we can't just loop through the struct... */
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
+    nk_button_color(ctx, nk_rgba_cf(color_node->output_val));
+
+    for (int i = 0; i < 4; i++)
+    {
+        if (color_node->node.inputs[i].is_connected) {
+            eval_result = *(float*)node_editor_eval_connected(node, i);
+            eval_result = nk_propertyf(ctx, labels[i], eval_result, eval_result, eval_result, 0.01f, 0.01f);
+            color_val[i] = eval_result;
+        }
+        else {
+            color_node->input_val[i] = nk_propertyf(ctx, labels[i], 0.0f, color_node->input_val[i], 1.0f, 0.01f, 0.01f);
+            color_val[i] = color_node->input_val[i];
+        }
+    }
+
+    color_node->output_val.r = color_val[0];
+    color_node->output_val.g = color_val[1];
+    color_node->output_val.b = color_val[2];
+    color_node->output_val.a = color_val[3];
+}
+
+void node_color_create(struct node_editor *editor, struct nk_vec2 position)
+{
+    struct node_type_color *color_node = (struct node_type_color*)node_editor_add(editor, sizeof(struct node_type_color), "Color", nk_rect(position.x, position.y, 180, 190), 4, 1);
+    if (color_node)
+    {
+        const struct nk_colorf black = {0.0f, 0.0f, 0.0f, 1.0f};
+
+        for (int i = 0; i < color_node->node.input_count; i++)
+            color_node->node.inputs[i].pin_type = type_float;
+        color_node->node.outputs[0].pin_type = type_color;
+
+        color_node->node.pin_spacing.in_padding_y += NODE_DEFAULT_ROW_HEIGHT;
+
+        color_node->input_val[0] = 0.0f;
+        color_node->input_val[1] = 0.0f;
+        color_node->input_val[2] = 0.0f;
+        color_node->input_val[3] = 1.0f;
+
+        color_node->output_val = black;
+
+        color_node->node.display_func = node_color_draw;
+        color_node->node.eval_func = (void*(*)(struct node*, int)) node_color_eval;
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------
+// #include "node_blend.h"
+
+struct node_type_blend {
+    struct node node;
+    struct nk_colorf input_val[2];
+    struct nk_colorf output_val;
+    float blend_val;
+};
+
+static struct nk_colorf *node_blend_eval(struct node *node, int oIndex) {
+    struct node_type_blend* blend_node = (struct node_type_blend*)node;
+    return &blend_node->output_val;
+}
+
+static void node_blend_display(struct nk_context *ctx, struct node *node) {
+    struct node_type_blend *blend_node = (struct node_type_blend*)node;
+    const struct nk_colorf blank = {0.0f, 0.0f, 0.0f, 0.0f};
+    float blend_amnt;
+
+    nk_layout_row_dynamic(ctx, NODE_DEFAULT_ROW_HEIGHT, 1);
+    for (int i = 0; i < 2; i++){
+        if(node->inputs[i].is_connected) {
+            blend_node->input_val[i] = *(struct nk_colorf*)node_editor_eval_connected(node, i);
+        }
+        else {
+            blend_node->input_val[i] = blank;
+        }
+        nk_button_color(ctx, nk_rgba_cf(blend_node->input_val[i]));
+    }
+
+        if (node->inputs[2].is_connected) {
+            blend_amnt = *(float*)node_editor_eval_connected(node, 2);
+            blend_amnt = nk_propertyf(ctx, "#Blend", blend_amnt, blend_amnt, blend_amnt, 0.01f, 0.01f);
+        }
+        else {
+            blend_node->blend_val = nk_propertyf(ctx, "#Blend", 0.0f, blend_node->blend_val, 1.0f, 0.01f, 0.01f);
+            blend_amnt = blend_node->blend_val;
+        }
+
+
+    if(node->inputs[0].is_connected && node->inputs[1].is_connected) {
+        blend_node->output_val.r = blend_node->input_val[0].r * (1.0f-blend_amnt) + blend_node->input_val[1].r * blend_amnt;
+        blend_node->output_val.g = blend_node->input_val[0].g * (1.0f-blend_amnt) + blend_node->input_val[1].g * blend_amnt;
+        blend_node->output_val.b = blend_node->input_val[0].b * (1.0f-blend_amnt) + blend_node->input_val[1].b * blend_amnt;
+        blend_node->output_val.a = blend_node->input_val[0].a * (1.0f-blend_amnt) + blend_node->input_val[1].a * blend_amnt;
+    }
+    else {
+        blend_node->output_val = blank;
+    }
+}
+
+void node_blend_create(struct node_editor *editor, struct nk_vec2 position) {
+    struct node_type_blend* blend_node = (struct node_type_blend*)node_editor_add(editor, sizeof(struct node_type_blend), "Blend", nk_rect(position.x, position.y, 180, 130), 3, 1);
+    if (blend_node) {
+        const struct nk_colorf blank = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (int i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
+            blend_node->node.inputs[i].pin_type = type_color;
+        blend_node->node.outputs[0].pin_type = type_color;
+
+        // blend_node->node.pin_spacing.in_padding_y = 42.0f;
+        // blend_node->node.pin_spacing.in_spacing_y = 29.0f;
+
+        for (int i = 0; i < (int)NK_LEN(blend_node->input_val); i++)
+            blend_node->input_val[i] = blank;
+        blend_node->output_val = blank;
+
+        blend_node->blend_val = 0.5f;
+
+        blend_node->node.display_func = node_blend_display;
+        blend_node->node.eval_func = (void*(*)(struct node*, int)) node_blend_eval;
+
+    }
+}
+
+/* ================================= */
+
+#define NK_RGB3(r,g,b) {r,g,b,255}
+#define BG_COLOR ((struct nk_color){60,60,60,192}) // nk_rgba(0,0,0,192)
+
+static
+struct editor_node_style {
+    int pin_type;
+    const char *shape;
+    struct nk_color color_idle;
+    struct nk_color color_hover;
+} styles[] = {
+    // order matters:
+    { type_flow, "triangle_right", NK_RGB3(200,200,200), NK_RGB3(255,255,255) }, // if .num_links == 0
+    { type_int, "circle", NK_RGB3(33,227,175), NK_RGB3(135,239,195) },
+    { type_float, "circle", NK_RGB3(156,253,65), NK_RGB3(144,225,137) },
+    { type_block, "circle", NK_RGB3(6,165,239), NK_RGB3(137,196,247) },
+    { type_texture, "circle", NK_RGB3(148,0,0), NK_RGB3(183,137,137) },
+    { type_image, "circle", NK_RGB3(200,130,255), NK_RGB3(220,170,255) },
+    { type_color, "circle", NK_RGB3(252,200,35), NK_RGB3(255,217,140) },
+};
+
+#define COLOR_FLOW_HI styles[type_flow].color_hover
+#define COLOR_FLOW_LO styles[type_flow].color_idle
+
+#define GRID_SIZE 64.0f
+#define GRID_COLOR ((struct nk_color)NK_RGB3(80,80,120))
+#define GRID_THICKNESS 1.0f
+
+// 4 colors: top-left, top-right, bottom-right, bottom-left
+#define GRID_BG_COLORS ((struct nk_color){30,30,30,255}), ((struct nk_color){40,20,0,255}), ((struct nk_color){30,30,30,255}), ((struct nk_color){20,30,40,255})
+
+#define LINK_THICKNESS 1.0f
+#define LINK_DRAW(POINT_A,POINT_B,COLOR) do { \
+    vec2 a = (POINT_A); \
+    vec2 b = (POINT_B); \
+    nk_stroke_line(canvas, a.x, a.y, b.x, b.y, LINK_THICKNESS, COLOR); \
+} while(0)
+#undef LINK_DRAW
+#define LINK_DRAW(POINT_A,POINT_B,COLOR) do { \
+    vec2 a = (POINT_A); \
+    vec2 b = (POINT_B); \
+    nk_stroke_curve(canvas, a.x, a.y, a.x+50, a.y, b.x-50, b.y, b.x, b.y, LINK_THICKNESS, COLOR); \
+} while(0)
+#undef LINK_DRAW
+#define LINK_DRAW(POINT_A,POINT_B,COLOR) do { \
+    vec2 a = (POINT_A); \
+    vec2 b = (POINT_B); \
+    float dist2 = len2( sub2( ptr2(&b.x), ptr2(&a.x) ) ); \
+    vec2 mid_a = mix2( ptr2(&a.x), ptr2(&b.x), 0.25 ); mid_a.y += dist2/2; \
+    vec2 mid_b = mix2( ptr2(&a.x), ptr2(&b.x), 0.75 ); mid_b.y += dist2/3; \
+    nk_stroke_curve(canvas, a.x, a.y, mid_a.x, mid_a.y, mid_b.x, mid_b.y, b.x, b.y, LINK_THICKNESS, COLOR); \
+} while(0)
+
+
+#define PIN_RADIUS 12
+#define PIN_THICKNESS 1.0f
+#define PIN_DRAW(PIN_ADDR,POINT,RADIUS) do { \
+    circle.x = (POINT).x - (RADIUS) / 2; \
+    circle.y = (POINT).y - (RADIUS) / 2; \
+    circle.w = circle.h = (RADIUS); \
+    struct nk_color color = node_get_type_color((PIN_ADDR).pin_type); \
+    if((PIN_ADDR).is_connected) \
+    nk_fill_circle(canvas, circle, color); \
+    else \
+    nk_stroke_circle(canvas, circle, PIN_THICKNESS, color); \
+} while(0)
+
+
+static struct nk_color node_get_type_color(unsigned pin_type) {
+    for( int i = 0; i < type_total; ++i )
+        if( styles[i].pin_type == pin_type )
+            return styles[i].color_idle;
+    return ((struct nk_color)NK_RGB3(255,0,255));
+}
+
+static void node_editor_push(struct node_editor *editor, struct node *node) {
+    if (!editor->begin) {
+        node->next = NULL;
+        node->prev = NULL;
+        editor->begin = node;
+        editor->end = node;
+    } else {
+        node->prev = editor->end;
+        if (editor->end)
+            editor->end->next = node;
+        node->next = NULL;
+        editor->end = node;
+    }
+}
+
+static void node_editor_pop(struct node_editor *editor, struct node *node) {
+    if (node->next)
+        node->next->prev = node->prev;
+    if (node->prev)
+        node->prev->next = node->next;
+    if (editor->end == node)
+        editor->end = node->prev;
+    if (editor->begin == node)
+        editor->begin = node->next;
+    node->next = NULL;
+    node->prev = NULL;
+}
+
+static struct node* node_editor_find_by_id(struct node_editor *editor, int ID) {
+    struct node *iter = editor->begin;
+    while (iter) {
+        if (iter->ID == ID)
+            return iter;
+        iter = iter->next;
+    }
+    return NULL;
+}
+
+static struct node_link* node_editor_find_link_by_output(struct node_editor *editor, struct node *output_node, int node_input_connector) {
+    for( int i = 0; i < editor->link_count; i++ ) {
+        if (editor->links[i].output_node == output_node &&
+            editor->links[i].output_pin == node_input_connector &&
+            editor->links[i].is_active == nk_true) {
+            return &editor->links[i];
+        }
+    }
+    return NULL;
+}
+
+static struct node_link* node_editor_find_link_by_input(struct node_editor *editor, struct node *input_node, int node_output_connector) {
+    for( int i = 0; i < editor->link_count; i++ ) {
+        if (editor->links[i].input_node == input_node &&
+            editor->links[i].input_pin == node_output_connector &&
+            editor->links[i].is_active == nk_true) {
+            return &editor->links[i];
+        }
+    }
+    return NULL;
+}
+
+static void node_editor_delete_link(struct node_link *link) {
+    link->is_active = nk_false;
+    link->input_node->outputs[link->input_pin].is_connected = nk_false;
+    link->output_node->inputs[link->output_pin].is_connected = nk_false;
+}
+
+struct node* node_editor_add(struct node_editor *editor, size_t nodeSize, const char *name, struct nk_rect bounds, int in_count, int out_count) {
+    static int IDs = 0;
+    struct node *node = NULL;
+
+    if ((nk_size)editor->node_count < NK_LEN(editor->node_buf)) {
+        /* node_buf has unused pins */
+        node = MALLOC(nodeSize);
+        editor->node_buf[editor->node_count++] = node;
+        node->ID = IDs++;
+    } else {
+        /* check for freed up pins in node_buf */
+        for (int i = 0; i < editor->node_count; i++) {
+            if (editor->node_buf[i] == NULL) {
+                node = MALLOC(nodeSize);
+                editor->node_buf[i] = node;
+                node->ID = i;
+                break;
+            }
+        }
+    }
+    if (node == NULL) {
+        puts("Node creation failed");
+        return NULL;
+    }
+
+    node->bounds = bounds;
+
+    node->input_count = in_count;
+    node->output_count = out_count;
+
+    node->inputs = MALLOC(node->input_count * sizeof(struct node_pin));
+    node->outputs = MALLOC(node->output_count * sizeof(struct node_pin));
+
+    for (int  i = 0; i < node->input_count; i++) {
+        node->inputs[i].is_connected = nk_false;
+        node->inputs[i].pin_type = type_float; /* default pin type */
+    }
+    for (int  i = 0; i < node->output_count; i++) {
+        node->outputs[i].is_connected = nk_false;
+        node->outputs[i].pin_type = type_float; /* default pin type */
+    }
+
+    /* default pin spacing */
+    node->pin_spacing.in_padding_x = 2;
+    node->pin_spacing.in_padding_y = 32 + 25/2 + 6; // titlebar height + next half row + adjust
+    node->pin_spacing.in_spacing_y = 25; // row height+border
+    node->pin_spacing.out_padding_x = 3;
+    node->pin_spacing.out_padding_y = 32 + 25/2 + 6; // titlebar height + next half row + adjust
+    node->pin_spacing.out_spacing_y = 25; // row height+border
+
+    strcpy(node->name, name);
+    node_editor_push(editor, node);
+
+    return node;
+}
+
+void *node_editor_eval_connected(struct node* node, int input_pin_number) {
+    NK_ASSERT(node->inputs[input_pin_number].is_connected);
+    return node->inputs[input_pin_number].connected_node->eval_func(node->inputs[input_pin_number].connected_node, node->inputs[input_pin_number].connected_pin);
+}
+
+static void node_editor_link(struct node_editor *editor, struct node *in_node, int in_pin, struct node *out_node, int out_pin) {
+    /* Confusingly, in and out nodes/pins here refer to the inputs and outputs OF THE LINK ITSELF, not the nodes */
+    struct node_link *link = NULL;
+
+    if ((nk_size)editor->link_count < NK_LEN(editor->links)) {
+        link = &editor->links[editor->link_count++];
+    } else {
+        for (int i = 0; i < (int)NK_LEN(editor->links); i++)
+        {
+            if (editor->links[i].is_active == nk_false) {
+                link = &editor->links[i];
+                break;
+            }
+        }
+    }
+    if (link) {
+        out_node->inputs[out_pin].is_connected = nk_true;
+        in_node->outputs[in_pin].is_connected = nk_true;
+        out_node->inputs[out_pin].connected_node = in_node;
+        out_node->inputs[out_pin].connected_pin = in_pin;
+
+        link->input_node = in_node;
+        link->input_pin = in_pin;
+        link->output_node = out_node;
+        link->output_pin = out_pin;
+        link->is_active = nk_true;
+    } else {
+        puts("Too many links");
+    }
+}
+
+static void node_editor_init(struct node_editor *editor) {
+    if (editor->initialized) return;
+
+    struct nk_rect total_space = nk_window_get_content_region(ui_ctx);
+    struct nk_vec2 output_node_position = { total_space.w*2/3, total_space.h/3 };
+    struct nk_vec2 color_node_position = { total_space.w*1/4, total_space.h/3 };
+
+    memset(editor, 0, sizeof(*editor));
+
+    editor->output_node = node_output_create(editor, output_node_position);
+    node_color_create(editor, color_node_position);
+    editor->show_grid = nk_true;
+
+    editor->initialized = 1;
+}
+
+static int node_editor(struct node_editor *editor) {
+    int n = 0;
+    struct nk_rect total_space;
+    const struct nk_input *in = &ui_ctx->input;
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+    struct node *updated = 0;
+
+    node_editor_init(editor);
+
+    {
+        /* allocate complete window space */
+        total_space = nk_window_get_content_region(ui_ctx);
+        nk_layout_space_begin(ui_ctx, NK_STATIC, total_space.h, editor->node_count);
+        {
+            struct node *it = editor->begin;
+            struct nk_rect size = nk_layout_space_bounds(ui_ctx);
+            struct nk_panel *nodePanel = 0;
+
+            //nk_fill_rect(canvas, size, 0/*rounding*/, ((struct nk_color){30,30,30,255})); // 20,30,40,255
+            nk_fill_rect_multi_color(canvas, size, GRID_BG_COLORS);
+
+            if (editor->show_grid) {
+                /* display grid */
+                for (float x = (float)fmod(size.x - editor->scrolling.x, GRID_SIZE); x < size.w; x += GRID_SIZE)
+                    nk_stroke_line(canvas, x+size.x, size.y, x+size.x, size.y+size.h, GRID_THICKNESS, GRID_COLOR);
+                for (float y = (float)fmod(size.y - editor->scrolling.y, GRID_SIZE); y < size.h; y += GRID_SIZE)
+                    nk_stroke_line(canvas, size.x, y+size.y, size.x+size.w, y+size.y, GRID_THICKNESS, GRID_COLOR);
+            }
+
+            /* execute each node as a movable group */
+            /* loop through nodes */
+            while (it) {
+                /* Output node window should not have a close button */
+                nk_flags nodePanel_flags = NK_WINDOW_MOVABLE|NK_WINDOW_NO_SCROLLBAR|NK_WINDOW_BORDER|NK_WINDOW_TITLE;
+                if (it != editor->output_node)
+                    nodePanel_flags |= NK_WINDOW_CLOSABLE;
+
+                /* calculate scrolled node window position and size */
+                nk_layout_space_push(ui_ctx, nk_rect(it->bounds.x - editor->scrolling.x,
+                    it->bounds.y - editor->scrolling.y, it->bounds.w, it->bounds.h));
+
+                /* execute node window */
+                char *name = va(" " ICON_MD_MENU " %s",it->name); //< @r-lyeh added some spacing+icon because of our UI customizations
+
+struct nk_color bak = ui_ctx->style.window.fixed_background.data.color;
+ui_ctx->style.window.fixed_background.data.color = BG_COLOR;
+
+                if (nk_group_begin(ui_ctx, name, nodePanel_flags))
+                {
+                    /* always have last selected node on top */
+
+                    nodePanel = nk_window_get_panel(ui_ctx);
+                    if (nk_input_mouse_clicked(in, NK_BUTTON_LEFT, nodePanel->bounds) &&
+                        (!(it->prev && nk_input_mouse_clicked(in, NK_BUTTON_LEFT,
+                        nk_layout_space_rect_to_screen(ui_ctx, nodePanel->bounds)))) &&
+                        editor->end != it)
+                    {
+                        updated = it;
+                    }
+
+                    if ((nodePanel->flags & NK_WINDOW_HIDDEN)) /* Node close button has been clicked */
+                    {
+                        /* Delete node */
+                        struct node_link *link_remove;
+                        node_editor_pop(editor, it);
+                        for (int n = 0; n < it->input_count; n++) {
+                            if ((link_remove = node_editor_find_link_by_output(editor, it, n)))
+                            {
+                                node_editor_delete_link(link_remove);
+                            }
+                        }
+                        for (int n = 0; n < it -> output_count; n++) {
+                            while((link_remove = node_editor_find_link_by_input(editor, it, n)))
+                            {
+                                node_editor_delete_link(link_remove);
+                            }
+                        }
+                        NK_ASSERT(editor->node_buf[it->ID] == it);
+                        editor->node_buf[it->ID] = NULL;
+                        FREE(it->inputs);
+                        FREE(it->outputs);
+                        FREE(it);
+                    }
+                    else {
+
+                        /* ================= NODE CONTENT ===================== */
+
+                        it->display_func(ui_ctx, it);
+
+                        /* ==================================================== */
+
+                    }
+                    nk_group_end(ui_ctx);
+
+                }
+
+ui_ctx->style.window.fixed_background.data.color = bak;
+
+                if (!(nodePanel->flags & NK_WINDOW_HIDDEN))
+                {
+                    /* node pin and linking */
+                    struct nk_rect bounds;
+                    bounds = nk_layout_space_rect_to_local(ui_ctx, nodePanel->bounds);
+                    bounds.x += editor->scrolling.x;
+                    bounds.y += editor->scrolling.y;
+                    it->bounds = bounds;
+
+                    /* output pins */
+                    for (int n = 0; n < it->output_count; ++n) {
+                        struct nk_rect circle;
+                        struct nk_vec2 pt = {nodePanel->bounds.x, nodePanel->bounds.y};
+                        pt.x += nodePanel->bounds.w - PIN_RADIUS / 2 + it->pin_spacing.out_padding_x;
+                        pt.y += it->pin_spacing.out_padding_y + it->pin_spacing.out_spacing_y * (n);
+                        PIN_DRAW(it->outputs[n],pt,PIN_RADIUS);
+
+                        /* start linking process */
+                        /* set linking active */
+                        if (nk_input_has_mouse_click_down_in_rect(in, NK_BUTTON_LEFT, circle, nk_true)) {
+                            editor->linking.active = nk_true;
+                            editor->linking.node = it;
+                            editor->linking.input_id = it->ID;
+                            editor->linking.input_pin = n;
+                        }
+
+                        /* draw link being dragged (from linked pin to mouse position) */
+                        if (editor->linking.active && editor->linking.node == it &&
+                            editor->linking.input_pin == n) {
+                                LINK_DRAW(vec2(circle.x+3,circle.y+3),ptr2(&in->mouse.pos.x),COLOR_FLOW_HI);
+                        }
+                    }
+
+                    /* input pins */
+                    for (int n = 0; n < it->input_count; ++n) {
+                        struct nk_rect circle;
+                        struct nk_vec2 pt = {nodePanel->bounds.x, nodePanel->bounds.y};
+                        pt.x += it->pin_spacing.in_padding_x;
+                        pt.y += it->pin_spacing.in_padding_y + it->pin_spacing.in_spacing_y * (n);
+                        PIN_DRAW(it->inputs[n],pt,PIN_RADIUS);
+
+                        /* Detach link */
+                        if (nk_input_has_mouse_click_down_in_rect(in, NK_BUTTON_LEFT, circle, nk_true) &&
+                        editor->linking.active == nk_false &&
+                        it->inputs[n].is_connected == nk_true) {
+                            struct node_link *node_relink = node_editor_find_link_by_output(editor, it, n);
+                            editor->linking.active = nk_true;
+                            editor->linking.node = node_relink->input_node;
+                            editor->linking.input_id = node_relink->input_node->ID;
+                            editor->linking.input_pin = node_relink->input_pin;
+                            node_editor_delete_link(node_relink);
+                        }
+
+                        /* Create link */
+                        if (nk_input_is_mouse_released(in, NK_BUTTON_LEFT) &&
+                            nk_input_is_mouse_hovering_rect(in, circle) &&
+                            editor->linking.active &&
+                            editor->linking.node != it &&
+                            it->inputs[n].pin_type == editor->linking.node->outputs[editor->linking.input_pin].pin_type &&
+                            it->inputs[n].is_connected != nk_true) {
+                            editor->linking.active = nk_false;
+
+                            node_editor_link(editor, editor->linking.node,
+                                editor->linking.input_pin, it, n);
+                        }
+                    }
+                }
+                it = it->next;
+            }
+
+            /* reset (output) linking connection */
+            if (editor->linking.active && (!!input(KEY_LCTRL) || !!input(KEY_RCTRL) || nk_input_is_mouse_released(in, NK_BUTTON_LEFT))) {
+                editor->linking.active = nk_false;
+                editor->linking.node = NULL;
+            }
+
+            /* draw each static link */
+            for (int n = 0; n < editor->link_count; ++n) {
+                struct node_link *link = &editor->links[n];
+                if (link->is_active == nk_true){
+                    struct node *ni = link->input_node;
+                    struct node *no = link->output_node;
+                    struct nk_vec2 l0 = nk_layout_space_to_screen(ui_ctx, nk_vec2(ni->bounds.x + ni->bounds.w + ni->pin_spacing.out_padding_x, 3.0f + ni->bounds.y + ni->pin_spacing.out_padding_y + ni->pin_spacing.out_spacing_y * (link->input_pin)));
+                    struct nk_vec2 l1 = nk_layout_space_to_screen(ui_ctx, nk_vec2(no->bounds.x + no->pin_spacing.in_padding_x, 3.0f + no->bounds.y + no->pin_spacing.in_padding_y + no->pin_spacing.in_spacing_y * (link->output_pin)));
+
+                    l0.x -= editor->scrolling.x;
+                    l0.y -= editor->scrolling.y;
+                    l1.x -= editor->scrolling.x;
+                    l1.y -= editor->scrolling.y;
+
+                    struct nk_color color = node_get_type_color(no->inputs[link->output_pin].pin_type);
+                    LINK_DRAW(ptr2(&l0.x), ptr2(&l1.x), color);
+                }
+            }
+
+            if (updated) {
+                /* reshuffle nodes to have least recently selected node on top */
+                node_editor_pop(editor, updated);
+                node_editor_push(editor, updated);
+            }
+
+            /* node selection */
+            if (nk_input_mouse_clicked(in, NK_BUTTON_LEFT, nk_layout_space_bounds(ui_ctx))) {
+                it = editor->begin;
+                editor->selected = NULL;
+                editor->bounds = nk_rect(in->mouse.pos.x, in->mouse.pos.y, 100, 200);
+                while (it) {
+                    struct nk_rect b = nk_layout_space_rect_to_screen(ui_ctx, it->bounds);
+                    b.x -= editor->scrolling.x;
+                    b.y -= editor->scrolling.y;
+                    if (nk_input_is_mouse_hovering_rect(in, b))
+                        editor->selected = it;
+                    it = it->next;
+                }
+            }
+
+            /* contextual menu */
+            if (nk_contextual_begin(ui_ctx, 0, nk_vec2(150, 220), nk_window_get_bounds(ui_ctx))) {
+                struct nk_vec2 wincoords = { in->mouse.pos.x-total_space.x-50, in->mouse.pos.y-total_space.y-32 };
+
+#if 1
+            static char *filter = 0;
+                static int do_filter = 0;
+                if( input_down(KEY_F) ) if( input(KEY_LCTRL) || input(KEY_RCTRL) ) do_filter ^= 1;
+                int choice = ui_toolbar(ICON_MD_SEARCH ";");
+                if( choice == 1 ) do_filter = 1;
+                if( do_filter ) {
+                    ui_string(ICON_MD_CLOSE " Filter " ICON_MD_SEARCH, &filter);
+                    if( ui_label_icon_clicked_L.x > 0 && ui_label_icon_clicked_L.x <= 24 ) { // if clicked on CANCEL icon (1st icon)
+                        do_filter = 0;
+                    }
+                } else {
+                    if( filter ) filter[0] = '\0';
+                }
+            char *filter_mask = filter && filter[0] ? va("*%s*", filter) : "*";
+#endif
+
+                #define ui_label_filtered(lbl) (strmatchi(lbl,filter_mask) && ui_label(lbl))
+
+                int close = 0;
+                if (ui_label_filtered("=Add Color node")) close=1,node_color_create(editor, wincoords);
+                if (ui_label_filtered("=Add Float node")) close=1,node_float_create(editor, wincoords);
+                if (ui_label_filtered("=Add Blend Node")) close=1,node_blend_create(editor, wincoords);
+                if (ui_label_filtered(editor->show_grid ? "=Hide Grid" : "=Show Grid"))
+                    close=1,editor->show_grid = !editor->show_grid;
+                if(close) do_filter = 0, (filter ? filter[0] = '\0' : '\0'), nk_contextual_close(ui_ctx);
+                nk_contextual_end(ui_ctx);
+            }
+        }
+        nk_layout_space_end(ui_ctx);
+
+        /* window content scrolling */
+        if (nk_input_is_mouse_hovering_rect(in, nk_window_get_bounds(ui_ctx)) &&
+            nk_input_is_mouse_down(in, NK_BUTTON_MIDDLE)) {
+            editor->scrolling.x += in->mouse.delta.x;
+            editor->scrolling.y += in->mouse.delta.y;
+        }
+    }
+
+    return !nk_window_is_closed(ui_ctx, "NodeEdit");
+}
+
+int editor_nodes(int window_mode) {
+    window_mode = EDITOR_WINDOW; // force window
+
+    if( editor_begin(NODES_TITLE, window_mode) ) {
+
+            static struct node_editor nodeEditor = {0};
+            node_editor(&nodeEditor);
+
+        editor_end(window_mode);
+    }
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_nodes);
+}
+#line 0
+#line 1 "fwk_editor_script.h"
+
+int ui_texture_fit(texture_t t, struct nk_rect bounds) {
+    // allocate complete window space
+    struct nk_rect total_space = nk_window_get_content_region(ui_ctx);
+    nk_layout_space_begin(ui_ctx, NK_DYNAMIC, total_space.h - 4, 1); // -4 to hide scrollbar Y
+    nk_layout_space_push(ui_ctx, nk_rect(0,0,1,1));
+
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ui_ctx);
+    struct nk_image image = nk_image_id((int)t.id);
+    nk_draw_image(canvas, bounds, &image, nk_white);
+
+    nk_layout_space_end(ui_ctx);
+    return 0;
+}
+
+#define LITE_ICON  ICON_MDI_SCRIPT_TEXT
+#define LITE_TITLE "Script " LITE_ICON
+
+EDITOR_BIND(script, "held(CTRL)&down(6)", { ui_show(LITE_TITLE, ui_visible(LITE_TITLE) ^ true); });
+
+int editor_scripted(int window_mode) {
+    window_mode = EDITOR_WINDOW; // force mode
+
+    static lua_State *L = 0;
+    do_once {
+        L = script_init_env(SCRIPT_LUA|SCRIPT_DEBUGGER);
+
+        const char *platform = "" // "Android" "FreeBSD" "OpenBSD" "NetBSD"
+            ifdef(ems, "Emscripten")
+            ifdef(linux, "Linux")
+            ifdef(osx, "macOS")
+            ifdef(win32, "Windows")
+        ;
+        const char *pathexe = vac("%s%s%s", app_path(), app_name(), ifdef(win32, ".exe", ""));
+
+        gleqInit();
+        gleqTrackWindow(window_handle());
+        lt_init(L, window_handle(), LT_DATAPATH, __argc, __argv, window_scale(), platform, pathexe);
+    }
+
+    unsigned lt_none = 0u;
+    unsigned lt_all = ~0u & ~(GLEQ_WINDOW_MOVED/*|GLEQ_WINDOW_RESIZED|GLEQ_WINDOW_REFRESH*/);
+    lt_events = lt_none;
+
+    int mouse_in_rect = 0;
+    if( editor_begin(LITE_TITLE, window_mode) ) {
+
+        lt_events = lt_all;
+        if( !nk_window_has_focus(ui_ctx) ) lt_events = lt_none;
+
+        struct nk_rect bounds = nk_window_get_content_region(ui_ctx);
+
+        lt_mx = input(MOUSE_X) - bounds.x;
+        lt_my = input(MOUSE_Y) - bounds.y;
+        lt_wx = bounds.x;
+        lt_wy = bounds.y;
+        lt_ww = bounds.w;
+        lt_wh = bounds.h;
+
+        if( lt_resizesurface(lt_getsurface(0), lt_ww, lt_wh) ) {
+            gleq_window_refresh_callback(window_handle());
+        }
+        // fullscreen_quad_rgb( lt_getsurface(0)->t, 1.2f );
+        ui_texture_fit(lt_getsurface(0)->t, bounds);
+
+        if( !!nk_input_is_mouse_hovering_rect(&ui_ctx->input, ((struct nk_rect){lt_wx+5,lt_wy+5,lt_ww-10,lt_wh-10})) ) {
+            lt_events &= ~(1<<31); // dont cursor shape
+        }
+
+        editor_end(window_mode);
+    }
+
+    lt_tick(L);
+    return 0;
+}
+
+AUTORUN {
+    array_push(editor.subeditors, editor_scripted);
 }
 #line 0
 

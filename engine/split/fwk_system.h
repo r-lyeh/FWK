@@ -10,6 +10,7 @@ API void        thread_destroy( void *thd );
 
 API int         argc();
 API char*       argv(int);
+API void        argvadd(const char *arg);
 
 API int         flag(const char *commalist); // --arg // app_flag?
 API const char* option(const char *commalist, const char *defaults); // --arg=string or --arg string

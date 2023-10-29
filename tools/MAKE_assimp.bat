@@ -14,8 +14,8 @@ cp bin/libassimp.dylib ../libassimp.5.dylib
 cp bin/libassimp.dylib ../libassimp.5.0.1.dylib
 cd ..
 
-cc ass2iqe.c -o ass2iqe.linux -O2 -I assimp/include/ libassimp.so    -lm
-cc ass2iqe.c -o ass2iqe.osx   -O2 -I assimp/include/ libassimp.dylib -lm
+cc ass2iqe.c -o ass2iqe.linux -O2 -I. -I ../engine/split -I assimp/include/ libassimp.so    -lm
+cc ass2iqe.c -o ass2iqe.osx   -O2 -I. -I ../engine/split -I assimp/include/ libassimp.dylib -lm
 
 exit
 
@@ -32,4 +32,4 @@ xcopy /y assimp\.build\bin\release\*.dll
 xcopy /y assimp\.build\lib\release\*.lib 
 
 copy /y assimp\include\assimp\config.h.in assimp\config.h && fart -- assimp\config.h "cmakedefine" "//#define"
-cl ass2iqe.c -I . -I assimp\include assimp-vc14?-mt.lib /O2 /Oy /MT /DNDEBUG
+cl ass2iqe.c -I. -I ..\engine\split -I assimp\include assimp-vc14?-mt.lib /O2 /Oy /MT /DNDEBUG

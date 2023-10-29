@@ -18,23 +18,13 @@ API unsigned bgraf( float b, float g, float r, float a );
 API unsigned alpha( unsigned rgba );
 
 #define RGBX(rgb,x)   ( ((rgb)&0xFFFFFF) | (((unsigned)(x))<<24) )
-#define RGB3(r,g,b)   ( (255<<24) | ((r)<<16) | ((g)<<8) | (b) )
-#define RGB4(r,g,b,a) RGBX(RGB3(r,g,b),a)
+#define RGB3(r,g,b)   ( (255<<24) | ((b)<<16) | ((g)<<8) | (r) )
+#define RGB4(r,g,b,a) ( ((a)<<24) | ((b)<<16) | ((g)<<8) | (r) )
 
 #define BLACK   RGBX(0x000000,255)
-#define WHITE   RGBX(0xFFF1E8,255)
+#define WHITE   RGBX(0xE8F1FF,255)
 
-#if 0
-#define RED     RGBX(0xFF004D,255)
-#define GREEN   RGBX(0x00B543,255)
-#define BLUE    RGBX(0x065AB5,255)
-#define ORANGE  RGBX(0xFF6C24,255)
-#define CYAN    RGBX(0x29ADFF,255)
-#define PURPLE  RGBX(0x7E2553,255)
-#define YELLOW  RGBX(0xFFEC27,255)
-#define GRAY    RGBX(0x725158,255)
-#else
-#define RED     RGB3(   255,48,48 )
+#define RED     RGB3(   255, 0,48 )
 #define GREEN   RGB3(  144,255,48 )
 #define CYAN    RGB3(   0,192,255 )
 #define ORANGE  RGB3(  255,144,48 )
@@ -45,8 +35,10 @@ API unsigned alpha( unsigned rgba );
 #define PINK    RGB3(  255,48,144 )
 #define AQUA    RGB3(  48,255,144 )
 
-#define BLUE    RGBX(0x065AB5,255)
-#endif
+#define BLUE    RGBX(0xB55A06,255)
+
+API unsigned atorgba(const char *s);
+API char *   rgbatoa(unsigned rgba);
 
 // -----------------------------------------------------------------------------
 // images
@@ -117,6 +109,7 @@ enum TEXTURE_FLAGS {
     // @fixme
     TEXTURE_SRGB = 1 << 24,
     TEXTURE_BGR = 1 << 25,
+    TEXTURE_BGRA = TEXTURE_BGR,
     TEXTURE_ARRAY = 1 << 26,
 };
 
@@ -131,6 +124,7 @@ typedef struct texture_t {
     char* filename;
     bool transparent;
     unsigned fbo; // for texture recording
+    union { unsigned userdata, delay; };
 } texture_t;
 
 API texture_t texture_compressed(const char *filename, unsigned flags);
@@ -188,79 +182,6 @@ API void fullscreen_quad_rgb( texture_t texture_rgb, float gamma );
 API void fullscreen_quad_rgb_flipped( texture_t texture, float gamma );
 API void fullscreen_quad_ycbcr( texture_t texture_YCbCr[3], float gamma );
 API void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3], float gamma );
-
-// -----------------------------------------------------------------------------
-// sprites
-
-// texture id, position(x,y,depth sort), tint color, rotation angle
-API void sprite( texture_t texture, float position[3], float rotation /*0*/, uint32_t color /*~0u*/);
-
-// texture id, rect(x,y,w,h) is [0..1] normalized, z-index, pos(xy,scale), rotation (degrees), color (rgba)
-API void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-
-// texture id, sheet(frameNumber,X,Y) (frame in a X*Y spritesheet), position(x,y,depth sort), rotation angle, offset(x,y), scale(x,y), is_additive, tint color
-API void sprite_sheet( texture_t texture, float sheet[3], float position[3], float rotation, float offset[2], float scale[2], int is_additive, uint32_t rgba, int resolution_independant);
-
-API void sprite_flush();
-
-// -----------------------------------------------------------------------------
-// tilemaps
-
-typedef struct tileset_t {
-    texture_t tex;            // spritesheet
-    unsigned tile_w, tile_h;  // dimensions per tile in pixels
-    unsigned cols, rows;      // tileset num_cols, num_rows
-    unsigned selected;        // active tile (while editing)
-} tileset_t;
-
-API tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows);
-API int       tileset_ui( tileset_t t );
-
-typedef struct tilemap_t {
-    int blank_chr;                // transparent tile
-    unsigned cols, rows;          // map dimensions (in tiles)
-    array(int) map;
-
-    vec3 position;                // x,y,scale
-    float zindex;
-    float tilt;
-    unsigned tint;
-    bool is_additive;
-} tilemap_t;
-
-API tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
-API void      tilemap_render( tilemap_t m, tileset_t style );
-API void      tilemap_render_ext( tilemap_t m, tileset_t style, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive );
-
-// -----------------------------------------------------------------------------
-// tiled maps
-
-typedef struct tiled_t {
-    char *map_name;
-    unsigned first_gid, tilew, tileh, w, h;
-
-    bool parallax;
-    vec3 position;
-    array(bool) visible;
-    array(tilemap_t) layers;
-    array(tileset_t) sets;
-    array(char*) names;
-} tiled_t;
-
-API tiled_t tiled(const char *file_tmx);
-API void    tiled_render(tiled_t tmx, vec3 pos);
-API void    tiled_ui(tiled_t *t);
-
-// -----------------------------------------------------------------------------
-// spines
-
-typedef struct spine_t spine_t;
-
-API spine_t*spine(const char *file_json, const char *file_atlas, unsigned flags);
-API void    spine_skin(spine_t *p, unsigned skin);
-API void    spine_render(spine_t *p, vec3 offset, unsigned flags);
-API void    spine_animate(spine_t *p, float delta);
-API void    spine_ui(spine_t *p);
 
 // -----------------------------------------------------------------------------
 // cubemaps
@@ -620,6 +541,15 @@ typedef struct model_t {
     float *instanced_matrices;
     unsigned num_instances;
 } model_t;
+
+enum BILLBOARD_MODE {
+    BILLBOARD_X = 0x1,
+    BILLBOARD_Y = 0x2,
+    BILLBOARD_Z = 0x4,
+
+    BILLBOARD_CYLINDRICAL = BILLBOARD_X|BILLBOARD_Z,
+    BILLBOARD_SPHERICAL = BILLBOARD_X|BILLBOARD_Y|BILLBOARD_Z
+};
 
 API model_t  model(const char *filename, int flags);
 API model_t  model_from_mem(const void *mem, int sz, int flags);

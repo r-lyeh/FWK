@@ -88,14 +88,14 @@ void demo_cats() {
             spritesheet,                // frame_number in a 8x4 spritesheet
             position, angle,            // position(x,y,depth: sort by Y), angle
             no_offset, scale,           // offset(x,y), scale(x,y)
-            0,white,0                   // is_additive, tint color, resolution independant
+            white,0                     // tint_color, flags
         );
         float position_neg_sort[3] = { c->x,c->y,-c->y }, offset[2] = {-1,5}, no_spritesheet[3] = {0,0,0};
         sprite_sheet(shadowImage,
             no_spritesheet,             // no frame_number (0x0 spritesheet)
             position_neg_sort, angle,   // position(x,y,depth: sort by Y), angle
             offset, scale,              // offset(x,y), scale(x,y)
-            0,alpha,0                   // is_additive, tint color, resolution independant
+            alpha,0                     // tint_color, flags
         );
     }
 }
@@ -134,7 +134,7 @@ void demo_kids() {
             spritesheet,      // num_frame in a 4x4 spritesheet
             position, angle,  // position(x,y,depth: sort by Y), angle
             offset, scale,    // offset(x,y), scale(x,y)
-            0, ~0u, 0         // is_additive, tint color, resolution independant
+            ~0u, 0            // tint color, flags
         );
     }
 }
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
             float spritesheet[3] = {17,34,24}, offset[2] = {0, - 2*absf(sin(window_time()*5))}; // sprite cell and animation
             float scale[2] = {3, 3}, tile_w = 16 * scale[0], tile_h = 16 * scale[1]; // scaling
             float position[3] = {window_width() - tile_w, window_height() - tile_h, zindex }; // position in screen-coordinates
-            sprite_sheet(inputs, spritesheet, position, 0/*rotation*/, offset, scale, false/*is_additive*/, WHITE/*color*/, false/*resolution_independant*/);
+            sprite_sheet(inputs, spritesheet, position, 0/*rotation*/, offset, scale, WHITE, SPRITE_RESOLUTION_INDEPENDANT);
 
             sprite_flush();
             camera_get_active()->position = old_pos;

@@ -76,6 +76,7 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
             int glyphs = strlen(TEXT) / 4 /*3:MD,4:MDI*/; CHOICE *= !!clicked_x * (CHOICE <= glyphs); } while(0)
 
 // menu macros that work not only standalone but also contained within a panel or window
+static int ui_using_v2_menubar = 0;
 #define UI_MENU(N, ...) do { \
     enum { MENUROW_HEIGHT = 25 }; \
     int embedded = !!ui_ctx->current; \
@@ -83,6 +84,7 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
     if( embedded ) total_space = nk_window_get_bounds(ui_ctx), total_space.w -= 10; \
     int created = !embedded && nk_begin(ui_ctx, "MENU_" STRINGIZE(__COUNTER__), nk_rect(0, 0, window_width(), UI_MENUROW_HEIGHT), NK_WINDOW_NO_SCROLLBAR); \
     if ( embedded || created ) { \
+        ui_using_v2_menubar = 1; \
         int align = NK_TEXT_LEFT, Nth = (N), ITEM_WIDTH = 30, span = 0; \
         nk_menubar_begin(ui_ctx); \
         nk_layout_row_begin(ui_ctx, NK_STATIC, MENUROW_HEIGHT, Nth); \
@@ -105,10 +107,11 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
         nk_menu_close(ui_ctx); \
         nk_menu_end(ui_ctx); \
     }}
-#define UI_MENU_ALIGN_RIGHT(px) { \
+#define UI_MENU_ALIGN_RIGHT(px, ...) { \
     int hspace = total_space.w - span - (px) - 1.5 * ITEM_WIDTH; \
     nk_layout_row_push(ui_ctx, hspace); span += hspace; \
     if (nk_menu_begin_label(ui_ctx, (title), align = NK_TEXT_RIGHT, nk_vec2(1,1))) { \
+        __VA_ARGS__; \
         nk_menu_close(ui_ctx); \
         nk_menu_end(ui_ctx); \
     }}
@@ -146,6 +149,10 @@ nk_hovered_text(struct nk_context *ctx, const char *str, int len,
     #define UI_FONT_TERMINAL_SIZE   UI_FONT_ENUM(14,14)
 #endif
 
+    #define UI_FONT_REGULAR_SAMPLING  UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+    #define UI_FONT_HEADING_SAMPLING  UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+    #define UI_FONT_TERMINAL_SAMPLING UI_FONT_ENUM(vec3(1,1,1),vec3(1,1,1))
+
 #if UI_ICONS_SMALL
     #define UI_ICON_FONTSIZE        UI_FONT_ENUM(16.5f,16.5f)
     #define UI_ICON_SPACING_X       UI_FONT_ENUM(-2,-2)
@@ -167,9 +174,9 @@ void* ui_handle() {
 }
 
 static void nk_config_custom_fonts() {
-    #define UI_ICON_MIN ICON_MIN_MD
-    #define UI_ICON_MED ICON_MAX_16_MD
-    #define UI_ICON_MAX ICON_MAX_MD
+    #define UI_ICON_MIN ICON_MD_MIN
+    #define UI_ICON_MED ICON_MD_MAX_16
+    #define UI_ICON_MAX ICON_MD_MAX
 
     #define ICON_BARS        ICON_MD_MENU
     #define ICON_FILE        ICON_MD_INSERT_DRIVE_FILE
@@ -184,8 +191,12 @@ static void nk_config_custom_fonts() {
         for( char *data = vfs_load(UI_FONT_REGULAR, &datalen); data; data = 0 ) {
             float font_size = UI_FONT_REGULAR_SIZE;
                 struct nk_font_config cfg = nk_font_config(font_size);
-                cfg.oversample_v = 2;
-                cfg.pixel_snap = 0;
+                cfg.oversample_h = UI_FONT_REGULAR_SAMPLING.x;
+                cfg.oversample_v = UI_FONT_REGULAR_SAMPLING.y;
+                cfg.pixel_snap   = UI_FONT_REGULAR_SAMPLING.z;
+                #if UI_LESSER_SPACING
+                cfg.spacing.x -= 1.0;
+                #endif
             // win32: struct nk_font *arial = nk_font_atlas_add_from_file(atlas, va("%s/fonts/arial.ttf",getenv("windir")), font_size, &cfg); font = arial ? arial : font;
             // struct nk_font *droid = nk_font_atlas_add_from_file(atlas, "nuklear/extra_font/DroidSans.ttf", font_size, &cfg); font = droid ? droid : font;
             struct nk_font *regular = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg); font = regular ? regular : font;
@@ -193,10 +204,10 @@ static void nk_config_custom_fonts() {
 
         // ...with icons embedded on it.
         static struct icon_font {
-            const char *file; int yspacing; nk_rune range[3];
+            const char *file; int yspacing; vec3 sampling; nk_rune range[3];
         } icons[] = {
-            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
-            {"materialdesignicons-webfont.ttf", 2, {0xF68C /*ICON_MIN_MDI*/, 0xF1CC7/*ICON_MAX_MDI*/, 0}},
+            {"MaterialIconsSharp-Regular.otf", UI_ICON_SPACING_Y, {1,1,1}, {UI_ICON_MIN, UI_ICON_MED /*MAX*/, 0}}, // "MaterialIconsOutlined-Regular.otf" "MaterialIcons-Regular.ttf"
+            {"materialdesignicons-webfont.ttf", 2, {1,1,1}, {0xF68C /*ICON_MDI_MIN*/, 0xF1CC7/*ICON_MDI_MAX*/, 0}},
         };
         for( int f = 0; f < countof(icons); ++f )
         for( char *data = vfs_load(icons[f].file, &datalen); data; data = 0 ) {
@@ -209,9 +220,13 @@ static void nk_config_custom_fonts() {
          // cfg.font->ascent += ICON_ASCENT;
          // cfg.font->height += ICON_HEIGHT;
 
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
+            cfg.oversample_h = icons[f].sampling.x;
+            cfg.oversample_v = icons[f].sampling.y;
+            cfg.pixel_snap   = icons[f].sampling.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
 
             struct nk_font *icons = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_ICON_FONTSIZE, &cfg);
         }
@@ -219,15 +234,19 @@ static void nk_config_custom_fonts() {
         // Monospaced font. Used in terminals or consoles.
 
         for( char *data = vfs_load(UI_FONT_TERMINAL, &datalen); data; data = 0 ) {
-            const float font_size = UI_FONT_REGULAR_SIZE;
+            const float font_size = UI_FONT_TERMINAL_SIZE;
             static const nk_rune icon_range[] = {32, 127, 0};
 
             struct nk_font_config cfg = nk_font_config(font_size);
             cfg.range = icon_range;
 
-            cfg.oversample_h = 1;
-            cfg.oversample_v = 1;
-            cfg.pixel_snap = 1;
+            cfg.oversample_h = UI_FONT_TERMINAL_SAMPLING.x;
+            cfg.oversample_v = UI_FONT_TERMINAL_SAMPLING.y;
+            cfg.pixel_snap   = UI_FONT_TERMINAL_SAMPLING.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
 
             // struct nk_font *proggy = nk_font_atlas_add_default(atlas, font_size, &cfg);
             struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, font_size, &cfg);
@@ -236,7 +255,17 @@ static void nk_config_custom_fonts() {
         // Extra optional fonts from here...
 
         for( char *data = vfs_load(UI_FONT_HEADING, &datalen); data; data = 0 ) {
-            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, 0); // font = bold ? bold : font;
+            struct nk_font_config cfg = nk_font_config(UI_FONT_HEADING_SIZE);
+            cfg.oversample_h = UI_FONT_HEADING_SAMPLING.x;
+            cfg.oversample_v = UI_FONT_HEADING_SAMPLING.y;
+            cfg.pixel_snap   = UI_FONT_HEADING_SAMPLING.z;
+
+            #if UI_LESSER_SPACING
+            cfg.spacing.x -= 1.0;
+            #endif
+
+            struct nk_font *bold = nk_font_atlas_add_from_memory(atlas, data, datalen, UI_FONT_HEADING_SIZE, &cfg);
+            // font = bold ? bold : font;
         }
 
     nk_glfw3_font_stash_end(&nk_glfw); // nk_sdl_font_stash_end();
@@ -391,7 +420,7 @@ int ui_menu_editbox(char *buf, int bufcap) {
 }
 
 int ui_has_menubar() {
-    return !!ui_items; // array_count(ui_items) > 0;
+    return ui_using_v2_menubar || !!ui_items; // ? UI_MENUROW_HEIGHT + 8 : 0; // array_count(ui_items) > 0;
 }
 
 static
@@ -683,6 +712,7 @@ int ui_set_enable_(int enabled) {
 
         off.text.color.a *= alpha;
 
+#if 0
         off.button.normal.data.color.a *= alpha;
         off.button.hover.data.color.a *= alpha;
         off.button.active.data.color.a *= alpha;
@@ -700,7 +730,7 @@ int ui_set_enable_(int enabled) {
         off.contextual_button.text_normal.a *= alpha;
         off.contextual_button.text_hover.a *= alpha;
         off.contextual_button.text_active.a *= alpha;
-
+#endif
         off.menu_button.normal.data.color.a *= alpha;
         off.menu_button.hover.data.color.a *= alpha;
         off.menu_button.active.data.color.a *= alpha;
@@ -709,7 +739,7 @@ int ui_set_enable_(int enabled) {
         off.menu_button.text_normal.a *= alpha;
         off.menu_button.text_hover.a *= alpha;
         off.menu_button.text_active.a *= alpha;
-
+#if 0
         off.option.normal.data.color.a *= alpha;
         off.option.hover.data.color.a *= alpha;
         off.option.active.data.color.a *= alpha;
@@ -782,7 +812,7 @@ int ui_set_enable_(int enabled) {
         off.progress.cursor_hover.data.color.a *= alpha;
         off.progress.cursor_active.data.color.a *= alpha;
         off.progress.cursor_border_color.a *= alpha;
-
+#endif
         off.property.normal.data.color.a *= alpha;
         off.property.hover.data.color.a *= alpha;
         off.property.active.data.color.a *= alpha;
@@ -837,7 +867,7 @@ int ui_set_enable_(int enabled) {
         off.edit.selected_hover.a *= alpha;
         off.edit.selected_text_normal.a *= alpha;
         off.edit.selected_text_hover.a *= alpha;
-
+#if 0
         off.chart.background.data.color.a *= alpha;
         off.chart.border_color.a *= alpha;
         off.chart.selected_color.a *= alpha;
@@ -864,7 +894,7 @@ int ui_set_enable_(int enabled) {
         off.tab.background.data.color.a *= alpha;
         off.tab.border_color.a *= alpha;
         off.tab.text.a *= alpha;
-
+#endif
         off.combo.normal.data.color.a *= alpha;
         off.combo.hover.data.color.a *= alpha;
         off.combo.active.data.color.a *= alpha;
@@ -883,7 +913,7 @@ int ui_set_enable_(int enabled) {
         off.combo.button.text_normal.a *= alpha;
         off.combo.button.text_hover.a *= alpha;
         off.combo.button.text_active.a *= alpha;
-
+#if 0
         off.window.fixed_background.data.color.a *= alpha;
         off.window.background.a *= alpha;
         off.window.border_color.a *= alpha;
@@ -897,6 +927,7 @@ int ui_set_enable_(int enabled) {
         off.window.header.normal.data.color.a *= alpha;
         off.window.header.hover.data.color.a *= alpha;
         off.window.header.active.data.color.a *= alpha;
+#endif
     }
     static struct nk_input input;
     if (!enabled) {
@@ -1888,24 +1919,60 @@ int ui_toggle(const char *label, bool *value) {
     return rc ? (*value ^= 1), rc : rc;
 }
 
-int ui_color4f(const char *label, float *color4) {
-    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
-
-    float c[4] = { color4[0]*255, color4[1]*255, color4[2]*255, color4[3]*255 };
-    int ret = ui_color4(label, c);
-    for( int i = 0; i < 4; ++i ) color4[i] = c[i] / 255.0f;
-    return ret;
-}
-
 static enum color_mode {COL_RGB, COL_HSV} ui_color_mode = COL_RGB;
 
-int ui_color4(const char *label, float *color4) {
+int ui_color4f(const char *label, float *color) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color4[0]*ui_alpha/255, color4[1]*ui_alpha/255, color4[2]*ui_alpha/255, color4[3]/255 }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), clampf(after.a,0,1) };
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGB);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", -FLT_MAX, after.r, FLT_MAX, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", -FLT_MAX, after.g, FLT_MAX, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", -FLT_MAX, after.b, FLT_MAX, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", -FLT_MAX, hsva[0], FLT_MAX, 0.01f,0.005f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", -FLT_MAX, hsva[1], FLT_MAX, 0.01f,0.005f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", -FLT_MAX, hsva[2], FLT_MAX, 0.01f,0.005f);
+            after = nk_hsva_colorfv(hsva);
+        }
+        nk_label(ui_ctx, va("#%02X%02X%02X", (unsigned)clampf(after.r*255,0,255), (unsigned)clampf(after.g*255,0,255), (unsigned)clampf(after.b*255,0,255)), NK_TEXT_CENTERED);
+
+        color[0] = after.r;
+        color[1] = after.g;
+        color[2] = after.b;
+        color[3] = after.a;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+int ui_color4(const char *label, unsigned *color) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    unsigned a = *color >> 24;
+    unsigned b =(*color >> 16)&255;
+    unsigned g =(*color >> 8)&255;
+    unsigned r = *color & 255;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { r*ui_alpha/255, g*ui_alpha/255, b*ui_alpha/255, a*ui_alpha/255 }, before = after;
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
         after = nk_color_picker(ui_ctx, after, NK_RGBA);
@@ -1916,44 +1983,83 @@ int ui_color4(const char *label, float *color4) {
 
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
-            after.a = nk_propertyf(ui_ctx, "#A:", 0, after.a, 1.0f, 0.01f,0.005f);
+            after.r = nk_propertyi(ui_ctx, "#R:", 0, after.r * 255, 255, 1,1) / 255.f;
+            after.g = nk_propertyi(ui_ctx, "#G:", 0, after.g * 255, 255, 1,1) / 255.f;
+            after.b = nk_propertyi(ui_ctx, "#B:", 0, after.b * 255, 255, 1,1) / 255.f;
+            after.a = nk_propertyi(ui_ctx, "#A:", 0, after.a * 255, 255, 1,1) / 255.f;
         } else {
             float hsva[4];
             nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
-            hsva[3] = nk_propertyf(ui_ctx, "#A:", 0, hsva[3], 1.0f, 0.01f,0.05f);
+            hsva[0] = nk_propertyi(ui_ctx, "#H:", 0, hsva[0] * 255, 255, 1,1) / 255.f;
+            hsva[1] = nk_propertyi(ui_ctx, "#S:", 0, hsva[1] * 255, 255, 1,1) / 255.f;
+            hsva[2] = nk_propertyi(ui_ctx, "#V:", 0, hsva[2] * 255, 255, 1,1) / 255.f;
+            hsva[3] = nk_propertyi(ui_ctx, "#A:", 0, hsva[3] * 255, 255, 1,1) / 255.f;
             after = nk_hsva_colorfv(hsva);
         }
+        r = after.r * 255;
+        g = after.g * 255;
+        b = after.b * 255;
+        a = after.a * 255;
+        *color = rgba(r,g,b,a);
 
-        color4[0] = after.r * 255;
-        color4[1] = after.g * 255;
-        color4[2] = after.b * 255;
-        color4[3] = after.a * 255;
+        nk_label(ui_ctx, va("#%02X%02X%02X%02X", r, g, b, a), NK_TEXT_CENTERED);
 
         nk_combo_end(ui_ctx);
     }
     return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
 }
 
-int ui_color3f(const char *label, float *color3) {
-    float c[3] = { color3[0]*255, color3[1]*255, color3[2]*255 };
-    int ret = ui_color3(label, c);
-    for( int i = 0; i < 3; ++i ) color3[i] = c[i] / 255.0f;
-    return ret;
-}
-
-int ui_color3(const char *label, float *color3) {
+int ui_color3f(const char *label, float *color) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color3[0]*ui_alpha/255, color3[1]*ui_alpha/255, color3[2]*ui_alpha/255, 1 }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), ui_alpha };
+    if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
+        nk_layout_row_dynamic(ui_ctx, 120, 1);
+        after = nk_color_picker(ui_ctx, after, NK_RGB);
+
+        nk_layout_row_dynamic(ui_ctx, 0, 2);
+        ui_color_mode = nk_option_label(ui_ctx, "RGB", ui_color_mode == COL_RGB) ? COL_RGB : ui_color_mode;
+        ui_color_mode = nk_option_label(ui_ctx, "HSV", ui_color_mode == COL_HSV) ? COL_HSV : ui_color_mode;
+
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        if (ui_color_mode == COL_RGB) {
+            after.r = nk_propertyf(ui_ctx, "#R:", -FLT_MAX, after.r, FLT_MAX, 0.01f,0.005f);
+            after.g = nk_propertyf(ui_ctx, "#G:", -FLT_MAX, after.g, FLT_MAX, 0.01f,0.005f);
+            after.b = nk_propertyf(ui_ctx, "#B:", -FLT_MAX, after.b, FLT_MAX, 0.01f,0.005f);
+        } else {
+            float hsva[4];
+            nk_colorf_hsva_fv(hsva, after);
+            hsva[0] = nk_propertyf(ui_ctx, "#H:", -FLT_MAX, hsva[0], FLT_MAX, 0.01f,0.005f);
+            hsva[1] = nk_propertyf(ui_ctx, "#S:", -FLT_MAX, hsva[1], FLT_MAX, 0.01f,0.005f);
+            hsva[2] = nk_propertyf(ui_ctx, "#V:", -FLT_MAX, hsva[2], FLT_MAX, 0.01f,0.005f);
+            after = nk_hsva_colorfv(hsva);
+        }
+        nk_label(ui_ctx, va("#%02X%02X%02X", (unsigned)clampf(after.r*255,0,255), (unsigned)clampf(after.g*255,0,255), (unsigned)clampf(after.b*255,0,255)), NK_TEXT_CENTERED);
+
+        color[0] = after.r;
+        color[1] = after.g;
+        color[2] = after.b;
+
+        nk_combo_end(ui_ctx);
+    }
+    return !!memcmp(&before.r, &after.r, sizeof(struct nk_colorf));
+}
+int ui_color3(const char *label, unsigned *color) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    unsigned a = *color >> 24;
+    unsigned b =(*color >> 16)&255;
+    unsigned g =(*color >> 8)&255;
+    unsigned r = *color & 255;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    struct nk_colorf after = { r*ui_alpha/255, g*ui_alpha/255, b*ui_alpha/255, ui_alpha }, before = after;
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(after), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
         after = nk_color_picker(ui_ctx, after, NK_RGB);
@@ -1964,21 +2070,23 @@ int ui_color3(const char *label, float *color3) {
 
         nk_layout_row_dynamic(ui_ctx, 0, 1);
         if (ui_color_mode == COL_RGB) {
-            after.r = nk_propertyf(ui_ctx, "#R:", 0, after.r, 1.0f, 0.01f,0.005f);
-            after.g = nk_propertyf(ui_ctx, "#G:", 0, after.g, 1.0f, 0.01f,0.005f);
-            after.b = nk_propertyf(ui_ctx, "#B:", 0, after.b, 1.0f, 0.01f,0.005f);
+            after.r = nk_propertyi(ui_ctx, "#R:", 0, after.r * 255, 255, 1,1) / 255.f;
+            after.g = nk_propertyi(ui_ctx, "#G:", 0, after.g * 255, 255, 1,1) / 255.f;
+            after.b = nk_propertyi(ui_ctx, "#B:", 0, after.b * 255, 255, 1,1) / 255.f;
         } else {
             float hsva[4];
             nk_colorf_hsva_fv(hsva, after);
-            hsva[0] = nk_propertyf(ui_ctx, "#H:", 0, hsva[0], 1.0f, 0.01f,0.05f);
-            hsva[1] = nk_propertyf(ui_ctx, "#S:", 0, hsva[1], 1.0f, 0.01f,0.05f);
-            hsva[2] = nk_propertyf(ui_ctx, "#V:", 0, hsva[2], 1.0f, 0.01f,0.05f);
+            hsva[0] = nk_propertyi(ui_ctx, "#H:", 0, hsva[0] * 255, 255, 1,1) / 255.f;
+            hsva[1] = nk_propertyi(ui_ctx, "#S:", 0, hsva[1] * 255, 255, 1,1) / 255.f;
+            hsva[2] = nk_propertyi(ui_ctx, "#V:", 0, hsva[2] * 255, 255, 1,1) / 255.f;
             after = nk_hsva_colorfv(hsva);
         }
+        r = after.r * 255;
+        g = after.g * 255;
+        b = after.b * 255;
+        *color = rgba(r,g,b,a);
 
-        color3[0] = after.r * 255;
-        color3[1] = after.g * 255;
-        color3[2] = after.b * 255;
+        nk_label(ui_ctx, va("#%02X%02X%02X", r, g, b), NK_TEXT_CENTERED);
 
         nk_combo_end(ui_ctx);
     }
@@ -2051,6 +2159,8 @@ int ui_bool(const char *label, bool *enabled ) {
     return chg;
 }
 
+static int ui_num_signs = 0;
+
 int ui_int(const char *label, int *v) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
@@ -2071,6 +2181,45 @@ int ui_unsigned(const char *label, unsigned *v) {
     unsigned prev = *v;
     *v = (unsigned)nk_propertyd(ui_ctx, "#", 0, *v, UINT_MAX, 1,1);
     return prev != *v;
+}
+int ui_unsigned2(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+2u %+2u", v[0], v[1]) :
+        va("%2u, %2u", v[0], v[1]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        unsigned prev0 = v[0]; nk_property_int(ui_ctx, "#X:", 0, &v[0], INT_MAX, 1,0.5f);
+        unsigned prev1 = v[1]; nk_property_int(ui_ctx, "#Y:", 0, &v[1], INT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1];
+    }
+    return 0;
+}
+int ui_unsigned3(const char *label, unsigned *v) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+2u %+2u %+2u", v[0], v[1], v[2]) :
+        va("%2u, %2u, %2u", v[0], v[1], v[2]);
+
+    if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
+        nk_layout_row_dynamic(ui_ctx, 0, 1);
+        unsigned prev0 = v[0]; nk_property_int(ui_ctx, "#X:", 0, &v[0], INT_MAX, 1,0.5f);
+        unsigned prev1 = v[1]; nk_property_int(ui_ctx, "#Y:", 0, &v[1], INT_MAX, 1,0.5f);
+        unsigned prev2 = v[2]; nk_property_int(ui_ctx, "#Z:", 0, &v[2], INT_MAX, 1,0.5f);
+        nk_combo_end(ui_ctx);
+        return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
+    }
+    return 0;
 }
 
 int ui_short(const char *label, short *v) {
@@ -2112,16 +2261,14 @@ int ui_clampf(const char *label, float *v, float minf, float maxf) {
     return prev != v[0];
 }
 
-static bool ui_float_sign = 0;
-
 int ui_float2(const char *label, float *v) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.3f %+.3f", v[0], v[1]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.3f %+.3f", v[0], v[1]) :
         va("%.3f, %.3f", v[0], v[1]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -2140,8 +2287,8 @@ int ui_float3(const char *label, float *v) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.2f %+.2f %+.2f", v[0], v[1], v[2]) :
         va("%.2f, %.2f, %.2f", v[0], v[1], v[2]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -2161,8 +2308,8 @@ int ui_float4(const char *label, float *v) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    char *buffer = ui_float_sign ?
-        --ui_float_sign, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
+    char *buffer = ui_num_signs ?
+        --ui_num_signs, va("%+.2f %+.2f %+.2f %+.2f", v[0], v[1], v[2], v[3]) :
         va("%.2f,%.2f,%.2f,%.2f", v[0], v[1], v[2], v[3]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -2181,7 +2328,7 @@ int ui_float4(const char *label, float *v) {
 int ui_mat33(const char *label, float M[9]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 3;
+    ui_num_signs = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float3(NULL, M);
@@ -2192,7 +2339,7 @@ int ui_mat33(const char *label, float M[9]) {
 int ui_mat34(const char *label, float M[12]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 3;
+    ui_num_signs = 3;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -2203,7 +2350,7 @@ int ui_mat34(const char *label, float M[12]) {
 int ui_mat44(const char *label, float M[16]) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
-    ui_float_sign = 4;
+    ui_num_signs = 4;
     int changed = 0;
     changed |= ui_label(label);
     changed |= ui_float4(NULL, M);
@@ -2499,7 +2646,7 @@ int ui_browse(const char **output, bool *inlined) {
         // if(ui_ctx->current) bounds = nk_window_get_bounds(ui_ctx), P(bounds);
         // if(ui_ctx->current) bounds = nk_window_get_content_region(ui_ctx), P(bounds);
         // if(ui_ctx->current) nk_layout_peek(&bounds, ui_ctx), P(bounds);
-        // // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
+        // if(ui_ctx->current) nk_layout_widget_space(&bounds, ui_ctx, ui_ctx->current, nk_false), P(bounds); // note: cant be used within a panel
         // #undef P
 
         // panel
@@ -2574,8 +2721,10 @@ int ui_demo(int do_windows) {
     static float float2[2] = {1,2};
     static float float3[3] = {1,2,3};
     static float float4[4] = {1,2,3,4};
-    static float rgb[3] = {0.84,0.67,0.17};
-    static float rgba[4] = {0.67,0.90,0.12,1};
+    static float rgbf[3] = {0.84,0.67,0.17};
+    static float rgbaf[4] = {0.67,0.90,0.12,1};
+    static unsigned rgb = CYAN;
+    static unsigned rgba = PINK;
     static float slider = 0.5f;
     static float slider2 = 0.5f;
     static char string[64] = "hello world 123";
@@ -2619,8 +2768,10 @@ int ui_demo(int do_windows) {
         if( ui_list("my list", list, 3, &item ) ) puts("list changed");
 
         if( ui_section("Colors")) {}
-        if( ui_color3f("my color3", rgb) ) puts("color3 changed");
-        if( ui_color4f("my color4@this is a tooltip", rgba) ) puts("color4 changed");
+        if( ui_color3("my color3", &rgb) ) puts("color3 changed");
+        if( ui_color4("my color4@this is a tooltip", &rgba) ) puts("color4 changed");
+        if( ui_color3f("my color3f", rgbf) ) puts("color3f changed");
+        if( ui_color4f("my color4f@this is a tooltip", rgbaf) ) puts("color4f changed");
 
         if( ui_section("Sliders")) {}
         if( ui_slider("my slider", &slider)) puts("slider changed");

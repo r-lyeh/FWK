@@ -168,7 +168,7 @@ void window_drop_callback(GLFWwindow* window, int count, const char** paths) {
 void window_hints(unsigned flags) {
     #ifdef __APPLE__
     //glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );
-    //glfwWindowHint( GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE );
+    glfwWindowHint( GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE ); // @todo: remove silicon mac M1 hack
     //glfwWindowHint( GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_FALSE );
     //glfwWindowHint( GLFW_COCOA_MENUBAR, GLFW_FALSE );
     #endif
@@ -317,6 +317,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             //glfwWindowHint(GLFW_FLOATING, GLFW_TRUE); // always on top
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
         }
+        if( flags & WINDOW_BORDERLESS ) {
+            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        }
         #endif
         // windowed
         float ratio = (float)winWidth / (winHeight + !winHeight);
@@ -387,7 +390,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     PRINTF("GPU OpenGL: %d.%d\n", GLAD_VERSION_MAJOR(gl_version), GLAD_VERSION_MINOR(gl_version));
 
     if( FLAGS_TRANSPARENT ) { // @transparent
-        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
         if( scale >= 1 ) glfwMaximizeWindow(window);
     }
     #endif
@@ -421,7 +424,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
                 #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
                    /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
                    float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
-                   float speed = progress < 1 ? 0.2f : 0.5f; \
+                   float speed = progress < 1 ? 0.05f : 0.75f; \
                    float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
                    \
                    float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
@@ -521,7 +524,7 @@ int window_frame_begin() {
     ui_create();
 
 #if !ENABLE_RETAIL
-    bool has_menu = 0; // ui_has_menubar();
+    bool has_menu = ui_has_menubar();
     bool may_render_debug_panel = 1;
 
     if( have_tools() ) {
@@ -536,8 +539,7 @@ int window_frame_begin() {
     // generate Debug panel contents
     if( may_render_debug_panel ) {
         if( has_menu ? ui_window("Debug " ICON_MD_SETTINGS, 0) : ui_panel("Debug " ICON_MD_SETTINGS, 0) ) {
-            API int ui_debug();
-            ui_debug();
+            ui_engine();
 
             (has_menu ? ui_window_end : ui_panel_end)();
         }
@@ -764,9 +766,9 @@ void window_title(const char *title_) {
     if( !title[0] ) glfwSetWindowTitle(window, title);
 }
 void window_color(unsigned color) {
-    unsigned b = (color >>  0) & 255;
+    unsigned r = (color >>  0) & 255;
     unsigned g = (color >>  8) & 255;
-    unsigned r = (color >> 16) & 255;
+    unsigned b = (color >> 16) & 255;
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
@@ -825,7 +827,7 @@ int window_record(const char *outfile_mp4) {
 
 vec2 window_dpi() {
     vec2 dpi = vec2(1,1);
-#ifndef __EMSCRIPTEN__
+#if !is(ems) && !is(osx) // @todo: remove silicon mac M1 hack
     glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &dpi.x, &dpi.y);
 #endif
     return dpi;
@@ -962,22 +964,19 @@ void window_focus() {
 int window_has_focus() {
     return !!glfwGetWindowAttrib(window, GLFW_FOCUSED);
 }
-void window_cursor(int visible) {
-    glfwSetInputMode(window, GLFW_CURSOR, visible ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-}
-int window_has_cursor() {
-    return glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_NORMAL;
-}
+static int cursorshape = 1;
 void window_cursor_shape(unsigned mode) {
+    cursorshape = (mode &= 7);
+
     static GLFWcursor* cursors[7] = { 0 };
     static unsigned enums[7] = {
         0,
         GLFW_ARROW_CURSOR,
         GLFW_IBEAM_CURSOR,
-        GLFW_CROSSHAIR_CURSOR,
-        GLFW_HAND_CURSOR,
         GLFW_HRESIZE_CURSOR,
         GLFW_VRESIZE_CURSOR,
+        GLFW_HAND_CURSOR,
+        GLFW_CROSSHAIR_CURSOR,
     };
     do_once {
         static unsigned pixels[16 * 16] = { 0x01000000 }; // ABGR(le) glfw3 note: A(0x00) means 0xFF for some reason
@@ -996,6 +995,14 @@ void window_cursor_shape(unsigned mode) {
         glfwSetCursor(window, mode < countof(enums) ? cursors[mode] : NULL);
     }
 }
+void window_cursor(int visible) {
+    (cursorshape == CURSOR_SW_AUTO && visible ? nk_style_show_cursor : nk_style_hide_cursor)(ui_handle());
+    glfwSetInputMode(window, GLFW_CURSOR, visible ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+}
+int window_has_cursor() {
+    return glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_NORMAL;
+}
+
 void window_visible(int visible) {
     if(!window) return;
     //if(window) (visible ? glfwRestoreWindow : glfwIconifyWindow)(window);
@@ -1062,4 +1069,17 @@ int window_has_maximize() {
     return ifdef(ems, 0, glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
 }
 
+const char *window_clipboard() {
+    return glfwGetClipboardString(window);
+}
+void window_setclipboard(const char *text) {
+    glfwSetClipboardString(window, text);
+}
 
+static
+double window_scale() { // ok? @testme
+    float xscale, yscale;
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+    return maxi(xscale, yscale);
+}

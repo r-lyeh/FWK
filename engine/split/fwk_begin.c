@@ -3,4 +3,4 @@
     for( int lock_ = (thread_mutex_lock( mutexptr ), 1); lock_; lock_ = (thread_mutex_unlock( mutexptr ), 0) )
 
 #define AS_NKCOLOR(color) \
-    ((struct nk_color){ ((color>>16))&255,((color>>8))&255,((color>>0))&255,((color>>24))&255 })
+    ((struct nk_color){ ((color>>0))&255,((color>>8))&255,((color>>16))&255,((color>>24))&255 })

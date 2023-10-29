@@ -470,7 +470,7 @@ int input_enum(const char *vk) {
     static map(char*,int) m = 0;
     do_once {
         map_init_str(m);
-        #define k(VK) map_insert(m, STRINGIZE(KEY_##VK), KEY_##VK); map_insert(m, STRINGIZE(VK), KEY_##VK);
+        #define k(VK) map_find_or_add(m, STRINGIZE(VK), KEY_##VK); map_find_or_add(m, STRINGIZE(KEY_##VK), KEY_##VK);
         k(ESC)
         k(TICK)  k(1) k(2) k(3) k(4) k(5) k(6) k(7) k(8) k(9) k(0)     k(BS)
         k(TAB)    k(Q) k(W) k(E) k(R) k(T) k(Y) k(U) k(I) k(O) k(P)
@@ -672,6 +672,7 @@ int ui_mouse() {
 
 int ui_keyboard() {
     char *keys[] = {
+        "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
         "ESC",
         "TICK","1","2","3","4","5","6","7","8","9","0","BS",
         "TAB","Q","W","E","R","T","Y","U","I","O","P",
@@ -680,25 +681,23 @@ int ui_keyboard() {
         "LCTRL","LALT","SPACE","RALT","RCTRL","<","V",">",
     };
 
-    vec2i rows[] = {
-        vec2i(0,1),
-        vec2i(1,13),
-        vec2i(13,24),
-        vec2i(24,35),
-        vec2i(35,45),
-        vec2i(45,countof(keys)),
+    float rows[] = {
+        12,
+        1,
+        12,
+        11,
+        11,
+        10,
+        8
     };
 
-    for( int i = 0; i < countof(rows); ++i ) {
-        int any = 0;
-        char *row = 0;
-        for( int j = rows[i].x; j < rows[i].y; ++j ) {
-            strcatf(&row, input(KEY_ESC + j) ? (any|=1, "[%s]") : " %s ", keys[j]);
+    for( int row = 0, k = 0; row < countof(rows); ++row ) {
+        static char *buf = 0; if(buf) *buf = 0;
+        for( int col = 0; col < rows[row]; ++col, ++k ) {
+            assert( input_enum(keys[k]) == input_enum(va("KEY_%s", keys[k])) );
+            strcatf(&buf, input(input_enum(keys[k])) ? "[%s]" : " %s ", keys[k]);
         }
-        if(!any) ui_disable();
-        ui_label(row);
-        ui_enable();
-        FREE(row);
+        ui_label(buf);
     }
 
     return 0;

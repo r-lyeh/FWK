@@ -81,9 +81,7 @@ int main(int argc, char** argv) {
             }
             ui_separator();
             for (int i = 0; i < 9; i++) {
-                vec3 remap = scale3(add3(sky.cubemap.sh[i], vec3(1,1,1)), 127.5f); // -1..+1 -> 0..255
-                ui_color3(va("SH Coefficient [%d]", i), &remap.x);
-                sky.cubemap.sh[i] = sub3(scale3(remap, 1/127.5f), vec3(1,1,1));
+                ui_color3f(va("SH Coefficient [%d]", i), &sky.cubemap.sh[i].x);
             }
             ui_panel_end();
         }

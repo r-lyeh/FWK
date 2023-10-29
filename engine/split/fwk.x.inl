@@ -15,6 +15,7 @@
 // 3rd party libs
 
 #define ARCHIVE_C                             // archive.c
+#define BASE64_C                              // base64.c
 #define COMPRESS_C                            // compress.c
 #define ENET_IMPLEMENTATION                   // enet
 #define GJK_C                                 // gjk
@@ -24,6 +25,7 @@
 #define JO_MPEG_COMPONENTS 3                  // jo_mpeg
 #define JSON5_C                               // json5
 #define LUA_IMPL                              // lua544
+#define LUA_USE_POPEN 1                       // for lite editor
 #define MINIAUDIO_IMPLEMENTATION              // miniaudio
 #define MA_NO_FLAC                            // miniaudio
 #define NK_GLFW_GL3_IMPLEMENTATION            // nuklear
@@ -180,6 +182,18 @@ static char *ui_filter = 0;
    else if(!strcmp(id, "up")    && nargs ==1) push(ev, input_up(pop(ev))); \
    else if(!strcmp(id, "idle")  && nargs ==1) push(ev, input_idle(pop(ev)));
 {{FILE:3rd_eval.h}}
+{{FILE:3rd_luadebugger.h}}
+{{FILE:3rd_base64.h}}
+
+#if ENABLE_RPMALLOC
+{{FILE:3rd_rpmalloc.h}}
+{{FILE:3rd_rpmalloc.c}}
+//{{FILE: 3rd_rpmalloci.c}}
+#define SYS_MEM_INIT()   rpmalloc_initialize()
+#define SYS_MEM_REALLOC  rprealloc
+#define SYS_MEM_SIZE     rpmalloc_usable_size
+#endif
+
 //#define SQLITE_OMIT_LOAD_EXTENSION
 //#define SQLITE_CORE 1
 //#define SQLITE_DEBUG 1
@@ -193,4 +207,14 @@ static char *ui_filter = 0;
 //#undef rehash
 //#undef NB
 //#undef threadid
+
+// editor
+{{FILE:3rd_icon_mdi.h}}
+// editor_script
+#define GLEQ_IMPLEMENTATION
+#define GlyphSet GlyphSet_ // linux
+{{FILE:3rd_lite_sys_gleq.h}}
+{{FILE:3rd_lite_sys.h}}
+{{FILE:3rd_lite.h}}
+
 #endif // FWK_3RD

@@ -6,9 +6,10 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 #  include <malloc.h>
 #endif
 
-#ifndef SYS_REALLOC
-#define SYS_REALLOC realloc
-#define SYS_MSIZE /* bsd/osx, then win32, then ems/__GLIBC__, then __ANDROID_API__ */ \
+#ifndef SYS_MEM_INIT
+#define SYS_MEM_INIT()
+#define SYS_MEM_REALLOC realloc
+#define SYS_MEM_SIZE /* bsd/osx, then win32, then ems/__GLIBC__, then __ANDROID_API__ */ \
     ifdef(osx, malloc_size, ifdef(bsd, malloc_size, \
         ifdef(win32, _msize, malloc_usable_size)))
 #endif
@@ -18,10 +19,12 @@ size_t dlmalloc_usable_size(void*); // __ANDROID_API__
 static __thread uint64_t xstats_current = 0, xstats_total = 0, xstats_allocs = 0;
 
 void* xrealloc(void* oldptr, size_t size) {
+    static __thread int once = 0; for(;!once;once = 1) SYS_MEM_INIT();
+
     // for stats
     size_t oldsize = xsize(oldptr);
 
-    void *ptr = SYS_REALLOC(oldptr, size);
+    void *ptr = SYS_MEM_REALLOC(oldptr, size);
     if( !ptr && size ) {
         PANIC("Not memory enough (trying to allocate %u bytes)", (unsigned)size);
     }
@@ -46,7 +49,7 @@ void* xrealloc(void* oldptr, size_t size) {
     return ptr;
 }
 size_t xsize(void* p) {
-    if( p ) return SYS_MSIZE(p);
+    if( p ) return SYS_MEM_SIZE(p);
     return 0;
 }
 char *xstats(void) {

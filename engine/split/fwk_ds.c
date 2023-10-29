@@ -2,8 +2,11 @@
 // -----------------------------------------------------------------------------
 // sort/less
 
-int sort_64(const void *a, const void *b) {
+int less_64_ptr(const void *a, const void *b) {
     return 0[(uint64_t*)a] - 0[(uint64_t*)b];
+}
+int less_int_ptr(const void *a, const void *b) {
+    return 0[(int*)a] - 0[(int*)b];
 }
 
 int less_int(int a, int b) {

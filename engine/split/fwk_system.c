@@ -5,6 +5,16 @@ __attribute__((constructor)) void init_argcv(int argc, char **argv) { __argc = a
 #endif
 #endif
 
+void argvadd(const char *arg) {
+    char **argv = MALLOC( sizeof(char*) * (__argc+1) );
+    for( int i = 0; i < __argc; ++i ) {
+        argv[i] = __argv[i];
+    }
+    argv[__argc] = STRDUP(arg);
+    __argv = argv;
+    ++__argc;
+}
+
 const char *app_path() { // @fixme: should return absolute path always. see tcc -g -run
     static char buffer[1024] = {0};
     if( buffer[0] ) return buffer;
@@ -90,28 +100,72 @@ const char *app_cache() {
 
 const char * app_exec( const char *cmd ) {
     static __thread char output[4096+16] = {0};
+    char *buf = output + 16; buf[0] = 0; // memset(buf, 0, 4096);
 
     if( !cmd[0] ) return "0               ";
     cmd = file_normalize(cmd);
 
     int rc = -1;
-    char *buf = output + 16; buf[0] = 0; // memset(buf, 0, 4096);
+
+    // pick the fastest code path per platform
+#if is(osx)
     for( FILE *fp = popen( cmd, "r" ); fp; rc = pclose(fp), fp = 0) {
-        while( fgets(buf, 4096 - 1, fp) ) {
-        }
+        // while( fgets(buf, 4096 - 1, fp) ) {}
     }
-    if( rc != 0 ) {
-        char *r = strrchr(buf, '\r'); if(r) *r = 0;
-        char *n = strrchr(buf, '\n'); if(n) *n = 0;
+    // if( rc != 0 ) {
+    //     char *r = strrchr(buf, '\r'); if(r) *r = 0;
+    //     char *n = strrchr(buf, '\n'); if(n) *n = 0;
+    // }
+#elif is(win32)
+    STARTUPINFOA si = {0}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+
+    snprintf(output+16, 4096, "cmd /c \"%s\"", cmd);
+
+    int prio = //strstr(cmd, "ffmpeg") || strstr(cmd, "furnace") || strstr(cmd, "ass2iqe") ?
+    REALTIME_PRIORITY_CLASS; //: 0;
+
+//prio |= DETACHED_PROCESS;
+//si.dwFlags = STARTF_USESTDHANDLES;
+
+    if( CreateProcessA(
+        NULL, output+16, // cmdline
+        NULL,
+        NULL,
+        FALSE, // FALSE: dont inherit handles
+        prio /*CREATE_DEFAULT_ERROR_MODE|CREATE_NO_WINDOW*/, // 0|HIGH_PRIORITY_CLASS
+        NULL, // "", // NULL would inherit env
+        NULL, // current dir
+        &si, &pi) )
+    {
+        // Wait for process
+        DWORD dwExitCode2 = WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD dwExitCode; GetExitCodeProcess(pi.hProcess, &dwExitCode);
+        rc = dwExitCode;
     }
+    else
+    {
+        // CreateProcess() failed
+        rc = GetLastError();
+    }
+#else
+    rc = system(cmd);
+#endif
+
     return snprintf(output, 16, "%-15d", rc), buf[-1] = ' ', output;
 }
 
 int app_spawn( const char *cmd ) {
-    if( !cmd[0] ) return -1;
+    if( !cmd[0] ) return false;
     cmd = file_normalize(cmd);
 
-    return system(cmd);
+#if _WIN32
+    bool ok = WinExec(va("cmd /c \"%s\"", cmd), SW_HIDE) > 31;
+#else
+    bool ok = system(va("%s &", cmd)) == 0;
+#endif
+
+    return ok;
 }
 
 #if is(osx)
@@ -156,8 +210,8 @@ static char **backtrace_symbols(void *const *list,int size) {
 
     static __thread char **symbols = 0; //[32][64] = {0};
     if( !symbols ) {
-        symbols = SYS_REALLOC(0, 128 * sizeof(char*));
-        for( int i = 0; i < 128; ++i) symbols[i] = SYS_REALLOC(0, 128 * sizeof(char));
+        symbols = SYS_MEM_REALLOC(0, 128 * sizeof(char*));
+        for( int i = 0; i < 128; ++i) symbols[i] = SYS_MEM_REALLOC(0, 128 * sizeof(char));
     }
 
     if(size > 128) size = 128;
@@ -190,7 +244,7 @@ static char **backtrace_symbols(void *const *sym,int num) { return 0; }
 
 char *callstack( int traces ) {
     static __thread char *output = 0;
-    if(!output ) output = SYS_REALLOC( 0, 128 * (64+2) );
+    if(!output ) output = SYS_MEM_REALLOC( 0, 128 * (64+2) );
     if( output ) output[0] = '\0';
     char *ptr = output;
 
@@ -561,9 +615,9 @@ void tty_color(unsigned color) {
     #endif
     if( color ) {
         // if( color == RED ) alert("break on error message (RED)"), breakpoint(); // debug
-        unsigned r = (color >> 16) & 255;
+        unsigned r = (color >>  0) & 255;
         unsigned g = (color >>  8) & 255;
-        unsigned b = (color >>  0) & 255;
+        unsigned b = (color >> 16) & 255;
         // 24-bit console ESC[ … 38;2;<r>;<g>;<b> … m Select RGB foreground color
         // 256-color console ESC[38;5;<fgcode>m
         // 0x00-0x07:  standard colors (as in ESC [ 30..37 m)
@@ -749,7 +803,7 @@ int (PRINTF)(const char *text, const char *stack, const char *file, int line, co
 
 static void *panic_oom_reserve; // for out-of-memory recovery
 int (PANIC)(const char *error, const char *file, int line) {
-    panic_oom_reserve = SYS_REALLOC(panic_oom_reserve, 0);
+    panic_oom_reserve = SYS_MEM_REALLOC(panic_oom_reserve, 0);
 
     tty_color(RED);
 
@@ -807,9 +861,9 @@ void app_crash() {
     *p = 42;
 }
 void app_beep() {
-    ifdef(win32, system("rundll32 user32.dll,MessageBeep"); return; );
-    ifdef(linux, system("paplay /usr/share/sounds/freedesktop/stereo/message.oga"); return; );
-    ifdef(osx,   system("tput bel"); return; );
+    ifdef(win32, app_spawn("rundll32 user32.dll,MessageBeep"); return; );
+    ifdef(linux, app_spawn("paplay /usr/share/sounds/freedesktop/stereo/message.oga"); return; );
+    ifdef(osx,   app_spawn("tput bel"); return; );
 
     //fallback:
     fputc('\x7', stdout);
@@ -864,7 +918,7 @@ bool app_open_folder(const char *file) {
 #else
     snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
 #endif
-    return system(buf) == 0;
+    return app_spawn(buf);
 }
 
 static
@@ -877,7 +931,7 @@ bool app_open_file(const char *file) {
 #else
     snprintf(buf, sizeof(buf), "xdg-open \"%s\"", file);
 #endif
-    return system(buf) == 0;
+    return app_spawn(buf);
 }
 
 static

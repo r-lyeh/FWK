@@ -101,28 +101,20 @@ extern "C" {
 
 {{FILE:fwk_math.h}}
 
-{{FILE:fwk_id.h}}
-
 {{FILE:fwk_obj.h}}
 
 
 {{FILE:fwk_ai.h}}
 
-{{FILE:fwk_bt.h}}
-
 {{FILE:fwk_audio.h}}
-
-{{FILE:fwk_buffer.h}}
 
 {{FILE:fwk_collide.h}}
 
-{{FILE:fwk_cooker.h}}
+{{FILE:fwk_cook.h}}
 
 {{FILE:fwk_data.h}}
 
-{{FILE:fwk_dll.h}}
-
-{{FILE:fwk_editor.h}}
+{{FILE:fwk_extend.h}}
 
 {{FILE:fwk_file.h}}
 
@@ -148,21 +140,24 @@ extern "C" {
 
 {{FILE:fwk_scene.h}}
 
-{{FILE:fwk_script.h}}
-
 {{FILE:fwk_string.h}}
+
+{{FILE:fwk_sprite.h}}
+{{FILE:fwk_gui.h}}
 
 {{FILE:fwk_system.h}}
 
 {{FILE:fwk_time.h}}
-
-{{FILE:fwk_tween.h}}
 
 {{FILE:fwk_ui.h}}
 
 {{FILE:fwk_video.h}}
 
 {{FILE:fwk_window.h}}
+
+// ----
+
+{{FILE:fwk_editor.h}}
 
 // ----
 
@@ -176,13 +171,13 @@ extern "C" {
     #include <GLFW/glfw3.h>
     #include <emscripten.h>
     #include <emscripten/html5.h>
-    #define gladLoadGL(func) (glewExperimental = true, glewInit() == GLEW_OK)
+    #define gladLoadGL(func) (glewExperimental = true, glewInit() == GLEW_OK) ///-
 #else
     #if is(win32) /*&& is(tcc)*/ // && ENABLE_DLL
     #ifdef GLAD_API_CALL
     #undef GLAD_API_CALL
     #endif
-    #define GLAD_API_CALL extern API
+    #define GLAD_API_CALL extern API ///-
     #endif
     #ifndef GLAD_GL_H_
     #include "fwk"

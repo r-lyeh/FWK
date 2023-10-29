@@ -62,3 +62,9 @@ API void ddraw_prism(vec3 center, float radius, float height, vec3 normal, int s
 API void ddraw_demo();
 API void ddraw_flush();
 API void ddraw_flush_projview(mat44 proj, mat44 view);
+
+// transform gizmos
+
+API int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+API bool gizmo_active();
+API bool gizmo_hover();

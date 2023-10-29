@@ -518,6 +518,7 @@ nk_glfw3_new_frame(struct nk_glfw* glfw)
         nk_input_key(ctx, NK_KEY_SHIFT, 0);
     }
 
+if(glfwGetInputMode(win, GLFW_CURSOR) == GLFW_CURSOR_NORMAL) { //< @r-lyeh: do not grab input when mouse is hidden (fps cam)
     glfwGetCursorPos(win, &x, &y);
     nk_input_motion(ctx, (int)x, (int)y);
 #if NK_GLFW_GL3_MOUSE_GRABBING
@@ -531,6 +532,7 @@ nk_glfw3_new_frame(struct nk_glfw* glfw)
     nk_input_button(ctx, NK_BUTTON_MIDDLE, (int)x, (int)y, glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
     nk_input_button(ctx, NK_BUTTON_RIGHT, (int)x, (int)y, glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
     nk_input_button(ctx, NK_BUTTON_DOUBLE, glfw->double_click_pos.x, glfw->double_click_pos.y, glfw->is_double_click_down);
+} //< @r-lyeh
     nk_input_scroll(ctx, glfw->scroll);
     nk_input_end(&glfw->ctx);
     glfw->text_len = 0;

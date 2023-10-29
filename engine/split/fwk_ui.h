@@ -29,11 +29,13 @@ API int    ui_mat44(const char *label, float mat44[16]);
 API int    ui_double(const char *label, double *value);
 API int    ui_buffer(const char *label, char *buffer, int buflen);
 API int    ui_string(const char *label, char **string);
-API int    ui_color3(const char *label, float *color3); //[0..255]
-API int    ui_color3f(const char *label, float *color3); //[0..1]
-API int    ui_color4(const char *label, float *color4); //[0..255]
-API int    ui_color4f(const char *label, float *color4); //[0..1]
+API int    ui_color3(const char *label, unsigned *color); //[0..255]
+API int    ui_color3f(const char *label, float color[3]); //[0..1]
+API int    ui_color4(const char *label, unsigned *color); //[0..255]
+API int    ui_color4f(const char *label, float color[4]); //[0..1]
 API int    ui_unsigned(const char *label, unsigned *value);
+API int    ui_unsigned2(const char *label, unsigned *value);
+API int    ui_unsigned3(const char *label, unsigned *value);
 API int    ui_button(const char *label);
 API int    ui_button_transparent(const char *label);
 API int    ui_buttons(int buttons, /*labels*/...);

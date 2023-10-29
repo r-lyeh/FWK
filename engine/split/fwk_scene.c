@@ -12,6 +12,8 @@ camera_t camera() {
         cam.position = vec3(10,10,10);
         cam.updir = vec3(0,1,0);
         cam.fov = 45;
+        cam.orthographic = false;
+        cam.distance = 3; // len3(cam.position);
 
         cam.damping = false;
         cam.move_friction = 0.09f;
@@ -103,19 +105,18 @@ void camera_enable(camera_t *cam) {
 void camera_fov(camera_t *cam, float fov) {
     last_camera = cam;
 
-#if 0 // isometric/dimetric
-    #define orthogonal(proj, fov, aspect, znear, zfar) \
-    ortho44((proj), -(fov) * (aspect), (fov) * (aspect), -(fov), (fov), (znear), (zfar))
-
-    float DIMETRIC = 30.000f;
-    float ISOMETRIC = 35.264f;
     float aspect = window_width() / ((float)window_height()+!window_height());
-    orthogonal(cam->proj, 45, aspect, -1000, 1000); // why -1000?
-    // cam->yaw = 45;
-    cam->pitch = -ISOMETRIC;
-#endif
+
     cam->fov = fov;
-    perspective44(cam->proj, cam->fov, window_width() / ((float)window_height()+!window_height()), 0.01f, 1000.f);
+
+    if( cam->orthographic ) {
+        ortho44(cam->proj, -cam->fov * aspect, cam->fov * aspect, -cam->fov, cam->fov, 0.01f, 2000);
+        // [ref] https://commons.wikimedia.org/wiki/File:Isometric_dimetric_camera_views.png
+        // float pitch = cam->dimetric ? 30.000f : 35.264f; // dimetric or isometric
+        // cam->pitch = -pitch; // quickly reorient towards origin
+    } else {
+        perspective44(cam->proj, cam->fov, aspect, 0.01f, 2000.f);
+    }
 }
 
 void camera_fps(camera_t *cam, float yaw, float pitch) {
@@ -146,34 +147,21 @@ void camera_fps(camera_t *cam, float yaw, float pitch) {
 void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
     last_camera = cam;
 
-    vec2 inc_mouse = vec2(yaw, pitch);
-
-    // @todo: worth moving all these members into camera_t ?
-    static vec2 _mouse = {0,0};
-    static vec2 _polarity = { +1,-1 };
-    static vec2 _sensitivity = { 2,2 };
-    static float _friction = 0.75; //99;
-    static float _distance; do_once _distance = len3(cam->position);
-
     // update dummy state
     camera_fps(cam, 0,0);
 
-    // add smooth input
-    _mouse = mix2(_mouse, add2(_mouse, mul2(mul2(inc_mouse,_sensitivity),_polarity)), _friction);
-    _distance = mixf(_distance, _distance+inc_distance, _friction);
+    // @todo: add damping
+    vec3 _mouse = vec3(yaw, pitch, inc_distance);
+    cam->yaw += _mouse.x;
+    cam->pitch += _mouse.y;
+    cam->distance += _mouse.z;
 
-    // look: update angles
-    vec2 offset = sub2( _mouse, ptr2(&cam->last_move.x) );
-    if( 1 ) { // if _enabled
-        cam->yaw += offset.x;
-        cam->pitch += offset.y;
-        // look: limit pitch angle [-89..89]
-        cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
-    }
+    // look: limit pitch angle [-89..89]
+    cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
 
     // compute view matrix
-    float x = rad(cam->yaw), y = rad(cam->pitch), cx = cosf(x), cy = cosf(y), sx = sinf(x), sy = sinf(y);
-    lookat44(cam->view, vec3( cx*cy*_distance, sy*_distance, sx*cy*_distance ), vec3(0,0,0), vec3(0,1,0) );
+    float x = rad(cam->yaw), y = rad(-cam->pitch), cx = cosf(x), cy = cosf(y), sx = sinf(x), sy = sinf(y);
+    lookat44(cam->view, vec3( cx*cy*cam->distance, sy*cam->distance, sx*cy*cam->distance ), vec3(0,0,0), vec3(0,1,0) );
 
     // save for next call
     cam->last_move.x = _mouse.x;
@@ -182,6 +170,7 @@ void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
 
 int ui_camera( camera_t *cam ) {
     int changed = 0;
+    changed |= ui_bool("Orthographic", &cam->orthographic);
     changed |= ui_bool("Damping", &cam->damping);
     if( !cam->damping ) ui_disable();
     changed |= ui_slider2("Move friction", &cam->move_friction, va("%5.3f", cam->move_friction));
@@ -199,6 +188,7 @@ int ui_camera( camera_t *cam ) {
     ui_enable();
     ui_separator();
     changed |= ui_float("FOV (degrees)", &cam->fov);
+    changed |= ui_float("Orbit distance", &cam->distance);
     ui_disable();
     changed |= ui_mat44("Projection matrix", cam->proj);
     ui_enable();

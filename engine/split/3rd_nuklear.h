@@ -19810,7 +19810,7 @@ nk_panel_begin(struct nk_context *ctx, const char *title, enum nk_panel_type pan
         float t = font->width(font->userdata, font->height, title, text_len);
         text.padding = nk_vec2(0,0);
 
-        label.x = header.x - style->window.header.padding.x; //< @r-lyeh: + -> -
+        label.x = header.x + (win->flags & NK_WINDOW_MINIMIZABLE ? -1 : 2) * style->window.header.padding.x; //< @r-lyeh: + -> - on minimizable
 //      label.x += style->window.header.label_padding.x; //< @r-lyeh: disabled
         label.y = header.y + style->window.header.label_padding.y;
         label.h = font->height + 2 * style->window.header.label_padding.y;

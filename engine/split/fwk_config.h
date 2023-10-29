@@ -6,7 +6,7 @@
 #endif
 
 #ifndef ENABLE_PROFILER
-#define ENABLE_PROFILER         ifdef(debug, 1, 0)  ///+
+#define ENABLE_PROFILER         ifdef(retail, 0, 1)  ///+
 #endif
 
 #ifndef ENABLE_SELFIES
@@ -31,6 +31,10 @@
 
 #ifndef ENABLE_RETAIL
 #define ENABLE_RETAIL           0 // ifdef(retail, 1, 0) ///+
+#endif
+
+#ifndef ENABLE_RPMALLOC
+#define ENABLE_RPMALLOC         0 // ifdef(tcc, 0, 1) // forbidden on tcc because of lacking TLS support
 #endif
 
 // -----------------------------------------------------------------------------
@@ -288,12 +292,6 @@
 #define AUTORUN_(fn) \
     __attribute__((constructor(__COUNTER__+101))) \
     static void fn(void)
-#endif
-
-#if 0 // autorun demo
-void byebye(void) { puts("seen after main()"); }
-AUTORUN { puts("seen before main()"); }
-AUTORUN { puts("seen before main() too"); atexit( byebye ); }
 #endif
 
 // -----------------------------------------------------------------------------

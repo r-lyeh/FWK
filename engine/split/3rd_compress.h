@@ -8955,12 +8955,7 @@ static bool LzmaDec_Init(CLzmaDec *p, const uint8_t *raw_props)
 
 // glue.c
 
-static
-#ifdef _MSC_VER
-__declspec(thread)
-#else
-__thread
-#endif
+static __thread
 struct {
     uint8_t *begin, *seek, *end;
 }
@@ -10300,9 +10295,7 @@ static inline uint32_t DecodeMod(const uint8_t** p) {
 
 // LZ77
 
-static int UlzCompressFast(const uint8_t* in, int inlen, uint8_t* out, int outlen) {
-    ULZ_WORKMEM *u =(ULZ_WORKMEM*)ULZ_REALLOC(0, sizeof(ULZ_WORKMEM));
-
+static int UlzCompressFast(const uint8_t* in, int inlen, uint8_t* out, int outlen, ULZ_WORKMEM *u) {
     for (int i=0; i<ULZ_HASH_SIZE; ++i)
         u->HashTable[i]=ULZ_NIL;
 
@@ -10384,16 +10377,14 @@ static int UlzCompressFast(const uint8_t* in, int inlen, uint8_t* out, int outle
         op+=run;
     }
 
-    ULZ_REALLOC(u, 0);
     return op-out;
 }
 
-static int UlzCompress(const uint8_t* in, int inlen, uint8_t* out, int outlen, int level) {
+static int UlzCompress(const uint8_t* in, int inlen, uint8_t* out, int outlen, int level, ULZ_WORKMEM *u) {
     if (level<1 || level>9)
         return 0;
     const int max_chain=(level<9)?1<<level:1<<13;
 
-    ULZ_WORKMEM *u = (ULZ_WORKMEM*)ULZ_REALLOC(0, sizeof(ULZ_WORKMEM));
     for (int i=0; i<ULZ_HASH_SIZE; ++i)
         u->HashTable[i]=ULZ_NIL;
 
@@ -10518,7 +10509,6 @@ static int UlzCompress(const uint8_t* in, int inlen, uint8_t* out, int outlen, i
         op+=run;
     }
 
-    ULZ_REALLOC(u, 0);
     return op-out;
 }
 
@@ -10575,9 +10565,11 @@ static int UlzDecompress(const uint8_t* in, int inlen, uint8_t* out, int outlen)
 }
 
 unsigned ulz_encode(const void *in, unsigned inlen, void *out, unsigned outlen, unsigned flags) {
+    static __thread ULZ_WORKMEM u;
+
     int level = flags > 9 ? 9 : flags; // [0..(6)..9]
-    int rc = level ? UlzCompress((uint8_t *)in, (int)inlen, (uint8_t *)out, (int)outlen, level)
-        : UlzCompressFast((uint8_t *)in, (int)inlen, (uint8_t *)out, (int)outlen);
+    int rc = level ? UlzCompress((uint8_t *)in, (int)inlen, (uint8_t *)out, (int)outlen, level, &u)
+        : UlzCompressFast((uint8_t *)in, (int)inlen, (uint8_t *)out, (int)outlen, &u);
     return (unsigned)rc;
 }
 unsigned ulz_decode(const void *in, unsigned inlen, void *out, unsigned outlen) {
@@ -10713,7 +10705,7 @@ unsigned file_encode(FILE* in, FILE* out, FILE *logfile, unsigned cnum, unsigned
     double enctime = 0;
     if( logfile ) tm = clock();
     {
-        for( uint32_t inlen; (inlen=fread(inbuf, 1, BS_BYTES, in)) > 0 ; ) {
+        for( uint32_t inlen; (inlen=BS_BYTES * fread(inbuf, BS_BYTES, 1, in)) > 0 ; ) {
             uint32_t outlen[2] = {0};
 
             best = clist[0];
@@ -10748,15 +10740,15 @@ unsigned file_encode(FILE* in, FILE* out, FILE *logfile, unsigned cnum, unsigned
             if( compr ) {
                 uint8_t packer = (compr << 4) | flags;
                 // store block length + compressor + compr data
-                if( fwrite(&outlen[0], 1, 4, out) != 4 ) goto fail;
+                if( fwrite(&outlen[0], 4, 1, out) != 1 ) goto fail;
                 if( fwrite(&packer, 1, 1, out) != 1 ) goto fail;
-                if( fwrite(outbuf[0], 1, outlen[0], out) != outlen[0] ) goto fail;
+                if( fwrite(outbuf[0], outlen[0], 1, out) != 1 ) goto fail;
             } else {
                 uint8_t packer = 0;
                 // store block length + no-compressor + raw data
-                if( fwrite(&inlen, 1, 4, out) != 4 ) goto fail;
+                if( fwrite(&inlen, 4, 1, out) != 1 ) goto fail;
                 if( fwrite(&packer, 1, 1, out) != 1 ) goto fail;
-                if( fwrite(inbuf, 1, inlen, out) != inlen ) goto fail;
+                if( fwrite(inbuf, inlen, 1, out) != 1 ) goto fail;
             }
 
             total_in += inlen;
@@ -10790,8 +10782,8 @@ unsigned file_encode(FILE* in, FILE* out, FILE *logfile, unsigned cnum, unsigned
 
 
 unsigned file_decode(FILE* in, FILE* out, FILE *logfile) { // multi decoder
-    uint8_t block8; if( fread(&block8, 1,1, in ) < 1 ) return 0;
-    uint8_t excess8; if( fread(&excess8, 1,1, in ) < 1 ) return 0;
+    uint8_t block8; if( fread(&block8, 1,1, in ) != 1 ) return 0;
+    uint8_t excess8; if( fread(&excess8, 1,1, in ) != 1 ) return 0;
     uint64_t BLOCK_SIZE = 1ull << block8;
     uint64_t EXCESS = 1ull << excess8;
 
@@ -10803,15 +10795,15 @@ unsigned file_decode(FILE* in, FILE* out, FILE *logfile) { // multi decoder
     double dectime = 0;
     if(logfile) tm = clock();
     {
-        for(uint32_t inlen=0, loop=0;fread(&inlen, 1, sizeof(inlen), in)>0;++loop) {
+        for(uint32_t inlen=0, loop=0;fread(&inlen, sizeof(inlen), 1, in) == 1;++loop) {
             if (inlen>(BLOCK_SIZE+EXCESS)) goto fail;
 
             uint8_t packer;
-            if( fread(&packer, 1,sizeof(packer), in) <= 0 ) goto fail;
+            if( fread(&packer, sizeof(packer),1, in) != 1 ) goto fail;
 
             if(packer) {
                 // read compressed
-                if (fread(inbuf, 1, inlen, in)!=inlen) goto fail;
+                if (fread(inbuf, inlen,1, in)!=1) goto fail;
 
                 // decompress
                 uint8_t compressor = packer >> 4;
@@ -10819,11 +10811,11 @@ unsigned file_decode(FILE* in, FILE* out, FILE *logfile) { // multi decoder
                 if (!outlen) goto fail;
             } else {
                 // read raw
-                if (fread(outbuf, 1, inlen, in)!=inlen) goto fail;
+                if (fread(outbuf, inlen,1, in)!=1) goto fail;
                 outlen=inlen;
             }
 
-            if (fwrite(outbuf, 1, outlen, out) != outlen) {
+            if (fwrite(outbuf, outlen, 1, out) != 1) {
                 perror("fwrite() failed");
                 goto fail;
             }

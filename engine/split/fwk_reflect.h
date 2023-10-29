@@ -59,5 +59,6 @@ API void               enum_inscribe(const char *E,unsigned Eval,const char *inf
 API void               struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos);
 API void               member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes);
 API void               function_inscribe(const char *F,void *func,const char *infos);
+API const char*        symbol_naked(const char *s);
 
 API int                ui_reflect(const char *mask); // *, model* or NULL

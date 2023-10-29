@@ -1,6 +1,6 @@
 <h1 align="center"><a href="https://bit.ly/fwk2023">F·W·K</a></h1>
 <p align="center">
-3D game engine/framework in C, with Luajit and Python bindings now.<br/>
+3D game engine/framework in C.<br/>
 </p>
 
 <p align="center">
@@ -21,8 +21,8 @@
 </p>
 
 ## Goals
-- [x] ~~Full featured~~, ~~Fast~~, ~~Modern C++~~. Small, Naive, Simple C.
-- [x] ~~Rich build system~~, ~~Royaltie fee~~. Single file, Freely unlicensed.
+- [x] ~~Rich build system, Royaltie fee, Full featured, Fast, Modern C++~~.
+- [x] Single-file header, Unlicensed, Small, Naive, Simple C.
 
 ## Features ᕦ(ᐛ)ᕤ
 - [x] Pipeline: configurable and integrated [asset pipeline](tools/cook.ini).
@@ -34,10 +34,9 @@
 - [x] Math: rand, noise, ease, vec2/3/4, mat33/34/44, quat.
 - [x] Geometry: ray, line, plane, aabb, sphere, capsule, triangle, poly and frustum.
 - [x] Window: windowed, soft/hard fullscreen, msaa, icon, cursor handling.
-- [x] Input: keyboard, mouse and gamepads.
+- [x] Input: keyboard, mouse and gamepads. input bindings.
 - [x] Script: Lua scripting, Luajit/Python bindings.
-- [x] Network: downloads (HTTPS) and sockets (TCP/UDP). <!-- [*] Object, GameObject, W/ECS -->
-- [x] AI: Swarm/Boids.
+- [x] Network: downloads (HTTPS) and sockets (TCP/UDP).
 - [x] UI: button, list, slider, toggle, checkbox, editbox, dialog, color, image, menu, window, notify...
 - [x] Font: TTF, OTF and TTC. Basic syntax highlighter. Glyph ranges. Atlasing.
 - [x] Localization/I18N: XLSX and INI. Unicode.
@@ -52,36 +51,44 @@
 - [x] Render: Post-effects (SSAO,FXAA1/3,CRT,Contrast,Grain,Outline,Vignette...).
 - [x] Render: 3D Anims, skeletal anims, hardware skinning and instanced rendering.
 - [x] Render: 3D Debugdraw, batching and vectorial font.
-- [x] Render: 2D Sprites, spritesheets, AA zooming and batching.
-- [x] Render: 2D Tilemaps and tilesets: TMX, TSX.
+- [x] Render: 3D Sprites, spritesheets, AA zooming and batching: ASE.
+- [x] Render: 3D Tilemaps and tilesets: TMX, TSX.
+- [x] Time: Hires timers, tweens, easings, constant-time spline/catmulls.
+- [x] AI: Swarm/Boids, pathfinding, behavior trees (wip).
 - [x] Compression: DEFLATE, LZMA, LZ4, ULZ, BALZ, BCM, CRUSH, LZW3, LZSS and PPP.
 - [x] Virtual filesystem: ZIP, PAK, TAR and DIR.
 - [x] Level data: JSON, JSON5, SJSON, XML, INI.
+- [x] Reflection and serialization: JSON5, INI.
+- [x] Object system.
 - [x] Disk cache.
 - [x] Scene handling.
 - [x] Profiler, stats and leaks finder.
-- [x] [Editor (wip)](https://user-images.githubusercontent.com/35402248/174457347-f787a6a2-aac8-404c-a5da-f44310c3d432.mp4).
+- [x] [Editors (wip)](https://user-images.githubusercontent.com/35402248/174457347-f787a6a2-aac8-404c-a5da-f44310c3d432.mp4): scene, text editor.
 - [x] [Documentation (wip)](https://bit.ly/fwk2023).
 
 ## Roadmap ᕕ(ᐛ)ᕗ (in order of arrival; ✱: partial support)
-- [ ] AI pass: actors, waypoints, pathfinding, behavior trees (h/fsm,goap), and navmesh generation.
-- [ ] Network/VM pass: Entity/component/systems and worlds. <!-- W/ECS, gameobj, serialization:load/save/merge, diff/patch ;; dead reckoning, interpolation, extrapolation, bandwidth budgets -->
-  - [ ] Core pass: struct serialization.
+- [ ] Editor pass.
+  - [ ] Basic: undo/redo✱, copy/paste, on/off (vis,tick,ddraw,log), vcs.
+  - [ ] Script pass: DLL✱ (module->plugin/sys), Lua✱, Luajit✱, Teal✱ and TypeScript.
+  - [ ] Network pass: netbased + offline rendering + virtual input.
+- [ ] World pass: Worlds and Object✱/component✱/systems. <!-- W/OCS, gameobj, serialization:diff/patch -->
+  - [ ] Spatial partioning. BVH, PVS, occluders, frustum culling✱.
+  - [ ] World streaming and level loading.
+  - [ ] Level: volumes, triggers, platforms, level streaming.
+- [ ] Sub-editors
+  - [ ] Sub-editor: Scene tree✱, properties✱ and gizmos✱.
+    - [ ] Scenenode: node singleton display, node console, node labels, node outlines✱.<!-- node == gameobj ? -->
+    - [ ] Debug: toggles on/off (billboards✱, materials, un/lit, cast shadows, wireframe, skybox✱/mie✱, fog/atmosphere, collide✱, physics).
+  - [ ] Sub-editor: Timeline✱ and data tracks.
+  - [ ] Sub-editor: Node graphs✱. <!-- worthy: will be reused into materials, animgraphs and blueprints -->
+  - [ ] Sub-editor: Procedural content, brushes, noise and CSG.
+  - [ ] Sub-editor: Animgraph, blendshapes, additive anims, head/foot/hand IKs. Math: Quat2
+- [ ] AI pass: actors, waypoints, behavior trees✱ (h/fsm,goap), and navmesh generation.
+- [ ] Network pass. <!-- dead reckoning, interpolation, extrapolation, bandwidth budgets -->
   - [ ] Message pipeline and replication. <!-- manual/replication channels, node sharding/clustering. -->
   - [ ] Digital signals, message buffering and event polling.
-  - [ ] World streaming and level loading.
-  - [ ] Scenegraphs and spatial partioning. BVH, PVS, occluders, frustum culling.
   - [ ] Server/client architecture. Hybrid P2P.
   - [ ] NAT traversal. Socketless API, message API and pub/sub wrappers (enet/websocket).
-- [ ] Editor pass = netbased + offline rendering + virtual input.
-  - [ ] Basic: Gizmos✱, scene tree, property editor✱, load/save✱, undo/redo✱, copy/paste, on/off (vis,tick,ddraw,log), vcs.
-  - [ ] Scenenode: node singleton display, node console, node labels, node outlines✱.<!-- node == gameobj ? -->
-  - [ ] Debug: toggles on/off (billboards✱, materials, un/lit, cast shadows, wireframe, skybox✱/mie✱, fog/atmosphere, collide✱, physics).
-  - [ ] Level: volumes, triggers, platforms, level streaming.
-  - [ ] Sub-editor: timeline and data tracks, node graphs. <!-- worthy: will be reused into materials, animgraphs and blueprints -->
-  - [ ] Sub-editor: Procedural content, brushes, noise and CSG.
-  - [ ] Sub-editor: blendshapes, additive anims, head/foot/hand IKs.
-  - [ ] Script pass: DLL✱ (module->plugin/sys), Lua✱, Luajit✱, Teal✱ and TypeScript.
 - [ ] Render pass: reverse-Z, automatic LODs, impostors, decals.
   - [ ] Materials: (colors✱, textures✱, matcaps✱, videos✱, shadertoys✱). Shadertoys as post-fx✱. <!--materials as postfx, as they have an update() method -->
   - [ ] Lighting: Hard/soft shadow mapping (VSM,CCSM). Baked lightmaps. Refl probes. Integrated PBR.
@@ -90,14 +97,13 @@
   - [ ] Extend atlas (sprite/lightmaps). Fit packing (sprites).
   - [ ] Extend bindings and messaging: parse C headers during cooking stage. <!-- msgs,docs,refl,meta,lua -- (*.c, *.h) as .proto/.pbc maybe, free reflection+automatic bindings -->
 - [ ] API pass
-  - [ ] Extend math: quat2, bezier, catmull.
   - [ ] Discuss API and freeze it.
   - [ ] Document everything.
 
 <!--
 ## Rationale
 - Fun, direct, minimalist API style
-- Focused on eliminating any friction to end-users, at the cost of implementation details.
+- Focused on eliminating dev friction at the cost of hidding implementation details.
 - Consistency: same naming conventions can be found within the whole codebase.
 - Less is more, DOD, KISS.
 - Heap allocations under control.
@@ -112,35 +118,35 @@
 - [x] 01 Debug, callstacks, console, leaks, cvars and profiling.
 - [x] 02 Window, rendering contexts and game loop.
 - [x] 03 File formats, hashing, encryption and compression.
-- [x] 04 Timers, easings and interpolation.
-- [*] 05 Input bindings, digital+analog buttons, filters, gestures, chords and combos.
+- [x] 04 Timers, tweens, easings and interpolation.
+- [*] 05 Input bindings✱, digital+analog buttons✱, filters, gestures, chords✱ and combos.
 - [x] 06 Linear math, geometry, volumes and collisions.
 - [x] 07 Cameras and frustum culling.
 - [ ] 08 Regions, triggers, trees and spatial partioning.
-- [*] 09 Data pipeline and asset journaling.
+- [*] 09 Data pipeline✱ and asset journaling.
 - [ ] 10 World streaming and level loading.
 - [x] 11 2D/2.5D/3D/VR renderer and post-effects.
 - [x] 12 Fonts, atlases and text rendering.
 - [x] 13 Debug draw and debug UI.
 - [ ] 14 Procedural content, brushes, voxels, noise and CSG.
-- [*] 15 Static meshes, decals, skyboxes and skydomes.
-- [*] 16 Sprites, sheets and spines.
-- [ ] 17 Particles, billboards, emitters, trails and paths.
-- [*] 18 Skeletal animation, blending, blendspaces, IKs.
-- [*] 19 LODs, mesh instancing and scenegraphs.
+- [*] 15 Static meshes✱, decals, skyboxes✱ and skydomes.
+- [*] 16 Sprites, sheets and spines✱.
+- [ ] 17 Particles, billboards✱, emitters, trails and paths.
+- [*] 18 Skeletal animation✱, blending✱, blendspaces, IKs.
+- [*] 19 LODs✱, mesh instancing✱ and scenegraphs.
 - [ ] 20 Server/client architecture.
-- [ ] 21 Message pipeline and serialization.
+- [ ] 21 Message pipeline and serialization✱.
 - [ ] 22 Digital signals, message buffering and event polling.
-- [ ] 23 Entity/component/systems and world replication.
-- [*] 24 Scripting, bindings and game modules.
-- [*] 25 Navpoints, navmesh traversal and pathfinding.
-- [*] 26 AI, H/FSM, behavior trees and flocking.
+- [ ] 23 Object/component/systems and world replication.
+- [*] 24 Scripting, bindings✱ and game modules.
+- [*] 25 Navpoints, navmesh traversal and pathfinding✱.
+- [*] 26 AI, H/FSM, behavior trees and flocking✱.
 - [ ] 27 Game flow and game UI.
-- [*] 28 Localization, subtitles and unicode.
-- [*] 29 2D/3D audio, HRTF, FFT, filtering and sound occlusion.
+- [*] 28 Localization✱, subtitles and unicode✱.
+- [*] 29 2D✱/3D audio, HRTF, FFT, filtering and sound occlusion.
 - [ ] 30 Dialogue, quests and inventory.
-- [*] 31 Full Motion Video and integrated cinematics.
-- [*] 32 Editor, gizmos, properties, timeline and data tracks.
+- [*] 31 Full Motion Video✱ and integrated cinematics.
+- [*] 32 Editor✱, gizmos✱, properties✱, timeline✱, text✱ and data tracks.
 
 Nice to have/extend (engine dependant):
 - Animation pass: playlists, additive, blend/shapes, ik/bones, animgraph/controllers.
@@ -155,9 +161,9 @@ Nice to have/extend (engine dependant):
 - Design pass: Integrated cinematics QTE.
 - Design pass: Scripting, bindings and game modules.
 - Design pass: Scripting: DLL (module->plugin/sys), Lua, Luajit, Teal and TypeScript.
-- FX pass: Particles, billboards, emitters, trails and paths.
+- FX pass: Particles, emitters, trails and paths.
 - Tools pass: Asset journaling.
-// expose uniforms as ui options, also model_uniform();
+// expose uniforms as model_uniform();
 // Pipeline: Extend asset pipeline (shaders, bindings, xml). Asset options.
 //     cook: slang: hlsl2glsl (XShaderCompiler), hlsl2spirv (dxc), spirv2many (spirv-cross), glsl2many (sokol-shdc)
 //     cook: tlfx22json
@@ -173,14 +179,13 @@ Nice to have/extend (engine dependant):
 - Render pass: Voxels
 - Render pass: VR.
 - Script pass: Refl/Meta binding tool (during cook stage).
-- System pass: Buffer encryption.
 - System pass: Mobile iOS/Android, HTML5✱, Web/WASM, RaspberryPi.
 - Social pass: Achievements, Scores, Rankings, Friends, Invites, Steam/Itchio 1st-party store integrations, etc.
 - UI pass: HUD, UI Widgets, touch input, touch gestures.
 - UI pass: Font text layout and shaping, underlining, soft/hard shadows, outlines.
 // font: M/SDF https://github.com/WilliamBundy/wiggle https://github.com/Chlumsky/msdf-atlas-gen
 - UI pass: Game flow and game UI.
-- UI pass: Localization, subtitles and unicode.
+- UI pass: Subtitles and unicode.
 
 Engine types:
 - 2DY   Pong (70)
@@ -207,11 +212,11 @@ Almost done:
 - Docs pass: API, functions, samples, examples, pipeline.
 
 // plan:
-//[ ] cam: friction, projections (dimetric, isometric, ...)
+//[ ] cam: projections (dimetric, isometric, ...)
 //[ ] Render: Materials (textures, matcaps, videos, shadertoys).
 //    material: fixed color, texture or script that returns color
 //    animated textures (shadertoys, videos)
-// 8) vm/ecs core + engines: custom frontends & backends
+// 8) vm/ocs core + engines: custom frontends & backends
 //    vm: ram, workqueues, threading, priorities, load/save
 //    service protocols: websocket bqqbarbhg/bq_websocket, https, handshake
 //    databases, services, quotas, black/whitelists, etc
@@ -239,20 +244,14 @@ Almost done:
 
 Issues to fix that I keep forgetting about...
 render            raster sprites in resolution independant way (@SushilRagoonath)
-render            helper function to debug/raster fbos in screen (@SushilRagoonath)
-                  (by using either tile() or sprite(), with bool do_flipping option)
-                  i think this was already implemented long time ago
 window            more flexibility when creating windows (@SushilRagoonath) #31
                   (since I dont want users to enter (w,h) resolution, maybe I should allow WINDOW_16_9, WINDOW_3_2, WINDOW_3_4, etc;)
 platform          consider going html5 with wajic https://github.com/schellingb/wajic/issues/1
-platform          support for Vulkan, DirectX, and OpenGL ES? (@Rabios)
 video             audio buffers may exhaust. do a better mixer.
 video             stutters shortly when fast seeking.
 editor            gizmo crashes sometimes.
 editor            gizmo make it better resolution independent.
-editor            gizmo handlers do overlap often.
 editor            3-gizmos 1-view.
-render            billboards stopped working sometime ago.
 render            fx_end() should flush all retained renderers (debugdraw, sprites, ...)
 sprite            expose ortho-2d camera for sprites somehow.
 sprite            hud sprites (resolution independent, z-index, no fx).
@@ -304,7 +303,7 @@ echo win/mingw    && gcc   hello.c -lws2_32 -lwinmm -ldbghelp -lole32 -luser32 -
 echo win/clang    && clang hello.c -lws2_32 -lwinmm -ldbghelp -lole32 -luser32 -lgdi32 -lcomdlg32
 echo linux        && cc  hello.c -lm -ldl -lpthread -lX11
 echo linux/tcc    && tcc hello.c -lm -ldl -lpthread -lX11 -D__STDC_NO_VLA__
-echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framework audiotoolbox
+echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framework coreaudio -framework audiotoolbox
 ```
 
 ## Cook
@@ -324,23 +323,29 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 - Disable automatic cooking by using `--cook-jobs=0` flag (not recommended).
 - Generate a project solution by dropping `engine/fwk.h, fwk.c and fwk` files into it.
 - Auto-generated Luajit and Python bindings can be found in the [`engine/`](engine/) folder.
+- Windows Defender may tag as false positives some generated binaries with tcc. Use `make tcc static` instead.
 <!-- - On windows + vc, you can use `make bindings` or `make docs` to generate everything prior to a release -->
 <!-- - Note: Windows: Assimp.dll may need [this package installed](https://www.microsoft.com/en-us/download/confirmation.aspx?id=30679).-->
+
+## Bindings
+- Auto-generated LuaJIT and Python bindings can be found [in this folder](demos/lua).
 
 ## Credits
 **Artwork and demos**
 [David Lam](https://en.wikipedia.org/wiki/Tokamak_(software) "for tokamak physics engine (ZLIB)"),
-[Dean Evans, Raijin](https://youtu.be/RRvYkrrpMKo?t=147 "for the Map song (c)"),
+[Dean Evans, Raijin](https://youtu.be/RRvYkrrpMKo?t=147 "for their Map song (c)"),
 [FMS_Cat](https://gist.github.com/FMS-Cat/a1ccea3ce866c34706084e3526204f4f "for nicest VHS/VCR shader around (MIT)"),
 [Goblin165cm](https://sketchfab.com/3d-models/halloween-little-witch-ccc023590bfb4789af9322864e42d1ab "for witch 3D model (CC BY 4.0)"),
 [Nuulbee](https://sketchfab.com/3d-models/kgirls01-d2f946f58a8040ae993cda70c97b302c "for kgirls01 3D model (CC BY-NC-ND 4.0)"),
-[Quaternius](https://www.patreon.com/quaternius "for the lovely 3D robots (CC0)"),
+[Pixel Frog](https://pixelfrog-assets.itch.io/ "for their lovely asesprites (CC0)"),
+[Quaternius](https://www.patreon.com/quaternius "for their lovely 3D robots (CC0)"),
 [Rotting Pixels](https://opengameart.org/content/2d-castle-platformer-tileset-16x16 "for castle-tileset (CC0)"),
-[Tom Lewandowski](https://QuestStudios.com "for his MIDI recordings (c)"),
+[Tom Lewandowski](https://QuestStudios.com "for their MIDI recordings (c)"),
 [Rye Terrell](https://github.com/wwwtyro/glsl-atmosphere "for nicest rayleigh/mie scattering shader around (CC0)"),
-[Rxi](https://github.com/rxi/autobatch "for lovely sprites & cats demo (MIT)"),
+[Rxi](https://github.com/rxi/autobatch "for their lovely sprites & cats demo (MIT)"),
 **Tools**
 [Aaron Barany](https://github.com/akb825/Cuttlefish "for cuttlefish (APACHE2)"),
+[Andreas Mantler](https://github.com/ands/sproutline/ "for sproutline (PD)"),
 [Arseny Kapoulkine](https://github.com/zeux/pugixml/ "for pugixml (MIT)"),
 [Assimp authors](https://github.com/assimp/assimp "for assimp (BSD3)"),
 [Bernhard Schelling](https://github.com/schellingb/TinySoundFont "for tml.h (Zlib) and tsf.h (MIT)"),
@@ -354,13 +359,18 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Morgan McGuire](https://casual-effects.com/markdeep/ "for markdeep (BSD2)"),
 [Olivier Lapicque, Konstanty Bialkowski](https://github.com/Konstanty/libmodplug "for libmodplug (PD)"),
 [Polyglot Team](https://docs.google.com/spreadsheets/d/17f0dQawb-s_Fd7DHgmVvJoEGDMH_yoSd8EYigrb0zmM/edit "for polyglot gamedev (CC0)"),
+[Randy Gaul](https://github.com/RandyGaul/cute_headers "for cute_asesprite (PD)"),
+[Rxi, Adam Harrison](https://github.com/rxi/lite "for the exquisite lite editor (MIT)"),
+[Sean Barrett et al.](https://github.com/nothings/stb "for stbiresize, stbrectpack (PD)"),
+[Sepehr Taghdisian](https://github.com/septag/atlasc/ "for atlasc (BSD2)"),
 [Tildearrow](https://github.com/tildearrow/furnace/ "for Furnace (GPL2)"),
 [Tomas Pettersson](http://www.drpetter.se/ "for sfxr (PD)"),
 [Tor Andersson](https://github.com/ccxvii/asstools "for assiqe.c (BSD)"),
+[Wael El Oraiby](https://github.com/eloraiby/delaunay "for delaunay.c (AGPL3)"),
 **Runtime**
 [Andreas Mantler](https://github.com/ands "for their math library (PD)"), 
 [Barerose](https://github.com/barerose "for swrap (CC0) and math library (CC0)"),
-[Camilla Löwy](https://github.com/elmindreda "for glfw3 (Zlib)"),
+[Camilla Löwy](https://github.com/elmindreda "for glfw3 and gleq (Zlib)"),
 [Dave Rand](https://tools.ietf.org/html/rfc1978 "for ppp (PD)"),
 [David Herberth](https://github.com/dav1dde/ "for glad generated code (PD)"),
 [David Reid](https://github.com/mackron "for miniaudio (PD)"),
@@ -383,16 +393,19 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Libtomcrypt](https://github.com/libtom/libtomcrypt "for libtomcrypt (Unlicense)"),
 [Lua authors](https://www.lua.org/ "for Lua language (MIT)"),
 [Mattias Gustavsson](https://github.com/mattiasgustavsson/libs "for thread.h and https.h (PD)"),
+[Mattias Jansson](https://github.com/mjansson/rpmalloc "for rpmalloc (PD)"),
 [Micha Mettke](https://github.com/vurtun "for nuklear and their math library (PD)"),
-[Peter Schulman, Chris Willcocks, Dmitry Hrabrov](https://github.com/vurtun/nuklear "for nuklear patches (PD)"),
 [Michael Galetzka](https://github.com/Cultrarius/Swarmz "for swarmz (UNLICENSE)"),
 [Morten Vassvik](https://github.com/vassvik/mv_easy_font "for mv_easy_font (Unlicense)"),
 [Mārtiņš Možeiko](https://gist.github.com/mmozeiko/68f0a8459ef2f98bcd879158011cc275 "for A* pathfinding (PD)"),
 [Omar Cornut, vaiorabbit](https://github.com/ocornut/imgui/pull/3627 "for tables of unicode ranges (MIT-0)"),
+[Peter Schulman, Chris Willcocks, Dmitry Hrabrov](https://github.com/vurtun/nuklear "for nuklear patches (PD)"),
 [Rabia Alhaffar](https://github.com/Rabios/ice_libs "for ice_batt.h (PD)"),
+[Randy Gaul](https://web.archive.org/*/http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp "for HandleTable (PD)"),
 [Rich Geldreich](https://github.com/richgel999/miniz "for miniz (PD)"),
 [Ross Williams](http://ross.net/compression/lzrw3a.html "for lzrw3a (PD)"),
 [Samuli Raivio](https://github.com/bqqbarbhg/bq_websocket "for bq_websocket (PD)"),
+[Scott Lembcke](https://github.com/slembcke/debugger.lua "for lua debugger (MIT)"),
 [Sean Barrett](https://github.com/nothings "for stb_image, stb_image_write, stb_sprintf, stb_truetype and stb_vorbis (PD)"),
 [Sebastian Steinhauer](https://github.com/kieselsteini "for sts_mixer (PD)"),
 [Stan Melax, Cloud Wu](https://web.archive.org/web/20031204035320/http://www.melax.com/polychop/gdmag.pdf "for polychop C algorithm (PD)"),

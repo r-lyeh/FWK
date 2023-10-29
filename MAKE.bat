@@ -24,6 +24,7 @@ if [ "$1" = "tidy" ]; then
     rm -rf *.dSYM 2> /dev/null
     rm *.png 2> /dev/null
     rm *.mp4 2> /dev/null
+    rm *.log 2> /dev/null
     rm editor 2> /dev/null
     rm temp_* 2> /dev/null
     rm hello 2> /dev/null
@@ -57,7 +58,7 @@ export args=
 export cc=cc
 
 while [ $# -ge 1 ]; do
-    if [ "$1" = "help" ]; then 
+    if [ "$1" = "help" ]; then
         echo sh MAKE.bat
         echo sh MAKE.bat [gcc,clang,tcc] [dbg,dev,rel] [dll,static]
         echo sh MAKE.bat [tidy]
@@ -66,21 +67,21 @@ while [ $# -ge 1 ]; do
         echo sh MAKE.bat [proj]
         exit
     fi
-    if [ "$1" = "dll" ]; then 
+    if [ "$1" = "dll" ]; then
         export dll=dll
     fi
-    if [ "$1" = "static" ]; then 
+    if [ "$1" = "static" ]; then
         export dll=static
     fi
-    if [ "$1" = "dbg" ]; then 
+    if [ "$1" = "dbg" ]; then
         export build=dbg
         export flags="-O0 -g"
     fi
-    if [ "$1" = "dev" ]; then 
+    if [ "$1" = "dev" ]; then
         export build=dev
         export flags="-O1 -g -DNDEBUG=1"
     fi
-    if [ "$1" = "rel" ]; then 
+    if [ "$1" = "rel" ]; then
         export build=rel
         export flags="-O2    -DNDEBUG=2"
     fi
@@ -88,13 +89,13 @@ while [ $# -ge 1 ]; do
         export build=ret
         export flags="-O3    -DNDEBUG=3 -DENABLE_RETAIL"
     fi
-    if [ "$1" = "gcc" ]; then 
+    if [ "$1" = "gcc" ]; then
         export cc=gcc
     fi
-    if [ "$1" = "clang" ]; then 
+    if [ "$1" = "clang" ]; then
         export cc=clang
     fi
-    if [ "$1" = "tcc" ]; then 
+    if [ "$1" = "tcc" ]; then
         export cc="tcc -D__STDC_NO_VLA__"
     fi
     if [ "$1" = "proj" ]; then
@@ -111,7 +112,7 @@ while [ $# -ge 1 ]; do
             exit
         fi
     fi
-    if [ "$1" = "--" ]; then 
+    if [ "$1" = "--" ]; then
         shift
         export args=$*
         shift $#
@@ -139,6 +140,7 @@ if [ "$(uname)" != "Darwin" ]; then
 
     # change permissions of precompiled tools binaries because of 'Permission denied' runtime error (@procedural)
     chmod +x tools/ass2iqe.linux
+    chmod +x tools/ase2ini.linux
     chmod +x tools/cook.linux
     chmod +x tools/cuttlefish.linux
     chmod +x tools/ffmpeg.linux
@@ -151,6 +153,8 @@ if [ "$(uname)" != "Darwin" ]; then
     chmod +x tools/xlsx2ini.linux
     chmod +x tools/premake5.linux
     chmod +x tools/ninja.linux
+    chmod +x tools/ase2ini.linux
+    chmod +x tools/ark.linux
     chmod +x demos/lua/luajit.linux
 
     export args="-lm -ldl -lpthread -lX11 -w -Iengine/ $args"
@@ -168,7 +172,7 @@ if [ "$(uname)" != "Darwin" ]; then
     fi
 
     # editor
-    echo editor        && $cc -o editor        tools/editor/editor.c $flags $import $args &
+    echo editor        && $cc -o editor        engine/editor.c       $flags $import $args &
 
     # demos
     echo hello         && $cc -o hello         hello.c               $flags         $args &
@@ -204,7 +208,9 @@ if [ "$(uname)" = "Darwin" ]; then
 
     # change permissions of precompiled tools binaries because of 'Permission denied' runtime error (@procedural)
     chmod +x tools/ass2iqe.osx
+    chmod +x tools/ase2ini.osx
     chmod +x tools/cook.osx
+    chmod +x tools/ark.osx
     chmod +x tools/cuttlefish.osx
     chmod +x tools/ffmpeg.osx
     chmod +x tools/furnace.osx
@@ -233,7 +239,7 @@ if [ "$(uname)" = "Darwin" ]; then
     fi
 
     # editor
-    echo editor        && cc -o editor        tools/editor/editor.c $import $flags $args &
+    echo editor        && cc -o editor        engine/editor.c       $import $flags $args &
 
     # demos
     echo hello         && cc -o hello -ObjC   hello.c                       $flags $args &
@@ -321,11 +327,14 @@ if "%1"=="sync" (
 
 rem cook asset files
 if "%1"=="cook" (
+    echo Cooking assets...
     rem generate cooker twice: use multi-threaded version if available (cl). then cook.
     rem call tools\tcc tools\cook.c -Iengine engine\fwk.c
     rem             cl tools\cook.c -Iengine engine\fwk.c
     rem cook
-    tools\cook
+    del cook*.csv 2> nul
+    tools\cook --cook-stats
+    (type *.csv | sort /R > cook.csv) 2> nul
 
     exit /b
 )
@@ -422,9 +431,14 @@ if "%1"=="join" (
 
 rem fuse binaries and zipfiles
 if "%1"=="fuse" (
-    setlocal enableDelayedExpansion
-    del *.zip 2> nul 1> nul & tools\cook --cook-jobs=1
-    for %%i in (*.exe) do set "var=%%i" && if not "!var:~0,6!"=="fused_" ( copy /y !var! fused_!var! 2>nul 1>nul & tools\ark fused_!var! *.zip )
+    if not exist *.exe (
+        echo No binaries to fuse.
+    ) else (
+        setlocal enableDelayedExpansion
+        del *.zip 2> nul 1> nul & tools\cook --cook-jobs=1
+        md _fused 2> nul 1> nul
+        for %%i in (*.exe) do set "var=%%i" && ( copy /y !var! _fused\fused_!var! 2> nul 1> nul & tools\ark _fused\fused_!var! *.zip )
+    )
     exit /b
 )
 
@@ -463,6 +477,7 @@ if "%1"=="tidy" (
     del *.mp4                       > nul 2> nul
     del *.def                       > nul 2> nul
     del *.dll                       > nul 2> nul
+    del *.log                       > nul 2> nul
     del 3rd_*.*                     > nul 2> nul
     del fwk_*.*                     > nul 2> nul
 rem del ??-*.*                      > nul 2> nul
@@ -473,8 +488,10 @@ rem del ??-*.*                      > nul 2> nul
     rd /q /s _devel                 > nul 2> nul
     rd /q /s _release               > nul 2> nul
 rem rd /q /s _project               > nul 2> nul
+    rd /q /s _fused                 > nul 2> nul
     del tcc.bat                     > nul 2> nul
     del sh.bat                      > nul 2> nul
+    del cook*.csv                   > nul 2> nul
     rem for /R %%i in (*@animlist.txt) do del %%i > nul 2> nul
     exit /b
 )
@@ -533,37 +550,39 @@ setlocal enableDelayedExpansion
 
 rem ASK what to build if double-clicked from Windows explorer
 if "%1"=="" (((echo.%cmdcmdline%)|%WINDIR%\system32\find.exe /I "%~0")>nul) && (
+    set "bak=!cc!"
     for /L %%i in (0,0,1) do (
         echo Menu:
-        echo  H^)ello ^(!cc!^)
-        echo  E^)ditor ^(!cc!^)
-        echo  B^)uild everything ^(!cc!^)
-        echo  C^)ook everything
-        echo  R^)un everything
-        echo  D^)ocumentation
-        echo  F^)use binaries ^(!cc!^)
-        echo  T^)idy subfolders
-        echo  S^)ync to latest
-        echo  1^)Open Visual Studio ^(!vs!^)
-        echo  2^)Open Visual Studio Code
-        echo  3^)Open Explorer
-        echo  Q^)uit
-        choice /C HEBCRDFTS123Q /M "Select"
+        echo ^(H^)ello intro ^(!cc!^)
+        echo ^(E^)ditor ^(!cc!^)
+        echo ^(B^)uild everything ^(!cc!^)
+        echo ^(C^)ook everything
+        echo ^(R^)un everything
+        echo ^(D^)ocumentation
+        echo ^(F^)use retail binaries ^(!cc!^)
+        echo ^(T^)idy folders
+        echo ^(S^)ync to latest
+        echo ^(1^)Open Visual Studio ^(!vs!^)
+        echo ^(2^)Open Visual Studio Code
+        echo ^(3^)Open Explorer
+        echo ^(G^)Toggle compiler ^(!bak! ^<=^> tcc^)
+        echo ^(Q^)uit
+        choice /C HEBCRDFTS123GQ /M "Select"
         set choice=!errorlevel!
-        if "!choice!"== "1" call make && start hello
-        if "!choice!"== "2" ( if exist editor.exe ( start editor ) else ( call make editor && start editor ) )
-        if "!choice!"== "3" call make all
+        if "!choice!"== "1" call make hello.c !cc! && start hello
+        if "!choice!"== "2" ( if exist editor.exe ( start editor ) else ( call make editor static !cc! -- -DUI_FONT_SMALL && start editor ) )
+        if "!choice!"== "3" call make all static !cc!
         if "!choice!"== "4" call make cook
         if "!choice!"== "5" for %%i in (*.exe) do start /wait %%i
         if "!choice!"== "6" start engine/fwk.html && rem start "" "https://bit.ly/fwk2023"
-        if "!choice!"== "7" call make all retail && make fuse
+        if "!choice!"== "7" call make all retail static !cc! && make fuse
         if "!choice!"== "8" call make tidy
-        if "!choice!"== "9" call make sync && start make && exit
+        if "!choice!"== "9" choice /C YN /M "Local changes may be overwritten. Continue" && if "!errorlevel!"=="1" ( call make sync && start make && exit )
         if "!choice!"=="10" call make proj && (tasklist | find /i "devenv.exe") >nul 2>nul && (echo.) || (start _project\project.sln)
         if "!choice!"=="11" start /min cmd /C "code ."
         if "!choice!"=="12" start .
-        if "!choice!"=="13" exit
-        cls
+        if "!choice!"=="13" if "!cc!"=="tcc" (set "cc=!bak!") else (set "cc=tcc")
+        if "!choice!"=="14" exit
     )
 )
 
@@ -658,7 +677,7 @@ if "!cc!"=="cl" (
     )
 
     if "!build!"=="ret" (
-        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=-DENABLE_RETAIL -Dmain=WinMain !args!
         set args=/nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
     )
     if "!build!"=="rel" (
@@ -690,7 +709,7 @@ if "!cc!"=="cl" (
     set warnings=!warnings_fwkc! !warnings_demos!
 
     if "!build!"=="ret" (
-        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=-DENABLE_RETAIL -Dmain=WinMain !args!
         set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
     )
     if "!build!"=="rel" (
@@ -717,7 +736,7 @@ if "!cc!"=="cl" (
     )
 
     if "!build!"=="ret" (
-        set args=-DENABLE_RETAIL -D"main()=WinMain()" !args!
+        set args=-DENABLE_RETAIL -Dmain=WinMain !args!
         set args=-O3 -DNDEBUG=3    !args!
     )
     if "!build!"=="rel" (
@@ -830,10 +849,8 @@ if "!fwk!"=="yes" (
 
 rem editor
 if "!editor!"=="yes" (
-set edit=-DCOOK_ON_DEMAND
-!echo! editor3      && !cc! !o! editor3.exe tools\editor\editor3.c !edit! -Iengine/joint !args! || set rc=1
-set edit=-DUI_LESSER_SPACING -DUI_ICONS_SMALL !edit!
-!echo! editor       && !cc! !o! editor.exe  tools\editor\editor.c  !edit! !import! !args! || set rc=1
+set edit=-DCOOK_ON_DEMAND -DUI_FONT_SMALL !edit! && REM -DUI_ICONS_SMALL -DUI_LESSER_SPACING -- directives wont work at this point unless fwk.dll is rebuilt
+!echo! editor        && !cc! !o! editor.exe engine\editor.c !edit!          !import! !args! || set rc=1
 )
 
 rem demos
@@ -864,11 +881,12 @@ if "!demos!"=="yes" (
 !echo! 99-pbr        && !cc! !o! 99-pbr.exe         demos\99-pbr.c          !import! !args! || set rc=1
 !echo! 99-spine      && !cc! !o! 99-spine.exe       demos\99-spine.c        !import! !args! || set rc=1
 !echo! 99-sprite     && !cc! !o! 99-sprite.exe      demos\99-sprite.c       !import! !args! || set rc=1
+!echo! 99-sprite3d   && !cc! !o! 99-sprite3d.exe    demos\99-sprite3d.c     !import! !args! || set rc=1
 !echo! 99-geom       && !cc! !o! 99-geom.exe        demos\99-geom.c         !import! !args! || set rc=1
 !echo! 99-compute    && !cc! !o! 99-compute.exe     demos\99-compute.c      !import! !args! || set rc=1
 !echo! 99-pathfind   && !cc! !o! 99-pathfind.exe    demos\99-pathfind.c     !import! !args! || set rc=1
 !echo! 99-sponza     && !cc! !o! 99-sponza.exe      demos\99-sponza.c       !import! !args! || set rc=1
-!echo! 99-nodes      && !cc! !o! 99-nodes.exe       demos\99-nodes.c                 !args! || set rc=1
+!echo! 99-gui        && !cc! !o! 99-gui.exe         demos\99-gui.c          !import! !args! || set rc=1
 )
 
 rem hello

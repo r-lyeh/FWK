@@ -1,77 +1,4 @@
 
-static
-array(char) base64__decode(const char *in_, unsigned inlen) {
-    // from libtomcrypt
-    #define BASE64_ENCODE_OUT_SIZE(s)   (((s) + 2) / 3 * 4)
-    #define BASE64_DECODE_OUT_SIZE(s)   (((s)) / 4 * 3)
-
-#if 1
-    unsigned long outlen = BASE64_DECODE_OUT_SIZE(inlen);
-    array(char) out_ = 0; array_resize(out_, outlen);
-
-    if( base64_decode((const unsigned char *)in_, (unsigned long)inlen, (unsigned char *)out_, &outlen) != CRYPT_OK ) {
-        array_free(out_);
-        return 0;
-    }
-
-    array_resize(out_, outlen);
-    return out_;
-#else
-    unsigned outlen = BASE64_DECODE_OUT_SIZE(inlen);
-    array(char) out_ = 0; array_resize(out_, outlen);
-
-    // based on code by Jon Mayo - November 13, 2003 (PUBLIC DOMAIN)
-    uint_least32_t v;
-    unsigned ii, io, rem;
-    char *out = (char *)out_;
-    const unsigned char *in = (const unsigned char *)in_;
-    const uint8_t base64dec_tab[256]= {
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255, 62,255,255,
-         52, 53, 54, 55, 56, 57, 58, 59, 60, 61,255,255,255,  0,255,255,
-        255,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,255,255,255,255, 63,
-        255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-         41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-        255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
-    };
-
-    for (io = 0, ii = 0,v = 0, rem = 0; ii < inlen; ii ++) {
-        unsigned char ch;
-        if (isspace(in[ii]))
-            continue;
-        if ((in[ii]=='=') || (!in[ii]))
-            break; /* stop at = or null character*/
-        ch = base64dec_tab[(unsigned char)in[ii]];
-        if (ch == 255)
-            break; /* stop at a parse error */
-        v = (v<<6) | ch;
-        rem += 6;
-        if (rem >= 8) {
-            rem -= 8;
-            if (io >= outlen)
-                return (array_free(out_), NULL); /* truncation is failure */
-            out[io ++] = (v >> rem) & 255;
-        }
-    }
-    if (rem >= 8) {
-        rem -= 8;
-        if (io >= outlen)
-            return (array_free(out_), NULL); /* truncation is failure */
-        out[io ++] = (v >> rem) & 255;
-    }
-    return (array_resize(out_, io), out_);
-#endif
-}
-
 static array(json5) roots;
 static array(char*) sources;
 
@@ -226,9 +153,8 @@ static void *xml_path(struct xml *node, char *path, int down) {
 
 const char *(xml_string)(char *key) {
     struct xml *node = xml_path(*array_back(xml_docs), key, 0);
-    if( !node ) return "(null)";
-    if( strchr(key, '@') ) return (const char *)node;
-    if( strchr(key, '$') ) return (const char *)node;
+    if( node && strchr(key, '@') ) return (const char *)node;
+    if( node && strchr(key, '$') ) return (const char *)node;
     return "";
 }
 unsigned (xml_count)(char *key) {
@@ -244,7 +170,7 @@ array(char) (xml_blob)(char *key) { // base64 blob
     if( !node ) return 0;
     if( !strchr(key, '$') ) return 0;
     const char *data = (const char*)node;
-    array(char) out = base64__decode(data, strlen(data)); // either array of chars (ok) or null (error)
+    array(char) out = base64_decode(data, strlen(data)); // either array of chars (ok) or null (error)
     return out;
 }
 

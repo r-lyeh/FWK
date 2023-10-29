@@ -104,7 +104,7 @@ extern "C" {
 #endif
 
 #ifndef ENABLE_PROFILER
-#define ENABLE_PROFILER         ifdef(debug, 1, 0)  ///+
+#define ENABLE_PROFILER         ifdef(retail, 0, 1)  ///+
 #endif
 
 #ifndef ENABLE_SELFIES
@@ -129,6 +129,10 @@ extern "C" {
 
 #ifndef ENABLE_RETAIL
 #define ENABLE_RETAIL           0 // ifdef(retail, 1, 0) ///+
+#endif
+
+#ifndef ENABLE_RPMALLOC
+#define ENABLE_RPMALLOC         0 // ifdef(tcc, 0, 1) // forbidden on tcc because of lacking TLS support
 #endif
 
 // -----------------------------------------------------------------------------
@@ -388,12 +392,6 @@ extern "C" {
     static void fn(void)
 #endif
 
-#if 0 // autorun demo
-void byebye(void) { puts("seen after main()"); }
-AUTORUN { puts("seen before main()"); }
-AUTORUN { puts("seen before main() too"); atexit( byebye ); }
-#endif
-
 // -----------------------------------------------------------------------------
 // build info
 
@@ -505,17 +503,18 @@ typedef char bool;
 // - rlyeh, public domain
 
 // -----------------------------------------------------------------------------
-// sort
-
-API int sort_64(const void *a, const void *b);
-
-// -----------------------------------------------------------------------------
 // less
 
 API int less_64(uint64_t a, uint64_t b);
 API int less_int(int a, int b);
 API int less_ptr(void *a, void *b);
 API int less_str(char *a, char *b);
+
+// -----------------------------------------------------------------------------
+// qsort
+
+API int less_64_ptr(const void *a, const void *b);
+API int less_int_ptr(const void *a, const void *b);
 
 // -----------------------------------------------------------------------------
 // un/hash
@@ -1219,22 +1218,15 @@ API void print34( float *m );
 API void print44( float *m );
 #line 0
 
-#line 1 "fwk_id.h"
+#line 1 "fwk_obj.h"
 // -----------------------------------------------------------------------------
-// factory of handle ids, based on code by randy gaul (PD/Zlib licensed)
-// - rlyeh, public domain
-//
-// [src] http://www.randygaul.net/wp-content/uploads/2021/04/handle_table.cpp
-// [ref] http://bitsquid.blogspot.com.es/2011/09/managing-decoupling-part-4-id-lookup.html
-// [ref] http://glampert.com/2016/05-04/dissecting-idhashindex/
-// [ref] https://github.com/nlguillemot/dof/blob/master/viewer/packed_freelist.h
-// [ref] https://gist.github.com/pervognsen/ffd89e45b5750e9ce4c6c8589fc7f253
+// factory of handle ids
 
 // convert between hard refs (pointers) and weak refs (ids)
-uintptr_t id_make(void *ptr);
-void *     id_handle(uintptr_t id);
-void       id_dispose(uintptr_t id);
-bool        id_valid(uintptr_t id);
+API uintptr_t id_make(void *ptr);
+API void *     id_handle(uintptr_t id);
+API void       id_dispose(uintptr_t id);
+API bool        id_valid(uintptr_t id);
 
 // configuration:
 // ideally, these two should be 32 each. they were changed to fit our OBJHEADER bits
@@ -1244,11 +1236,7 @@ bool        id_valid(uintptr_t id);
 #ifndef ID_COUNT_BITS
 #define ID_COUNT_BITS  3
 #endif
-// you cannot change this one: the number of ID_DATA_BITS you can store in a handle depends on ID_COUNT_BITS
-#define ID_DATA_BITS (64-ID_COUNT_BITS)
-#line 0
 
-#line 1 "fwk_obj.h"
 // C objects framework
 // - rlyeh, public domain.
 //
@@ -1387,19 +1375,46 @@ void*   obj_free(void *o);
 
 #define obj_lerp(o,...) obj_method(lerp, o, ##__VA_ARGS__)
 #define obj_edit(o,...) obj_method(edit, o, ##__VA_ARGS__)
+#define obj_menu(o,...) obj_method(menu, o, ##__VA_ARGS__)
+#define obj_aabb(o,...) obj_method(aabb, o, ##__VA_ARGS__)
+#define obj_icon(o,...) obj_method(icon, o, ##__VA_ARGS__)
 
 // --- syntax sugars
 
-#define EXTEND obj_extend
-#define obj_extend(T,func)               (obj_##func[OBJTYPE(T)] = (void*)T##_##func)
-#define obj_method(method,o,...)         (obj_##method[((obj*)(o))->objtype](o,##__VA_ARGS__)) // (obj_##method[((obj*)(o))->objtype]((o), ##__VA_ARGS__))
+#define obj_extend(T,method)       (obj_##method[OBJTYPE(T)] = (void*)T##_##method)
+#define obj_extend_t(T,method)     (obj_##method[OBJTYPE(T##_t)] = (void*)T##_##method)
+#define obj_method(method,o,...)   (obj_##method[((struct obj*)(o))->objtype](o,##__VA_ARGS__)) // (obj_##method[((struct obj*)(o))->objtype]((o), ##__VA_ARGS__))
+#define obj_hasmethod(o,method)    (obj_typeid(o)[obj_##method])
 
-#define obj_vtable(func,RC,...)          RC macro(obj_##func)(){ __VA_ARGS__ }; RC (*obj_##func[256])() = { REPEAT256(macro(obj_##func)) };
-#define obj_vtable_null(func,RC)         RC (*obj_##func[256])() = { 0 }; // null virtual table. will crash unless obj_extend'ed
+#define obj_vtable(method,RC,...)   RC macro(obj_##method)(){ __VA_ARGS__ }; RC (*obj_##method[256])() = { REPEAT256(macro(obj_##method)) };
+#define obj_vtable_null(method,RC)  RC (*obj_##method[256])() = { 0 }; // null virtual table. will crash unless obj_extend'ed
 
-#define REPEAT16(f)  f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f
-#define REPEAT64(f)  REPEAT16(f),REPEAT16(f),REPEAT16(f),REPEAT16(f)
-#define REPEAT256(f) REPEAT64(f),REPEAT64(f),REPEAT64(f),REPEAT64(f)
+#define REPEAT16(f)  f,f,f,f,f,f,f,f,f,f,f,f,f,f,f,f ///-
+#define REPEAT64(f)  REPEAT16(f),REPEAT16(f),REPEAT16(f),REPEAT16(f) ///-
+#define REPEAT256(f) REPEAT64(f),REPEAT64(f),REPEAT64(f),REPEAT64(f) ///-
+
+#undef  EXTEND
+#define EXTEND(...) EXPAND(EXTEND, __VA_ARGS__)
+#define EXTEND2(o,F1) obj_extend(o,F1) ///-
+#define EXTEND3(o,F1,F2) obj_extend(o,F1), obj_extend(o,F2) ///-
+#define EXTEND4(o,F1,F2,F3) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3) ///-
+#define EXTEND5(o,F1,F2,F3,F4) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4) ///-
+#define EXTEND6(o,F1,F2,F3,F4,F5) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4), obj_extend(o,F5) ///-
+#define EXTEND7(o,F1,F2,F3,F4,F5,F6) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4), obj_extend(o,F5), obj_extend(o,F6) ///-
+#define EXTEND8(o,F1,F2,F3,F4,F5,F6,F7) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4), obj_extend(o,F5), obj_extend(o,F6), obj_extend(o,F7) ///-
+#define EXTEND9(o,F1,F2,F3,F4,F5,F6,F7,F8) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4), obj_extend(o,F5), obj_extend(o,F6), obj_extend(o,F7), obj_extend(o,F8) ///-
+#define EXTEND10(o,F1,F2,F3,F4,F5,F6,F7,F8,F9) obj_extend(o,F1), obj_extend(o,F2), obj_extend(o,F3), obj_extend(o,F4), obj_extend(o,F5), obj_extend(o,F6), obj_extend(o,F7), obj_extend(o,F8), obj_extend(o,F9) ///-
+
+#define EXTEND_T(...) EXPAND(EXTEND_T, __VA_ARGS__)
+#define EXTEND_T2(o,F1) obj_extend_t(o,F1) ///-
+#define EXTEND_T3(o,F1,F2) obj_extend_t(o,F1), obj_extend_t(o,F2) ///-
+#define EXTEND_T4(o,F1,F2,F3) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3) ///-
+#define EXTEND_T5(o,F1,F2,F3,F4) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4) ///-
+#define EXTEND_T6(o,F1,F2,F3,F4,F5) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4), obj_extend_t(o,F5) ///-
+#define EXTEND_T7(o,F1,F2,F3,F4,F5,F6) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4), obj_extend_t(o,F5), obj_extend_t(o,F6) ///-
+#define EXTEND_T8(o,F1,F2,F3,F4,F5,F6,F7) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4), obj_extend_t(o,F5), obj_extend_t(o,F6), obj_extend_t(o,F7) ///-
+#define EXTEND_T9(o,F1,F2,F3,F4,F5,F6,F7,F8) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4), obj_extend_t(o,F5), obj_extend_t(o,F6), obj_extend_t(o,F7), obj_extend_t(o,F8) ///-
+#define EXTEND_T10(o,F1,F2,F3,F4,F5,F6,F7,F8,F9) obj_extend_t(o,F1), obj_extend_t(o,F2), obj_extend_t(o,F3), obj_extend_t(o,F4), obj_extend_t(o,F5), obj_extend_t(o,F6), obj_extend_t(o,F7), obj_extend_t(o,F8), obj_extend_t(o,F9) ///-
 
 // --- declare vtables
 
@@ -1414,9 +1429,14 @@ API extern int   (*obj_init[256])(); ///-
 API extern int   (*obj_quit[256])(); ///-
 API extern int   (*obj_tick[256])(); ///-
 API extern int   (*obj_draw[256])(); ///-
-
 API extern int   (*obj_lerp[256])(); ///-
+
+API extern int   (*obj_aabb[256])(); ///-
 API extern int   (*obj_edit[256])(); ///-
+API extern int   (*obj_menu[256])(); ///-
+API extern char* (*obj_icon[256])(); ///-
+
+API extern const char*OBJTYPES[256]; ///-
 
 // ----------------------------------------------------------------------------
 // core
@@ -1446,7 +1466,7 @@ API void*       obj_unref(void *oo);
 // scene tree
 
 #define each_objchild(p,T,o) /*non-recursive*/ \
-    (array(obj*)* children = obj_children(p); children; children = 0) \
+    (array(struct obj*)* children = obj_children(p); children; children = 0) \
         for(int _i = 1, _end = array_count(*children); _i < _end; ++_i) \
             for(T o = (T)((*children)[_i]); o && (obj_parent(o) == p); o = 0)
 
@@ -1559,11 +1579,46 @@ typedef enum OBJTYPE_BUILTINS {
     OBJTYPE_vec2i  =  9,
     OBJTYPE_vec3i  = 10,
 } OBJTYPE_BUILTINS;
-
 #line 0
 
 
 #line 1 "fwk_ai.h"
+// AI framework
+// - rlyeh, public domain.
+//
+// [src] original A-star code by @mmozeiko (PD) - https://gist.github.com/mmozeiko/68f0a8459ef2f98bcd879158011cc275
+// [src] original swarm/boids code by @Cultrarius (UNLICENSE) - https://github.com/Cultrarius/Swarmz
+
+// pathfinding -----------------------------------------------------------------
+
+API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
+
+// ----------------------------------------------------------------------------
+// Behavior trees: decision planning and decision making.
+// Supersedes finite state-machines (FSM) and hierarchical finite state-machines (HFSM).
+
+typedef int (*bt_func)();
+
+typedef struct bt_t {
+    uint64_t type;
+    int (*action)();
+    union {
+        int argi;
+        float argf;
+    };
+    array(struct bt_t) children;
+} bt_t;
+
+API bt_t    bt(const char *ini_file, unsigned flags);
+API int     bt_run(bt_t *b);
+API void    bt_addfun(const char *name, int(*func)());
+API bt_func bt_findfun(const char *name);
+API char   *bt_funcname(bt_func fn);
+
+API int ui_bt(bt_t *b);
+
+// boids/swarm -----------------------------------------------------------------
+
 typedef enum SWARM_DISTANCE {
     SWARM_DISTANCE_LINEAR,
     SWARM_DISTANCE_INVERSE_LINEAR,
@@ -1610,36 +1665,6 @@ API void    swarm_update_acceleration_only(swarm_t *self); // acc
 API void    swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta); // acc,vel
 
 API int     ui_swarm(swarm_t *self);
-
-// pathfinding -----------------------------------------------------------------
-
-API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
-#line 0
-
-#line 1 "fwk_bt.h"
-// Behavior trees: decision planning and decision making.
-// Supersedes finite state-machines (FSM) and hierarchical finite state-machines (HFSM).
-// - rlyeh, public domain.
-
-typedef int (*bt_func)();
-
-typedef struct bt_t {
-    uint64_t type;
-    int (*action)();
-    union {
-        int argi;
-        float argf;
-    };
-    array(struct bt_t) children;
-} bt_t;
-
-API bt_t    bt(const char *ini_file, unsigned flags);
-API int     bt_run(bt_t *b);
-API void    bt_addfun(const char *name, int(*func)());
-API bt_func bt_findfun(const char *name);
-API char   *bt_funcname(bt_func fn);
-
-API int ui_bt(bt_t *b);
 #line 0
 
 #line 1 "fwk_audio.h"
@@ -1701,104 +1726,6 @@ enum AUDIO_FLAGS {
 };
 
 API int audio_queue( const void *samples, int num_samples, int flags );
-#line 0
-
-#line 1 "fwk_buffer.h"
-// ----------------------------------------------------------------------------
-// compression api
-
-enum COMPRESS_FLAGS {
-    COMPRESS_RAW     = 0,
-    COMPRESS_PPP     = (1<<4),
-    COMPRESS_ULZ     = (2<<4),
-    COMPRESS_LZ4     = (3<<4),
-    COMPRESS_CRUSH   = (4<<4),
-    COMPRESS_DEFLATE = (5<<4),
-    COMPRESS_LZP1    = (6<<4),
-    COMPRESS_LZMA    = (7<<4),
-    COMPRESS_BALZ    = (8<<4),
-    COMPRESS_LZW3    = (9<<4),
-    COMPRESS_LZSS    = (10<<4),
-    COMPRESS_BCM     = (11<<4),
-    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
-};
-
-API unsigned zbounds(unsigned inlen, unsigned flags);
-API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
-API unsigned zexcess(unsigned flags);
-API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
-
-// ----------------------------------------------------------------------------
-// array de/interleaving
-// - rlyeh, public domain.
-//
-// results:
-// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
-// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
-
-API void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
-
-// ----------------------------------------------------------------------------
-// cobs en/decoder
-
-API unsigned cobs_bounds(unsigned len);
-API unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
-API unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
-
-// ----------------------------------------------------------------------------
-// base92 en/decoder
-
-API unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
-API unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
-API unsigned base92_bounds(unsigned inlen);
-
-// ----------------------------------------------------------------------------
-// netstring en/decoder
-
-API unsigned netstring_bounds(unsigned inlen);
-API unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
-API unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
-
-// ----------------------------------------------------------------------------
-// delta en/decoder
-
-API void delta8_encode(void *buffer, unsigned count);
-API void delta8_decode(void *buffer, unsigned count);
-
-API void delta16_encode(void *buffer, unsigned count);
-API void delta16_decode(void *buffer, unsigned count);
-
-API void delta32_encode(void *buffer, unsigned count);
-API void delta32_decode(void *buffer, unsigned count);
-
-API void delta64_encode(void *buffer, unsigned count);
-API void delta64_decode(void *buffer, unsigned count);
-
-// ----------------------------------------------------------------------------
-// zigzag en/decoder
-
-API uint64_t zig64( int64_t value ); // convert sign|magnitude to magnitude|sign
-API int64_t zag64( uint64_t value ); // convert magnitude|sign to sign|magnitude
-
-API uint32_t enczig32u( int32_t n);
-API uint64_t enczig64u( int64_t n);
-API  int32_t deczig32i(uint32_t n);
-API  int64_t deczig64i(uint64_t n);
-
-// ----------------------------------------------------------------------------
-// arc4 en/decryptor
-
-API void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
-
-// ----------------------------------------------------------------------------
-// crc64
-
-API uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
-
-// ----------------------------------------------------------------------------
-// entropy encoder
-
-API void entropy( void *buf, unsigned n );
 #line 0
 
 #line 1 "fwk_collide.h"
@@ -1962,7 +1889,7 @@ API poly    diamond(vec3 from, vec3 to, float size); // poly_free() required
 API void    collide_demo(); // debug draw collisions
 #line 0
 
-#line 1 "fwk_cooker.h"
+#line 1 "fwk_cook.h"
 // -----------------------------------------------------------------------------
 // asset pipeline framework
 // - rlyeh, public domain.
@@ -2037,9 +1964,8 @@ API void            xml_pop();
 API bool data_tests();
 #line 0
 
-#line 1 "fwk_dll.h"
-// dll utils
-// - rlyeh, public domain
+#line 1 "fwk_extend.h"
+// dll ------------------------------------------------------------------------
 
 /// !!! `filename` must contain extension
 /// load dynamic library `file` and search for `symbol`
@@ -2050,53 +1976,29 @@ API bool data_tests();
 /// > bool (*plugin_init)(void) = dll("plugin.dll", "init");
 /// > assert(plugin_init());
 API void* dll(const char *filename, const char *symbol);
-#line 0
 
-#line 1 "fwk_editor.h"
 // -----------------------------------------------------------------------------
-// in-game editor
-// - rlyeh, public domain.
-//
-// @todo: merge editor1.c and editor3.c internals into this api
+// script framework
 
-//API void  editor();
-//API bool  editor_active();
-API vec3   editor_pick(float mouse_x, float mouse_y);
-API char*  editor_path(const char *path);
+API void script_init();
+API void script_run(const char *script);
+API void script_runfile(const char *pathfile);
 
-API float* engine_getf(const char *key);
-API int*   engine_geti(const char *key);
-API char** engine_gets(const char *key);
-API int    engine_send(const char *cmd, const char *optional_value);
+API void script_bind_class(const char *objname, int num_methods, const char **c_names, void **c_functions);
+API void script_bind_function(const char *c_name, void *c_function);
+API void script_call(const char *lua_function);
 
-API int    ui_debug();
+API bool script_tests();
 
-// open file dialog
+// -----------------------------------------------------------------------------
+// script framework
 
-API char* dialog_load();
-API char* dialog_save();
+enum {
+    SCRIPT_LUA = 1,
+    SCRIPT_DEBUGGER = 2,
+};
 
-// transform gizmos
-
-API int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-API bool  gizmo_active();
-API bool  gizmo_hover();
-
-// localization kit (I18N, L10N)
-
-API bool  kit_load( const char *filename ); // load translations file (xlsx)
-API bool  kit_merge( const char *filename ); // merge translations file into existing context
-API void  kit_insert( const char *id, const char *translation ); // insert single translation unit
-API void  kit_clear(); // delete all translations
-
-API void  kit_set( const char *variable, const char *value ); // set context variable
-API void  kit_reset(); // reset all variables in context
-API void  kit_dump_state( FILE *fp ); // debug
-
-API char* kit_translate2( const char *id, const char *langcode_iso639_1 ); // perform a translation given explicit locale
-
-API void  kit_locale( const char *langcode_iso639_1 ); // set current locale: enUS, ptBR, esES, ...
-API char* kit_translate( const char *id ); // perform a translation, given current locale
+API void *script_init_env(unsigned flags);
 #line 0
 
 #line 1 "fwk_file.h"
@@ -2379,8 +2281,7 @@ API int         ui_gamepads();
 enum INPUT_ENUMS {
     // -- bits: x104 keyboard, x3 mouse, x15 gamepad, x7 window
     // keyboard gaming keys (53-bit): first-class keys for gaming
-    KEY_ESC,
-    KEY_TICK, KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9,KEY_0,  KEY_BS,
+    KEY_0,KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9,   KEY_TICK,KEY_BS,           KEY_ESC,
     KEY_TAB,   KEY_Q,KEY_W,KEY_E,KEY_R,KEY_T,KEY_Y,KEY_U,KEY_I,KEY_O,KEY_P,
     KEY_CAPS,     KEY_A,KEY_S,KEY_D,KEY_F,KEY_G,KEY_H,KEY_J,KEY_K,KEY_L, KEY_ENTER,
     KEY_LSHIFT,       KEY_Z,KEY_X,KEY_C,KEY_V,KEY_B,KEY_N,KEY_M,        KEY_RSHIFT,            KEY_UP,
@@ -2394,7 +2295,7 @@ enum INPUT_ENUMS {
     KEY_PAD1,KEY_PAD2,KEY_PAD3,KEY_PAD4,KEY_PAD5,KEY_PAD6,KEY_PAD7,KEY_PAD8,KEY_PAD9,KEY_PAD0, // beware: complicated on laptops
     KEY_PADADD,KEY_PADSUB,KEY_PADMUL,KEY_PADDIV,KEY_PADDOT,KEY_PADENTER, // beware: complicated on laptops
 
-    MOUSE_L, MOUSE_M, MOUSE_R,
+    MOUSE_L, MOUSE_M, MOUSE_R, // @todo: MOUSE_CLICKS,
     GAMEPAD_CONNECTED, GAMEPAD_A, GAMEPAD_B, GAMEPAD_X, GAMEPAD_Y,
     GAMEPAD_UP, GAMEPAD_DOWN, GAMEPAD_LEFT, GAMEPAD_RIGHT, GAMEPAD_MENU, GAMEPAD_START,
     GAMEPAD_LB, GAMEPAD_RB, GAMEPAD_LTHUMB, GAMEPAD_RTHUMB,
@@ -2598,13 +2499,103 @@ API int64_t  client_join(const char *ip, int port);
 #line 0
 
 #line 1 "fwk_pack.h"
+// ----------------------------------------------------------------------------
+// compression api
+
+enum COMPRESS_FLAGS {
+    COMPRESS_RAW     = 0,
+    COMPRESS_PPP     = (1<<4),
+    COMPRESS_ULZ     = (2<<4),
+    COMPRESS_LZ4     = (3<<4),
+    COMPRESS_CRUSH   = (4<<4),
+    COMPRESS_DEFLATE = (5<<4),
+    COMPRESS_LZP1    = (6<<4),
+    COMPRESS_LZMA    = (7<<4),
+    COMPRESS_BALZ    = (8<<4),
+    COMPRESS_LZW3    = (9<<4),
+    COMPRESS_LZSS    = (10<<4),
+    COMPRESS_BCM     = (11<<4),
+    COMPRESS_ZLIB    = (12<<4), // same as deflate with header
+};
+
+API unsigned zbounds(unsigned inlen, unsigned flags);
+API unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+API unsigned zexcess(unsigned flags);
+API unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+
+// ----------------------------------------------------------------------------
+// array de/interleaving
+//
+// results:
+// R0G0B0   R1G1B1   R2G2B2...   -> R0R1R2... B0B1B2... G0G1G2...
+// R0G0B0A0 R1G1B1A1 R2G2B2A2... -> R0R1R2... A0A1A2... B0B1B2... G0G1G2...
+
+API void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
+
+// ----------------------------------------------------------------------------
+// cobs en/decoder
+
+API unsigned cobs_bounds(unsigned len);
+API unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
+API unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// base92 en/decoder
+
+API unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
+API unsigned base92_bounds(unsigned inlen);
+
+// ----------------------------------------------------------------------------
+// netstring en/decoder
+
+API unsigned netstring_bounds(unsigned inlen);
+API unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
+API unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
+
+// ----------------------------------------------------------------------------
+// delta en/decoder
+
+API void delta8_encode(void *buffer, unsigned count);
+API void delta8_decode(void *buffer, unsigned count);
+
+API void delta16_encode(void *buffer, unsigned count);
+API void delta16_decode(void *buffer, unsigned count);
+
+API void delta32_encode(void *buffer, unsigned count);
+API void delta32_decode(void *buffer, unsigned count);
+
+API void delta64_encode(void *buffer, unsigned count);
+API void delta64_decode(void *buffer, unsigned count);
+
+// ----------------------------------------------------------------------------
+// zigzag en/decoder
+
+API uint64_t zig64( int64_t value ); // convert sign|magnitude to magnitude|sign
+API int64_t zag64( uint64_t value ); // convert magnitude|sign to sign|magnitude
+
+API uint32_t enczig32u( int32_t n);
+API uint64_t enczig64u( int64_t n);
+API  int32_t deczig32i(uint32_t n);
+API  int64_t deczig64i(uint64_t n);
+
+// ----------------------------------------------------------------------------
+// arc4 en/decryptor
+
+API void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
+
+// ----------------------------------------------------------------------------
+// crc64
+
+API uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
+
+// ----------------------------------------------------------------------------
+// entropy encoder
+
+API void entropy( void *buf, unsigned n );
+
 // -----------------------------------------------------------------------------
 // semantic versioning in a single byte (octal)
-// - rlyeh, public domain.
-//
-// - single octal byte that represents semantic versioning (major.minor.patch).
-// - allowed range [0000..0377] ( <-> [0..255] decimal )
-// - comparison checks only major.minor tuple as per convention.
 
 API int semver( int major, int minor, int patch );
 API int semvercmp( int v1, int v2 );
@@ -2636,25 +2627,25 @@ typedef struct double2 { double x,y; } double2;
 typedef struct double3 { double x,y,z; } double3;
 typedef struct double4 { double x,y,z,w; } double4;
 
-#define byte2(x,y)       M_CAST(byte2, (uint8_t)(x), (uint8_t)(y) )
-#define byte3(x,y,z)     M_CAST(byte3, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z) )
-#define byte4(x,y,z,w)   M_CAST(byte4, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z), (uint8_t)(w) )
+#define byte2(x,y)       C_CAST(byte2, (uint8_t)(x), (uint8_t)(y) )
+#define byte3(x,y,z)     C_CAST(byte3, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z) )
+#define byte4(x,y,z,w)   C_CAST(byte4, (uint8_t)(x), (uint8_t)(y), (uint8_t)(z), (uint8_t)(w) )
 
-#define int2(x,y)        M_CAST(int2, (int)(x), (int)(y) )
-#define int3(x,y,z)      M_CAST(int3, (int)(x), (int)(y), (int)(z) )
-#define int4(x,y,z,w)    M_CAST(int4, (int)(x), (int)(y), (int)(z), (int)(w) )
+#define int2(x,y)        C_CAST(int2, (int)(x), (int)(y) )
+#define int3(x,y,z)      C_CAST(int3, (int)(x), (int)(y), (int)(z) )
+#define int4(x,y,z,w)    C_CAST(int4, (int)(x), (int)(y), (int)(z), (int)(w) )
 
-#define uint2(x,y)       M_CAST(uint2, (unsigned)(x), (unsigned)(y) )
-#define uint3(x,y,z)     M_CAST(uint3, (unsigned)(x), (unsigned)(y), (unsigned)(z) )
-#define uint4(x,y,z,w)   M_CAST(uint4, (unsigned)(x), (unsigned)(y), (unsigned)(z), (unsigned)(w) )
+#define uint2(x,y)       C_CAST(uint2, (unsigned)(x), (unsigned)(y) )
+#define uint3(x,y,z)     C_CAST(uint3, (unsigned)(x), (unsigned)(y), (unsigned)(z) )
+#define uint4(x,y,z,w)   C_CAST(uint4, (unsigned)(x), (unsigned)(y), (unsigned)(z), (unsigned)(w) )
 
-#define float2(x,y)      M_CAST(float2, (float)(x), (float)(y) )
-#define float3(x,y,z)    M_CAST(float3, (float)(x), (float)(y), (float)(z) )
-#define float4(x,y,z,w)  M_CAST(float4, (float)(x), (float)(y), (float)(z), (float)(w) )
+#define float2(x,y)      C_CAST(float2, (float)(x), (float)(y) )
+#define float3(x,y,z)    C_CAST(float3, (float)(x), (float)(y), (float)(z) )
+#define float4(x,y,z,w)  C_CAST(float4, (float)(x), (float)(y), (float)(z), (float)(w) )
 
-#define double2(x,y)     M_CAST(double2, (double)(x), (double)(y) )
-#define double3(x,y,z)   M_CAST(double3, (double)(x), (double)(y), (double)(z) )
-#define double4(x,y,z,w) M_CAST(double4, (double)(x), (double)(y), (double)(z), (double)(w) )
+#define double2(x,y)     C_CAST(double2, (double)(x), (double)(y) )
+#define double3(x,y,z)   C_CAST(double3, (double)(x), (double)(y), (double)(z) )
+#define double4(x,y,z,w) C_CAST(double4, (double)(x), (double)(y), (double)(z), (double)(w) )
 
 // -----------------------------------------------------------------------------
 // compile-time fourcc, eightcc
@@ -2896,6 +2887,7 @@ API int saveb(unsigned char *buf, const char *format, ...);
 
 API int loadf(FILE *file, const char *format, ...);
 API int loadb(const unsigned char *buf, const char *format, ...);
+
 #line 0
 
 #line 1 "fwk_profile.h"
@@ -2992,6 +2984,7 @@ API void               enum_inscribe(const char *E,unsigned Eval,const char *inf
 API void               struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos);
 API void               member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes);
 API void               function_inscribe(const char *F,void *func,const char *infos);
+API const char*        symbol_naked(const char *s);
 
 API int                ui_reflect(const char *mask); // *, model* or NULL
 #line 0
@@ -3017,23 +3010,13 @@ API unsigned bgraf( float b, float g, float r, float a );
 API unsigned alpha( unsigned rgba );
 
 #define RGBX(rgb,x)   ( ((rgb)&0xFFFFFF) | (((unsigned)(x))<<24) )
-#define RGB3(r,g,b)   ( (255<<24) | ((r)<<16) | ((g)<<8) | (b) )
-#define RGB4(r,g,b,a) RGBX(RGB3(r,g,b),a)
+#define RGB3(r,g,b)   ( (255<<24) | ((b)<<16) | ((g)<<8) | (r) )
+#define RGB4(r,g,b,a) ( ((a)<<24) | ((b)<<16) | ((g)<<8) | (r) )
 
 #define BLACK   RGBX(0x000000,255)
-#define WHITE   RGBX(0xFFF1E8,255)
+#define WHITE   RGBX(0xE8F1FF,255)
 
-#if 0
-#define RED     RGBX(0xFF004D,255)
-#define GREEN   RGBX(0x00B543,255)
-#define BLUE    RGBX(0x065AB5,255)
-#define ORANGE  RGBX(0xFF6C24,255)
-#define CYAN    RGBX(0x29ADFF,255)
-#define PURPLE  RGBX(0x7E2553,255)
-#define YELLOW  RGBX(0xFFEC27,255)
-#define GRAY    RGBX(0x725158,255)
-#else
-#define RED     RGB3(   255,48,48 )
+#define RED     RGB3(   255, 0,48 )
 #define GREEN   RGB3(  144,255,48 )
 #define CYAN    RGB3(   0,192,255 )
 #define ORANGE  RGB3(  255,144,48 )
@@ -3044,8 +3027,10 @@ API unsigned alpha( unsigned rgba );
 #define PINK    RGB3(  255,48,144 )
 #define AQUA    RGB3(  48,255,144 )
 
-#define BLUE    RGBX(0x065AB5,255)
-#endif
+#define BLUE    RGBX(0xB55A06,255)
+
+API unsigned atorgba(const char *s);
+API char *   rgbatoa(unsigned rgba);
 
 // -----------------------------------------------------------------------------
 // images
@@ -3116,6 +3101,7 @@ enum TEXTURE_FLAGS {
     // @fixme
     TEXTURE_SRGB = 1 << 24,
     TEXTURE_BGR = 1 << 25,
+    TEXTURE_BGRA = TEXTURE_BGR,
     TEXTURE_ARRAY = 1 << 26,
 };
 
@@ -3130,6 +3116,7 @@ typedef struct texture_t {
     char* filename;
     bool transparent;
     unsigned fbo; // for texture recording
+    union { unsigned userdata, delay; };
 } texture_t;
 
 API texture_t texture_compressed(const char *filename, unsigned flags);
@@ -3187,79 +3174,6 @@ API void fullscreen_quad_rgb( texture_t texture_rgb, float gamma );
 API void fullscreen_quad_rgb_flipped( texture_t texture, float gamma );
 API void fullscreen_quad_ycbcr( texture_t texture_YCbCr[3], float gamma );
 API void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3], float gamma );
-
-// -----------------------------------------------------------------------------
-// sprites
-
-// texture id, position(x,y,depth sort), tint color, rotation angle
-API void sprite( texture_t texture, float position[3], float rotation /*0*/, uint32_t color /*~0u*/);
-
-// texture id, rect(x,y,w,h) is [0..1] normalized, z-index, pos(xy,scale), rotation (degrees), color (rgba)
-API void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-
-// texture id, sheet(frameNumber,X,Y) (frame in a X*Y spritesheet), position(x,y,depth sort), rotation angle, offset(x,y), scale(x,y), is_additive, tint color
-API void sprite_sheet( texture_t texture, float sheet[3], float position[3], float rotation, float offset[2], float scale[2], int is_additive, uint32_t rgba, int resolution_independant);
-
-API void sprite_flush();
-
-// -----------------------------------------------------------------------------
-// tilemaps
-
-typedef struct tileset_t {
-    texture_t tex;            // spritesheet
-    unsigned tile_w, tile_h;  // dimensions per tile in pixels
-    unsigned cols, rows;      // tileset num_cols, num_rows
-    unsigned selected;        // active tile (while editing)
-} tileset_t;
-
-API tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows);
-API int       tileset_ui( tileset_t t );
-
-typedef struct tilemap_t {
-    int blank_chr;                // transparent tile
-    unsigned cols, rows;          // map dimensions (in tiles)
-    array(int) map;
-
-    vec3 position;                // x,y,scale
-    float zindex;
-    float tilt;
-    unsigned tint;
-    bool is_additive;
-} tilemap_t;
-
-API tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
-API void      tilemap_render( tilemap_t m, tileset_t style );
-API void      tilemap_render_ext( tilemap_t m, tileset_t style, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive );
-
-// -----------------------------------------------------------------------------
-// tiled maps
-
-typedef struct tiled_t {
-    char *map_name;
-    unsigned first_gid, tilew, tileh, w, h;
-
-    bool parallax;
-    vec3 position;
-    array(bool) visible;
-    array(tilemap_t) layers;
-    array(tileset_t) sets;
-    array(char*) names;
-} tiled_t;
-
-API tiled_t tiled(const char *file_tmx);
-API void    tiled_render(tiled_t tmx, vec3 pos);
-API void    tiled_ui(tiled_t *t);
-
-// -----------------------------------------------------------------------------
-// spines
-
-typedef struct spine_t spine_t;
-
-API spine_t*spine(const char *file_json, const char *file_atlas, unsigned flags);
-API void    spine_skin(spine_t *p, unsigned skin);
-API void    spine_render(spine_t *p, vec3 offset, unsigned flags);
-API void    spine_animate(spine_t *p, float delta);
-API void    spine_ui(spine_t *p);
 
 // -----------------------------------------------------------------------------
 // cubemaps
@@ -3620,6 +3534,15 @@ typedef struct model_t {
     unsigned num_instances;
 } model_t;
 
+enum BILLBOARD_MODE {
+    BILLBOARD_X = 0x1,
+    BILLBOARD_Y = 0x2,
+    BILLBOARD_Z = 0x4,
+
+    BILLBOARD_CYLINDRICAL = BILLBOARD_X|BILLBOARD_Z,
+    BILLBOARD_SPHERICAL = BILLBOARD_X|BILLBOARD_Y|BILLBOARD_Z
+};
+
 API model_t  model(const char *filename, int flags);
 API model_t  model_from_mem(const void *mem, int sz, int flags);
 API float    model_animate(model_t, float curframe);
@@ -3763,6 +3686,12 @@ API void ddraw_prism(vec3 center, float radius, float height, vec3 normal, int s
 API void ddraw_demo();
 API void ddraw_flush();
 API void ddraw_flush_projview(mat44 proj, mat44 view);
+
+// transform gizmos
+
+API int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+API bool gizmo_active();
+API bool gizmo_hover();
 #line 0
 
 #line 1 "fwk_scene.h"
@@ -3782,6 +3711,11 @@ typedef struct camera_t {
     float look_friction, look_damping;
     vec2 last_look; vec3 last_move; // used for friction and damping
     bool damping;
+
+    bool orthographic; // 0 perspective, 1 orthographic; when ortho: dimetric[if pitch == -30º], isometric[if pitch == 35.264º]
+    float distance;    // distance to pivot, when orbiting
+    // vec2 polarity = { +1,-1 }; // @todo
+    // vec2 sensitivity = { 2,2 }; // @todo
 } camera_t;
 
 API camera_t camera();
@@ -3902,22 +3836,6 @@ API unsigned  scene_count_light();
 API light_t*  scene_index_light(unsigned index);
 #line 0
 
-#line 1 "fwk_script.h"
-// -----------------------------------------------------------------------------
-// script framework
-// - rlyeh, public domain
-
-API void script_init();
-API void script_run(const char *script);
-API void script_runfile(const char *pathfile);
-
-API void script_bind_class(const char *objname, int num_methods, const char **c_names, void **c_functions);
-API void script_bind_function(const char *c_name, void *c_function);
-API void script_call(const char *lua_function);
-
-API bool script_tests();
-#line 0
-
 #line 1 "fwk_string.h"
 // string framework
 // - rlyeh, public domain
@@ -3926,6 +3844,7 @@ API bool script_tests();
 API char*   tempvl(const char *fmt, va_list);
 API char*   tempva(const char *fmt, ...);
 #define     va(...) (((&printf) || printf(__VA_ARGS__), tempva(__VA_ARGS__)))  // vs2015 check trick
+#define     vac (const char*)va
 
 // string: allocated api (heap). FREE() after use
 API char*   strcatf(char **s, const char *buf);
@@ -3993,8 +3912,10 @@ API array(char*)    strsplit(const char *string, const char *delimiters);
 /// > char *joint = strjoin(tokens, "+"); // joint="hello+world"
 API char*           strjoin(array(char*) list, const char *separator);
 
-API char *          string8(const wchar_t *str);  /// convert from wchar16(win) to utf8/ascii
+API char*           string8(const wchar_t *str);  /// convert from wchar16(win) to utf8/ascii
 API array(uint32_t) string32( const char *utf8 ); /// convert from utf8 to utf32
+
+API const char*     codepoint_to_utf8(unsigned cp);
 
 // -----------------------------------------------------------------------------
 // ## string interning (quarks)
@@ -4010,6 +3931,217 @@ typedef struct quarks_db {
 
 API unsigned    quark_intern( quarks_db*, const char *string );
 API const char *quark_string( quarks_db*, unsigned key );
+
+// -----------------------------------------------------------------------------
+// ## localization kit (I18N, L10N)
+
+API bool  kit_load( const char *filename ); // load translations file (xlsx)
+API bool  kit_merge( const char *filename ); // merge translations file into existing context
+API void  kit_insert( const char *id, const char *translation ); // insert single translation unit
+API void  kit_clear(); // delete all translations
+
+API void  kit_set( const char *variable, const char *value ); // set context variable
+API void  kit_reset(); // reset all variables in context
+API void  kit_dump_state( FILE *fp ); // debug
+
+API char* kit_translate2( const char *id, const char *langcode_iso639_1 ); // perform a translation given explicit locale
+
+API void  kit_locale( const char *langcode_iso639_1 ); // set current locale: enUS, ptBR, esES, ...
+API char* kit_translate( const char *id ); // perform a translation, given current locale
+#line 0
+
+#line 1 "fwk_sprite.h"
+// -----------------------------------------------------------------------------
+// sprites
+
+typedef enum SPRITE_FLAGS {
+    SPRITE_PROJECTED = 1,
+    SPRITE_ADDITIVE = 2,
+    SPRITE_CENTERED = 4,
+    SPRITE_RESOLUTION_INDEPENDANT = 128,
+} SPRITE_FLAGS;
+
+// texture id, position(x,y,depth sort), tint color, rotation angle
+API void sprite( texture_t texture, float position[3], float rotation /*0*/, unsigned color /*~0u*/, unsigned flags);
+
+// texture id, rect(x,y,w,h) is [0..1] normalized, then: pos(xyz,z-index), (scale.xy,offset.xy), rotation (degrees), color (rgba)
+API void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+
+// texture id, sheet(frameNumber,X,Y) (frame in a X*Y spritesheet), position(x,y,depth sort), rotation angle, offset(x,y), scale(x,y), is_additive, tint color
+API void sprite_sheet( texture_t texture, float sheet[3], float position[3], float rotation, float offset[2], float scale[2], unsigned rgba, unsigned flags);
+
+API void sprite_flush();
+
+// -----------------------------------------------------------------------------
+// tilemaps
+
+typedef struct tileset_t {
+    texture_t tex;            // spritesheet
+    unsigned tile_w, tile_h;  // dimensions per tile in pixels
+    unsigned cols, rows;      // tileset num_cols, num_rows
+    unsigned selected;        // active tile (while editing)
+} tileset_t;
+
+API tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows);
+
+API int       ui_tileset( tileset_t t );
+
+typedef struct tilemap_t {
+    int blank_chr;                // transparent tile
+    unsigned cols, rows;          // map dimensions (in tiles)
+    array(int) map;
+
+    vec3 position;                // x,y,scale
+    float zindex;
+    float tilt;
+    unsigned tint;
+    bool is_additive;
+} tilemap_t;
+
+API tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
+API void      tilemap_render( tilemap_t m, tileset_t style );
+API void      tilemap_render_ext( tilemap_t m, tileset_t style, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive );
+
+// -----------------------------------------------------------------------------
+// tiled maps
+
+typedef struct tiled_t {
+    char *map_name;
+    unsigned first_gid, tilew, tileh, w, h;
+
+    bool parallax;
+    vec3 position;
+    array(bool) visible;
+    array(tilemap_t) layers;
+    array(tileset_t) sets;
+    array(char*) names;
+} tiled_t;
+
+API tiled_t tiled(const char *file_tmx);
+API void    tiled_render(tiled_t tmx, vec3 pos);
+
+API void    ui_tiled(tiled_t *t);
+
+// -----------------------------------------------------------------------------
+// spines
+
+typedef struct spine_t spine_t;
+
+API spine_t*spine(const char *file_json, const char *file_atlas, unsigned flags);
+API void    spine_skin(spine_t *p, unsigned skin);
+API void    spine_render(spine_t *p, vec3 offset, unsigned flags);
+API void    spine_animate(spine_t *p, float delta);
+
+API void    ui_spine(spine_t *p);
+
+// ----------------------------------------------------------------------------
+// atlas api
+typedef struct atlas_frame_t {
+    unsigned delay;
+    vec4 sheet;
+    vec2 anchor; // @todo
+    array(vec3i) indices;
+    array(vec2) coords;
+    array(vec2) uvs;
+} atlas_frame_t;
+
+typedef struct atlas_anim_t {
+    unsigned name;
+    array(unsigned) frames;
+} atlas_anim_t;
+
+typedef struct atlas_slice_frame_t {
+    vec4 bounds;
+    bool has_9slice;
+    vec4 core;
+    vec2 pivot;
+} atlas_slice_frame_t;
+
+typedef struct atlas_slice_t {
+    unsigned name;
+    array(unsigned) frames;
+} atlas_slice_t;
+
+typedef struct atlas_t {
+    texture_t tex;
+
+    array(atlas_frame_t) frames;
+    array(atlas_anim_t)  anims;
+    array(atlas_slice_t) slices;
+    array(atlas_slice_frame_t) slice_frames;
+
+    quarks_db db;
+} atlas_t;
+
+API atlas_t atlas_create(const char *inifile, unsigned flags);
+API int         ui_atlas(atlas_t *a);
+API int         ui_atlas_frame(atlas_frame_t *f);
+API void    atlas_destroy(atlas_t *a);
+
+// ----------------------------------------------------------------------------
+// sprite v2 api
+
+typedef struct sprite_t { OBJ
+    vec4 gamepad; // up,down,left,right
+    vec2 fire;    // a,b
+
+    vec4 pos;
+    vec2 sca;
+    float tilt;
+    unsigned tint;
+    unsigned frame;
+    unsigned timer, timer_ms;
+    unsigned flip_, flipped;
+    unsigned play;
+    bool paused;
+    // array(unsigned) play_queue; or unsigned play_next;
+    struct atlas_t *a; // shared
+    //atlas_t own; // owned
+} sprite_t;
+
+OBJTYPEDEF(sprite_t,10);
+API void     sprite_ctor(sprite_t *s);
+API void     sprite_dtor(sprite_t *s);
+API void     sprite_tick(sprite_t *s);
+API void     sprite_draw(sprite_t *s);
+API void     sprite_edit(sprite_t *s);
+
+API sprite_t*sprite_new(const char *ase, int bindings[6]);
+API void     sprite_del(sprite_t *s);
+API void     sprite_setanim(sprite_t *s, unsigned name);
+#line 0
+#line 1 "fwk_gui.h"
+// ----------------------------------------------------------------------------
+// game ui
+
+typedef struct guiskin_t {
+    void (*drawrect)(void* userdata, const char *skin, vec4 rect);
+    void (*getskinsize)(void* userdata, const char *skin, vec2 *size);
+    void (*free)(void* userdata);
+    void *userdata;
+} guiskin_t;
+
+API void    gui_pushskin(guiskin_t skin);
+API void*       gui_userdata();
+API vec2        gui_getskinsize(const char *skin);
+// --
+API void        gui_panel(int id, vec4 rect, const char *skin);
+API bool        gui_button(int id, vec4 rect, const char *skin);
+API void    gui_popskin();
+
+// helpers
+#define gui_panel(...) gui_panel(__LINE__, __VA_ARGS__)
+#define gui_button(...) gui_button(__LINE__, __VA_ARGS__)
+
+// default renderers
+
+/// skinned
+typedef struct skinned_t {
+    atlas_t atlas;
+    float scale;
+} skinned_t;
+
+API guiskin_t gui_skinned(const char *inifile, float scale);
 #line 0
 
 #line 1 "fwk_system.h"
@@ -4025,6 +4157,7 @@ API void        thread_destroy( void *thd );
 
 API int         argc();
 API char*       argv(int);
+API void        argvadd(const char *arg);
 
 API int         flag(const char *commalist); // --arg // app_flag?
 API const char* option(const char *commalist, const char *defaults); // --arg=string or --arg string
@@ -4102,7 +4235,6 @@ API int (test)(const char *file, int line, const char *expr, bool result);
 #line 1 "fwk_time.h"
 // -----------------------------------------------------------------------------
 // time framework utils
-// - rlyeh, public domain.
 
 API uint64_t    date();        // YYYYMMDDhhmmss
 API uint64_t    date_epoch();  // linux epoch
@@ -4144,9 +4276,7 @@ AUTORUN {
     hexdump(&g2, sizeof(g2));
 }
 */
-#line 0
 
-#line 1 "fwk_tween.h"
 // ----------------------------------------------------------------------------
 // ease
 
@@ -4224,16 +4354,16 @@ API const char**ease_enums();
 
 typedef struct tween_keyframe_t {
     float t;
-	vec3 v;
+    vec3 v;
     unsigned ease;
 } tween_keyframe_t;
 
 typedef struct tween_t {
-	array(tween_keyframe_t) keyframes;
+    array(tween_keyframe_t) keyframes;
 
-	vec3 result;
-	float time;
-	float duration;
+    vec3 result;
+    float time;
+    float duration;
 } tween_t;
 
 API tween_t tween();
@@ -4243,6 +4373,22 @@ API float     tween_update(tween_t *tw, float dt);
 API void      tween_reset(tween_t *tw);
 API void    tween_destroy(tween_t *tw);
 
+// ----------------------------------------------------------------------------
+// curve
+
+typedef struct curve_t {
+    array(float) lengths;
+    array(unsigned) colors;
+    array(vec3)  samples;
+    array(vec3)  points;
+    array(int)   indices;
+} curve_t;
+
+API curve_t curve();
+API void      curve_add(curve_t *c, vec3 p);
+API void      curve_end(curve_t *c, int num_points);
+API vec3       curve_eval(curve_t *c, float dt, unsigned *color);
+API void    curve_destroy(curve_t *c);
 #line 0
 
 #line 1 "fwk_ui.h"
@@ -4277,11 +4423,13 @@ API int    ui_mat44(const char *label, float mat44[16]);
 API int    ui_double(const char *label, double *value);
 API int    ui_buffer(const char *label, char *buffer, int buflen);
 API int    ui_string(const char *label, char **string);
-API int    ui_color3(const char *label, float *color3); //[0..255]
-API int    ui_color3f(const char *label, float *color3); //[0..1]
-API int    ui_color4(const char *label, float *color4); //[0..255]
-API int    ui_color4f(const char *label, float *color4); //[0..1]
+API int    ui_color3(const char *label, unsigned *color); //[0..255]
+API int    ui_color3f(const char *label, float color[3]); //[0..1]
+API int    ui_color4(const char *label, unsigned *color); //[0..255]
+API int    ui_color4f(const char *label, float color[4]); //[0..1]
 API int    ui_unsigned(const char *label, unsigned *value);
+API int    ui_unsigned2(const char *label, unsigned *value);
+API int    ui_unsigned3(const char *label, unsigned *value);
 API int    ui_button(const char *label);
 API int    ui_button_transparent(const char *label);
 API int    ui_buttons(int buttons, /*labels*/...);
@@ -4400,6 +4548,7 @@ enum WINDOW_FLAGS {
     WINDOW_ASPECT = 0x100, // keep aspect
     WINDOW_FIXED = 0x200, // disable resizing
     WINDOW_TRANSPARENT = 0x400,
+    WINDOW_BORDERLESS = 0x800,
 
     WINDOW_VSYNC = 0,
     WINDOW_VSYNC_ADAPTIVE = 0x1000,
@@ -4468,14 +4617,136 @@ enum CURSOR_SHAPES {
     CURSOR_NONE,
     CURSOR_HW_ARROW,  // default
     CURSOR_HW_IBEAM,  // i-beam text cursor
-    CURSOR_HW_CROSS,  // crosshair
-    CURSOR_HW_HAND,   // hand, clickable
     CURSOR_HW_HDRAG,  // horizontal drag/resize
     CURSOR_HW_VDRAG,  // vertical drag/resize
+    CURSOR_HW_HAND,   // hand, clickable
+    CURSOR_HW_CROSS,  // crosshair
     CURSOR_SW_AUTO,   // software cursor, ui driven. note: this is the only icon that may be recorded or snapshotted
 };
 
 API void     window_cursor_shape(unsigned shape);
+
+API const char *window_clipboard();
+API void        window_setclipboard(const char *text);
+#line 0
+
+// ----
+
+#line 1 "fwk_editor.h"
+// -----------------------------------------------------------------------------
+// in-game editor
+// - rlyeh, public domain.
+
+#define EDITOR_VERSION "2023.10"
+
+// ----------------------------------------------------------------------------
+// editor bindings
+
+typedef struct editor_bind_t {
+    const char *command;
+    const char *bindings;
+    void (*fn)();
+} editor_bind_t;
+
+API void editor_addbind(editor_bind_t bind);
+
+#define EDITOR_BIND(CMD,KEYS,...) \
+    void macro(editor_bind_##CMD##_fn_)() { __VA_ARGS__ }; AUTORUN { array_push(editor_binds, ((editor_bind_t){#CMD,KEYS,macro(editor_bind_##CMD##_fn_)}) ); }
+
+// ----------------------------------------------------------------------------
+// editor properties
+
+#define EDITOR_PROPERTYDEF(T,property_name) \
+    typedef map(void*,T) editor_##property_name##_map_t; \
+API editor_##property_name##_map_t *editor_##property_name##_map(); \
+API T editor_##property_name(const void *obj); \
+API void editor_set##property_name(const void *obj, T value); \
+API void editor_alt##property_name(const void *obj); \
+API void editor_no##property_name(void *obj);
+
+EDITOR_PROPERTYDEF(int,  open);     ///- whether object is tree opened in tree editor
+EDITOR_PROPERTYDEF(int,  selected); ///- whether object is displaying a contextual popup or not
+EDITOR_PROPERTYDEF(int,  changed);  ///- whether object is displaying a contextual popup or not
+EDITOR_PROPERTYDEF(int,  popup);    ///- whether object is displaying a contextual popup or not
+EDITOR_PROPERTYDEF(int,  bookmarked); ///-
+EDITOR_PROPERTYDEF(int,  visible); ///-
+EDITOR_PROPERTYDEF(int,  script); ///-
+EDITOR_PROPERTYDEF(int,  event); ///-
+EDITOR_PROPERTYDEF(char*,iconinstance); ///-
+EDITOR_PROPERTYDEF(char*,iconclass); ///-
+EDITOR_PROPERTYDEF(int,  treeoffsety); ///-
+
+API void editor_destroy_properties(void *o);
+API void editor_load_on_boot(void);
+API void editor_save_on_quit(void);
+
+// ----------------------------------------------------------------------------
+// editor ui
+
+enum EDITOR_MODE {
+    EDITOR_PANEL,
+    EDITOR_WINDOW,
+    EDITOR_WINDOW_NK,
+    EDITOR_WINDOW_NK_SMALL,
+};
+
+API int editor_begin(const char *title, int mode);
+API int editor_end(int mode);
+
+// ----------------------------------------------------------------------------------------
+// editor selection
+
+API int editor_filter();
+API void editor_select(const char *mask);
+API void editor_unselect(); // same than editor_select("!**");
+
+API void editor_select_aabb(aabb box);
+API void editor_selectgroup(obj *first, obj *last);
+API void* editor_first_selected();
+API void* editor_last_selected();
+
+// ----------------------------------------------------------------------------------------
+// editor instancing
+
+API void editor_addtoworld(obj *o);
+API void editor_watch(const void *o);
+API void* editor_spawn(const char *ini); // deprecate?
+API void editor_spawn1();
+
+API void editor_destroy_selected();
+API void editor_inspect(obj *o);
+
+// ----------------------------------------------------------------------------------------
+// editor utils
+
+//API void  editor();
+//API bool  editor_active();
+API vec3   editor_pick(float mouse_x, float mouse_y);
+API char*  editor_path(const char *path);
+
+API void editor_setmouse(int x, int y);
+API vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint);
+API vec2 editor_glyphs(int x, int y, const char *style, const char *utf8);
+API void editor_gizmos(int dim);
+
+// ----------------------------------------------------------------------------------------
+// editor loop
+
+API int         editor_send(const char *cmd); // returns job-id
+API const char* editor_recv(int jobid, double timeout_ss);
+
+API void editor_pump();
+API void editor_frame( void (*game)(unsigned, float, double) );
+
+// ----------------------------------------------------------------------------------------
+// engine section: @todo: expand me
+
+API float* engine_getf(const char *key);
+API int*   engine_geti(const char *key);
+API char** engine_gets(const char *key);
+API int    engine_send(const char *cmd, const char *optional_value);
+
+API int    ui_engine();
 #line 0
 
 // ----
@@ -4490,13 +4761,13 @@ API void     window_cursor_shape(unsigned shape);
     #include <GLFW/glfw3.h>
     #include <emscripten.h>
     #include <emscripten/html5.h>
-    #define gladLoadGL(func) (glewExperimental = true, glewInit() == GLEW_OK)
+    #define gladLoadGL(func) (glewExperimental = true, glewInit() == GLEW_OK) ///-
 #else
     #if is(win32) /*&& is(tcc)*/ // && ENABLE_DLL
     #ifdef GLAD_API_CALL
     #undef GLAD_API_CALL
     #endif
-    #define GLAD_API_CALL extern API
+    #define GLAD_API_CALL extern API ///-
     #endif
     #ifndef GLAD_GL_H_
     #include "fwk"

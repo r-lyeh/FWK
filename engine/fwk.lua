@@ -957,18 +957,6 @@ ffi.cdef([[
 //lcpp INF [0000] quat: macro name but used as C declaration in:API void printq( quat q );
 //lcpp INF [0000] quat: macro name but used as C declaration in:STATIC void printq( quat q );
 //lcpp INF [0000] quat: macro name but used as C declaration in: void printq( quat q );
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 velocity;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 acceleration;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 prev_position;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3* steering_targets;
-//lcpp INF [0000] map: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; array(boid_t*) val; } tmp, *ptr; array(boid_t*)* tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; array(boid_t*) val; } tmp, *ptr; array(boid_t*)* tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] map: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
 //lcpp INF [0000] map: macro name but used as C declaration in:API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
 //lcpp INF [0000] vec2i: macro name but used as C declaration in:API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
 //lcpp INF [0000] vec2i: macro name but used as C declaration in:API int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
@@ -981,6 +969,18 @@ ffi.cdef([[
 //lcpp INF [0000] vec2i: macro name but used as C declaration in: int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
 //lcpp INF [0000] vec2i: macro name but used as C declaration in: int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
 //lcpp INF [0000] vec2i: macro name but used as C declaration in: int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 velocity;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 acceleration;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 prev_position;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3* steering_targets;
+//lcpp INF [0000] map: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; array(boid_t*) val; } tmp, *ptr; array(boid_t*)* tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; array(boid_t*) val; } tmp, *ptr; array(boid_t*)* tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] map: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:struct { map base; struct { pair p; vec3* key; boid_t** val; } tmp, *ptr; boid_t*** tmpval;          int (*typed_cmp)(vec3*, vec3*); uint64_t (*typed_hash)(vec3*); } * voxel_cache_;
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 a;
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 b;
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 a;
@@ -1118,18 +1118,6 @@ ffi.cdef([[
 //lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC poly    diamond(vec3 from, vec3 to, float size);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: poly    diamond(vec3 from, vec3 to, float size);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: poly    diamond(vec3 from, vec3 to, float size);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API vec3   editor_pick(float mouse_x, float mouse_y);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC vec3   editor_pick(float mouse_x, float mouse_y);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: vec3   editor_pick(float mouse_x, float mouse_y);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
 //lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; char* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(char*, char*); uint64_t (*typed_hash)(char*); } * ini_t;
 //lcpp INF [0000] vec2: macro name but used as C declaration in:API vec2  font_xy();
 //lcpp INF [0000] vec2: macro name but used as C declaration in:STATIC vec2  font_xy();
@@ -1235,24 +1223,6 @@ ffi.cdef([[
 //lcpp INF [0000] vec4: macro name but used as C declaration in: void        swapf4(vec4 *a, vec4 *b);
 //lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; char * key; struct profile_t val; } tmp, *ptr; struct profile_t* tmpval;          int (*typed_cmp)(char *, char *); uint64_t (*typed_hash)(char *); } * profiler_t;
 //lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 color;
-//lcpp INF [0000] vec4: macro name but used as C declaration in:API void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] vec4: macro name but used as C declaration in: void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
-//lcpp INF [0000] map: macro name but used as C declaration in:int* map;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
-//lcpp INF [0000] map: macro name but used as C declaration in:API tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
-//lcpp INF [0000] map: macro name but used as C declaration in:STATIC tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
-//lcpp INF [0000] map: macro name but used as C declaration in: tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API void    tiled_render(tiled_t tmx, vec3 pos);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void    tiled_render(tiled_t tmx, vec3 pos);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: void    tiled_render(tiled_t tmx, vec3 pos);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:API void    spine_render(spine_t *p, vec3 offset, unsigned flags);
-//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void    spine_render(spine_t *p, vec3 offset, unsigned flags);
-//lcpp INF [0000] vec3: macro name but used as C declaration in: void    spine_render(spine_t *p, vec3 offset, unsigned flags);
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 sh[9];
 //lcpp INF [0000] vec4: macro name but used as C declaration in:vec4   light_position;
 //lcpp INF [0000] vec3: macro name but used as C declaration in:API void shadowmap_set_shadowmatrix(shadowmap_t *s, vec3 aLightPos, vec3 aLightAt, vec3 aLightUp, const mat44 projection);
@@ -1458,6 +1428,15 @@ ffi.cdef([[
 //lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void ddraw_prism(vec3 center, float radius, float height, vec3 normal, int segments);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: void ddraw_prism(vec3 center, float radius, float height, vec3 normal, int segments);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: void ddraw_prism(vec3 center, float radius, float height, vec3 normal, int segments);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position, updir, lookdir;
 //lcpp INF [0000] vec2: macro name but used as C declaration in:vec2 last_look; vec3 last_move;
 //lcpp INF [0000] vec3: macro name but used as C declaration in:vec2 last_look; vec3 last_move;
@@ -1508,6 +1487,46 @@ ffi.cdef([[
 //lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void    light_dir(light_t* l, vec3 dir);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: void    light_dir(light_t* l, vec3 dir);
 //lcpp INF [0000] vec2i: macro name but used as C declaration in:vec2i* entries;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:API void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:API void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:API void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in: void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in: void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in: void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+//lcpp INF [0000] map: macro name but used as C declaration in:int* map;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
+//lcpp INF [0000] map: macro name but used as C declaration in:API tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
+//lcpp INF [0000] map: macro name but used as C declaration in:STATIC tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
+//lcpp INF [0000] map: macro name but used as C declaration in: tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3 position;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API void    tiled_render(tiled_t tmx, vec3 pos);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void    tiled_render(tiled_t tmx, vec3 pos);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: void    tiled_render(tiled_t tmx, vec3 pos);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API void    spine_render(spine_t *p, vec3 offset, unsigned flags);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void    spine_render(spine_t *p, vec3 offset, unsigned flags);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: void    spine_render(spine_t *p, vec3 offset, unsigned flags);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 sheet;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2 anchor;
+//lcpp INF [0000] vec3i: macro name but used as C declaration in:vec3i* indices;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2* coords;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2* uvs;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 bounds;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 core;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2 pivot;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 gamepad;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2 fire;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:vec4 pos;
+//lcpp INF [0000] vec2: macro name but used as C declaration in:vec2 sca;
+//lcpp INF [0000] vec4: macro name but used as C declaration in:void (*draw_rect_func)(void* userdata, const char *skin, vec4 rect);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:API void        gui_panel(int id, vec4 rect, const char *skin);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC void        gui_panel(int id, vec4 rect, const char *skin);
+//lcpp INF [0000] vec4: macro name but used as C declaration in: void        gui_panel(int id, vec4 rect, const char *skin);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:API bool        gui_button(int id, vec4 rect, const char *skin);
+//lcpp INF [0000] vec4: macro name but used as C declaration in:STATIC bool        gui_button(int id, vec4 rect, const char *skin);
+//lcpp INF [0000] vec4: macro name but used as C declaration in: bool        gui_button(int id, vec4 rect, const char *skin);
 //lcpp INF [0000] test: macro name but used as C declaration in:API int (test)(const char *file, int line, const char *expr, bool result);
 //lcpp INF [0000] test: macro name but used as C declaration in:STATIC int (test)(const char *file, int line, const char *expr, bool result);
 //lcpp INF [0000] test: macro name but used as C declaration in: int (test)(const char *file, int line, const char *expr, bool result);
@@ -1517,6 +1536,14 @@ ffi.cdef([[
 //lcpp INF [0000] vec3: macro name but used as C declaration in:API void      tween_setkey(tween_t *tw, float t, vec3 v, unsigned easing_mode);
 //lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void      tween_setkey(tween_t *tw, float t, vec3 v, unsigned easing_mode);
 //lcpp INF [0000] vec3: macro name but used as C declaration in: void      tween_setkey(tween_t *tw, float t, vec3 v, unsigned easing_mode);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3*  samples;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:vec3*  points;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API void      curve_add(curve_t *c, vec3 p);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC void      curve_add(curve_t *c, vec3 p);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: void      curve_add(curve_t *c, vec3 p);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API vec3       curve_eval(curve_t *c, float dt, unsigned *color);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC vec3       curve_eval(curve_t *c, float dt, unsigned *color);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: vec3       curve_eval(curve_t *c, float dt, unsigned *color);
 //lcpp INF [0000] vec2: macro name but used as C declaration in:API vec2 ui_get_dims();
 //lcpp INF [0000] vec2: macro name but used as C declaration in:STATIC vec2 ui_get_dims();
 //lcpp INF [0000] vec2: macro name but used as C declaration in: vec2 ui_get_dims();
@@ -1526,14 +1553,90 @@ ffi.cdef([[
 //lcpp INF [0000] vec2: macro name but used as C declaration in:API vec2     window_dpi();
 //lcpp INF [0000] vec2: macro name but used as C declaration in:STATIC vec2     window_dpi();
 //lcpp INF [0000] vec2: macro name but used as C declaration in: vec2     window_dpi();
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;  API editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_open(const void *obj);  API void editor_setopen(const void *obj, int value);  API void editor_altopen(const void *obj);  API void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;  API editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_open(const void *obj);  API void editor_setopen(const void *obj, int value);  API void editor_altopen(const void *obj);  API void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;  STATIC editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_open(const void *obj);  STATIC void editor_setopen(const void *obj, int value);  STATIC void editor_altopen(const void *obj);  STATIC void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;  STATIC editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_open(const void *obj);  STATIC void editor_setopen(const void *obj, int value);  STATIC void editor_altopen(const void *obj);  STATIC void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;   editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_open(const void *obj);   void editor_setopen(const void *obj, int value);   void editor_altopen(const void *obj);   void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;   editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_open(const void *obj);   void editor_setopen(const void *obj, int value);   void editor_altopen(const void *obj);   void editor_noopen(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;  API editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_selected(const void *obj);  API void editor_setselected(const void *obj, int value);  API void editor_altselected(const void *obj);  API void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;  API editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_selected(const void *obj);  API void editor_setselected(const void *obj, int value);  API void editor_altselected(const void *obj);  API void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;  STATIC editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_selected(const void *obj);  STATIC void editor_setselected(const void *obj, int value);  STATIC void editor_altselected(const void *obj);  STATIC void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;  STATIC editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_selected(const void *obj);  STATIC void editor_setselected(const void *obj, int value);  STATIC void editor_altselected(const void *obj);  STATIC void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;   editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_selected(const void *obj);   void editor_setselected(const void *obj, int value);   void editor_altselected(const void *obj);   void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;   editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_selected(const void *obj);   void editor_setselected(const void *obj, int value);   void editor_altselected(const void *obj);   void editor_noselected(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;  API editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_changed(const void *obj);  API void editor_setchanged(const void *obj, int value);  API void editor_altchanged(const void *obj);  API void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;  API editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_changed(const void *obj);  API void editor_setchanged(const void *obj, int value);  API void editor_altchanged(const void *obj);  API void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;  STATIC editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_changed(const void *obj);  STATIC void editor_setchanged(const void *obj, int value);  STATIC void editor_altchanged(const void *obj);  STATIC void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;  STATIC editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_changed(const void *obj);  STATIC void editor_setchanged(const void *obj, int value);  STATIC void editor_altchanged(const void *obj);  STATIC void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;   editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_changed(const void *obj);   void editor_setchanged(const void *obj, int value);   void editor_altchanged(const void *obj);   void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;   editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_changed(const void *obj);   void editor_setchanged(const void *obj, int value);   void editor_altchanged(const void *obj);   void editor_nochanged(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;  API editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_popup(const void *obj);  API void editor_setpopup(const void *obj, int value);  API void editor_altpopup(const void *obj);  API void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;  API editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_popup(const void *obj);  API void editor_setpopup(const void *obj, int value);  API void editor_altpopup(const void *obj);  API void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;  STATIC editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_popup(const void *obj);  STATIC void editor_setpopup(const void *obj, int value);  STATIC void editor_altpopup(const void *obj);  STATIC void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;  STATIC editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_popup(const void *obj);  STATIC void editor_setpopup(const void *obj, int value);  STATIC void editor_altpopup(const void *obj);  STATIC void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;   editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_popup(const void *obj);   void editor_setpopup(const void *obj, int value);   void editor_altpopup(const void *obj);   void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;   editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_popup(const void *obj);   void editor_setpopup(const void *obj, int value);   void editor_altpopup(const void *obj);   void editor_nopopup(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;  API editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_bookmarked(const void *obj);  API void editor_setbookmarked(const void *obj, int value);  API void editor_altbookmarked(const void *obj);  API void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;  API editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_bookmarked(const void *obj);  API void editor_setbookmarked(const void *obj, int value);  API void editor_altbookmarked(const void *obj);  API void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;  STATIC editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_bookmarked(const void *obj);  STATIC void editor_setbookmarked(const void *obj, int value);  STATIC void editor_altbookmarked(const void *obj);  STATIC void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;  STATIC editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_bookmarked(const void *obj);  STATIC void editor_setbookmarked(const void *obj, int value);  STATIC void editor_altbookmarked(const void *obj);  STATIC void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;   editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_bookmarked(const void *obj);   void editor_setbookmarked(const void *obj, int value);   void editor_altbookmarked(const void *obj);   void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;   editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_bookmarked(const void *obj);   void editor_setbookmarked(const void *obj, int value);   void editor_altbookmarked(const void *obj);   void editor_nobookmarked(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;  API editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_visible(const void *obj);  API void editor_setvisible(const void *obj, int value);  API void editor_altvisible(const void *obj);  API void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;  API editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_visible(const void *obj);  API void editor_setvisible(const void *obj, int value);  API void editor_altvisible(const void *obj);  API void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;  STATIC editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_visible(const void *obj);  STATIC void editor_setvisible(const void *obj, int value);  STATIC void editor_altvisible(const void *obj);  STATIC void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;  STATIC editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_visible(const void *obj);  STATIC void editor_setvisible(const void *obj, int value);  STATIC void editor_altvisible(const void *obj);  STATIC void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;   editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_visible(const void *obj);   void editor_setvisible(const void *obj, int value);   void editor_altvisible(const void *obj);   void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;   editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_visible(const void *obj);   void editor_setvisible(const void *obj, int value);   void editor_altvisible(const void *obj);   void editor_novisible(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;  API editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_script(const void *obj);  API void editor_setscript(const void *obj, int value);  API void editor_altscript(const void *obj);  API void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;  API editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_script(const void *obj);  API void editor_setscript(const void *obj, int value);  API void editor_altscript(const void *obj);  API void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;  STATIC editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_script(const void *obj);  STATIC void editor_setscript(const void *obj, int value);  STATIC void editor_altscript(const void *obj);  STATIC void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;  STATIC editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_script(const void *obj);  STATIC void editor_setscript(const void *obj, int value);  STATIC void editor_altscript(const void *obj);  STATIC void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;   editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_script(const void *obj);   void editor_setscript(const void *obj, int value);   void editor_altscript(const void *obj);   void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;   editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_script(const void *obj);   void editor_setscript(const void *obj, int value);   void editor_altscript(const void *obj);   void editor_noscript(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;  API editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_event(const void *obj);  API void editor_setevent(const void *obj, int value);  API void editor_altevent(const void *obj);  API void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;  API editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_event(const void *obj);  API void editor_setevent(const void *obj, int value);  API void editor_altevent(const void *obj);  API void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;  STATIC editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_event(const void *obj);  STATIC void editor_setevent(const void *obj, int value);  STATIC void editor_altevent(const void *obj);  STATIC void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;  STATIC editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_event(const void *obj);  STATIC void editor_setevent(const void *obj, int value);  STATIC void editor_altevent(const void *obj);  STATIC void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;   editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_event(const void *obj);   void editor_setevent(const void *obj, int value);   void editor_altevent(const void *obj);   void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;   editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_event(const void *obj);   void editor_setevent(const void *obj, int value);   void editor_altevent(const void *obj);   void editor_noevent(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;  API editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API char* editor_iconinstance(const void *obj);  API void editor_seticoninstance(const void *obj, char* value);  API void editor_alticoninstance(const void *obj);  API void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;  API editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API char* editor_iconinstance(const void *obj);  API void editor_seticoninstance(const void *obj, char* value);  API void editor_alticoninstance(const void *obj);  API void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;  STATIC editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC char* editor_iconinstance(const void *obj);  STATIC void editor_seticoninstance(const void *obj, char* value);  STATIC void editor_alticoninstance(const void *obj);  STATIC void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;  STATIC editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC char* editor_iconinstance(const void *obj);  STATIC void editor_seticoninstance(const void *obj, char* value);  STATIC void editor_alticoninstance(const void *obj);  STATIC void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;   editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconinstance(const void *obj);   void editor_seticoninstance(const void *obj, char* value);   void editor_alticoninstance(const void *obj);   void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;   editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconinstance(const void *obj);   void editor_seticoninstance(const void *obj, char* value);   void editor_alticoninstance(const void *obj);   void editor_noiconinstance(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;  API editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API char* editor_iconclass(const void *obj);  API void editor_seticonclass(const void *obj, char* value);  API void editor_alticonclass(const void *obj);  API void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;  API editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API char* editor_iconclass(const void *obj);  API void editor_seticonclass(const void *obj, char* value);  API void editor_alticonclass(const void *obj);  API void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;  STATIC editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC char* editor_iconclass(const void *obj);  STATIC void editor_seticonclass(const void *obj, char* value);  STATIC void editor_alticonclass(const void *obj);  STATIC void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;  STATIC editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC char* editor_iconclass(const void *obj);  STATIC void editor_seticonclass(const void *obj, char* value);  STATIC void editor_alticonclass(const void *obj);  STATIC void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;   editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconclass(const void *obj);   void editor_seticonclass(const void *obj, char* value);   void editor_alticonclass(const void *obj);   void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;   editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconclass(const void *obj);   void editor_seticonclass(const void *obj, char* value);   void editor_alticonclass(const void *obj);   void editor_noiconclass(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;  API editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_treeoffsety(const void *obj);  API void editor_settreeoffsety(const void *obj, int value);  API void editor_alttreeoffsety(const void *obj);  API void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;  API editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  API int editor_treeoffsety(const void *obj);  API void editor_settreeoffsety(const void *obj, int value);  API void editor_alttreeoffsety(const void *obj);  API void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;  STATIC editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_treeoffsety(const void *obj);  STATIC void editor_settreeoffsety(const void *obj, int value);  STATIC void editor_alttreeoffsety(const void *obj);  STATIC void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;  STATIC editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;  STATIC int editor_treeoffsety(const void *obj);  STATIC void editor_settreeoffsety(const void *obj, int value);  STATIC void editor_alttreeoffsety(const void *obj);  STATIC void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;   editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_treeoffsety(const void *obj);   void editor_settreeoffsety(const void *obj, int value);   void editor_alttreeoffsety(const void *obj);   void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] map: macro name but used as C declaration in:typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;   editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_treeoffsety(const void *obj);   void editor_settreeoffsety(const void *obj, int value);   void editor_alttreeoffsety(const void *obj);   void editor_notreeoffsety(void *obj);;
+//lcpp INF [0000] vec3: macro name but used as C declaration in:API vec3   editor_pick(float mouse_x, float mouse_y);
+//lcpp INF [0000] vec3: macro name but used as C declaration in:STATIC vec3   editor_pick(float mouse_x, float mouse_y);
+//lcpp INF [0000] vec3: macro name but used as C declaration in: vec3   editor_pick(float mouse_x, float mouse_y);
+//lcpp INF [0000] vec2: macro name but used as C declaration in:API vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint);
+//lcpp INF [0000] vec2: macro name but used as C declaration in:STATIC vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint);
+//lcpp INF [0000] vec2: macro name but used as C declaration in: vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint);
+//lcpp INF [0000] vec2: macro name but used as C declaration in:API vec2 editor_glyphs(int x, int y, const char *style, const char *utf8);
+//lcpp INF [0000] vec2: macro name but used as C declaration in:STATIC vec2 editor_glyphs(int x, int y, const char *style, const char *utf8);
+//lcpp INF [0000] vec2: macro name but used as C declaration in: vec2 editor_glyphs(int x, int y, const char *style, const char *utf8);
 typedef struct FILE FILE;
 typedef long int ptrdiff_t;
 typedef long unsigned int size_t;
- int sort_64(const void *a, const void *b);
  int less_64(uint64_t a, uint64_t b);
  int less_int(int a, int b);
  int less_ptr(void *a, void *b);
  int less_str(char *a, char *b);
+ int less_64_ptr(const void *a, const void *b);
+ int less_int_ptr(const void *a, const void *b);
  uint32_t unhash_32(uint32_t x);
  uint32_t hash_32(uint32_t x);
  uint64_t hash_64(uint64_t x);
@@ -1789,10 +1892,10 @@ typedef float mat44[16];
  void print33( float *m );
  void print34( float *m );
  void print44( float *m );
-uintptr_t id_make(void *ptr);
-void *     id_handle(uintptr_t id);
-void       id_dispose(uintptr_t id);
-bool        id_valid(uintptr_t id);
+ uintptr_t id_make(void *ptr);
+ void *     id_handle(uintptr_t id);
+ void       id_dispose(uintptr_t id);
+ bool        id_valid(uintptr_t id);
 typedef struct obj { struct {          ifdef(debug, const char *objname;)          union {              uintptr_t objheader;              struct {               uintptr_t objtype:8;              uintptr_t objsizew:8;              uintptr_t objrefs:8;              uintptr_t objheap:1;              uintptr_t objcomps:1;               uintptr_t objunused:64-8-8-8-1-1-16-3;               uintptr_t objid:16+3;               };          };          struct obj** objchildren;      }; } obj;
 typedef struct entity { struct { struct {          ifdef(debug, const char *objname;)          union {              uintptr_t objheader;              struct {               uintptr_t objtype:8;              uintptr_t objsizew:8;              uintptr_t objrefs:8;              uintptr_t objheap:1;              uintptr_t objcomps:1;               uintptr_t objunused:64-8-8-8-1-1-16-3;               uintptr_t objid:16+3;               };          };          struct obj** objchildren;      }; union { struct { uintptr_t objenabled:32, objflagged:32; }; uintptr_t cflags; }; void *c[32]; }; } entity;
   obj *objtmp;
@@ -1808,7 +1911,11 @@ void*   obj_free(void *o);
  extern int   (*obj_tick[256])();
  extern int   (*obj_draw[256])();
  extern int   (*obj_lerp[256])();
+ extern int   (*obj_aabb[256])();
  extern int   (*obj_edit[256])();
+ extern int   (*obj_menu[256])();
+ extern char* (*obj_icon[256])();
+ extern const char*OBJTYPES[256];
  uintptr_t   obj_header(const void *o);
  uintptr_t   obj_id(const void *o);
  const char* obj_type(const void *o);
@@ -1883,6 +1990,23 @@ OBJTYPE_mat44  =  8,
 OBJTYPE_vec2i  =  9,
 OBJTYPE_vec3i  = 10,
 } OBJTYPE_BUILTINS;
+ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
+typedef int (*bt_func)();
+typedef struct bt_t {
+uint64_t type;
+int (*action)();
+union {
+int argi;
+float argf;
+};
+struct bt_t* children;
+} bt_t;
+ bt_t    bt(const char *ini_file, unsigned flags);
+ int     bt_run(bt_t *b);
+ void    bt_addfun(const char *name, int(*func)());
+ bt_func bt_findfun(const char *name);
+ char   *bt_funcname(bt_func fn);
+ int ui_bt(bt_t *b);
 typedef enum SWARM_DISTANCE {
 SWARM_DISTANCE_LINEAR,
 SWARM_DISTANCE_INVERSE_LINEAR,
@@ -1916,23 +2040,6 @@ float blindspot_angledeg_compare_value_;
  void    swarm_update_acceleration_only(swarm_t *self);
  void    swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta);
  int     ui_swarm(swarm_t *self);
- int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i dst, vec2i* path, size_t maxpath);
-typedef int (*bt_func)();
-typedef struct bt_t {
-uint64_t type;
-int (*action)();
-union {
-int argi;
-float argf;
-};
-struct bt_t* children;
-} bt_t;
- bt_t    bt(const char *ini_file, unsigned flags);
- int     bt_run(bt_t *b);
- void    bt_addfun(const char *name, int(*func)());
- bt_func bt_findfun(const char *name);
- char   *bt_funcname(bt_func fn);
- int ui_bt(bt_t *b);
  void    midi_send(unsigned midi_msg);
 typedef struct audio_handle* audio_t;
  audio_t audio_clip( const char *pathfile );
@@ -1966,52 +2073,6 @@ AUDIO_MULTIPLE_INSTANCES = 0,
 AUDIO_SINGLE_INSTANCE = 512,
 };
  int audio_queue( const void *samples, int num_samples, int flags );
-enum COMPRESS_FLAGS {
-COMPRESS_RAW     = 0,
-COMPRESS_PPP     = (1<<4),
-COMPRESS_ULZ     = (2<<4),
-COMPRESS_LZ4     = (3<<4),
-COMPRESS_CRUSH   = (4<<4),
-COMPRESS_DEFLATE = (5<<4),
-COMPRESS_LZP1    = (6<<4),
-COMPRESS_LZMA    = (7<<4),
-COMPRESS_BALZ    = (8<<4),
-COMPRESS_LZW3    = (9<<4),
-COMPRESS_LZSS    = (10<<4),
-COMPRESS_BCM     = (11<<4),
-COMPRESS_ZLIB    = (12<<4),
-};
- unsigned zbounds(unsigned inlen, unsigned flags);
- unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
- unsigned zexcess(unsigned flags);
- unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
- void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
- unsigned cobs_bounds(unsigned len);
- unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
- unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
- unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
- unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
- unsigned base92_bounds(unsigned inlen);
- unsigned netstring_bounds(unsigned inlen);
- unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
- unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
- void delta8_encode(void *buffer, unsigned count);
- void delta8_decode(void *buffer, unsigned count);
- void delta16_encode(void *buffer, unsigned count);
- void delta16_decode(void *buffer, unsigned count);
- void delta32_encode(void *buffer, unsigned count);
- void delta32_decode(void *buffer, unsigned count);
- void delta64_encode(void *buffer, unsigned count);
- void delta64_decode(void *buffer, unsigned count);
- uint64_t zig64( int64_t value );
- int64_t zag64( uint64_t value );
- uint32_t enczig32u( int32_t n);
- uint64_t enczig64u( int64_t n);
-  int32_t deczig32i(uint32_t n);
-  int64_t deczig64i(uint64_t n);
- void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
- uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
- void entropy( void *buf, unsigned n );
 typedef struct gjk_support {
 int aid, bid;
 vec3 a;
@@ -2146,28 +2207,18 @@ typedef union json_t { char* s; double f; int64_t i; uintptr_t p; union json_t* 
  void            xml_pop();
  bool data_tests();
  void* dll(const char *filename, const char *symbol);
- vec3   editor_pick(float mouse_x, float mouse_y);
- char*  editor_path(const char *path);
- float* engine_getf(const char *key);
- int*   engine_geti(const char *key);
- char** engine_gets(const char *key);
- int    engine_send(const char *cmd, const char *optional_value);
- int    ui_debug();
- char* dialog_load();
- char* dialog_save();
- int   gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
- bool  gizmo_active();
- bool  gizmo_hover();
- bool  kit_load( const char *filename );
- bool  kit_merge( const char *filename );
- void  kit_insert( const char *id, const char *translation );
- void  kit_clear();
- void  kit_set( const char *variable, const char *value );
- void  kit_reset();
- void  kit_dump_state( FILE *fp );
- char* kit_translate2( const char *id, const char *langcode_iso639_1 );
- void  kit_locale( const char *langcode_iso639_1 );
- char* kit_translate( const char *id );
+ void script_init();
+ void script_run(const char *script);
+ void script_runfile(const char *pathfile);
+ void script_bind_class(const char *objname, int num_methods, const char **c_names, void **c_functions);
+ void script_bind_function(const char *c_name, void *c_function);
+ void script_call(const char *lua_function);
+ bool script_tests();
+enum {
+SCRIPT_LUA = 1,
+SCRIPT_DEBUGGER = 2,
+};
+ void *script_init_env(unsigned flags);
  char** file_list( const char *pathmasks );
  bool         file_write( const char *file, const void *ptr, int len );
  bool         file_append( const char *file, const void *ptr, int len );
@@ -2291,8 +2342,7 @@ TOUCH_1,
  int         ui_gamepad(int id);
  int         ui_gamepads();
 enum INPUT_ENUMS {
-KEY_ESC,
-KEY_TICK, KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9,KEY_0,  KEY_BS,
+KEY_0,KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,KEY_6,KEY_7,KEY_8,KEY_9,   KEY_TICK,KEY_BS,           KEY_ESC,
 KEY_TAB,   KEY_Q,KEY_W,KEY_E,KEY_R,KEY_T,KEY_Y,KEY_U,KEY_I,KEY_O,KEY_P,
 KEY_CAPS,     KEY_A,KEY_S,KEY_D,KEY_F,KEY_G,KEY_H,KEY_J,KEY_K,KEY_L, KEY_ENTER,
 KEY_LSHIFT,       KEY_Z,KEY_X,KEY_C,KEY_V,KEY_B,KEY_N,KEY_M,        KEY_RSHIFT,            KEY_UP,
@@ -2387,6 +2437,52 @@ enum { NETWORK_USERID = 7,  NETWORK_COUNT , NETWORK_CAPACITY };
  void   server_send_bin(int64_t handle, const void *ptr, int len);
  void   server_drop(int64_t handle);
  int64_t  client_join(const char *ip, int port);
+enum COMPRESS_FLAGS {
+COMPRESS_RAW     = 0,
+COMPRESS_PPP     = (1<<4),
+COMPRESS_ULZ     = (2<<4),
+COMPRESS_LZ4     = (3<<4),
+COMPRESS_CRUSH   = (4<<4),
+COMPRESS_DEFLATE = (5<<4),
+COMPRESS_LZP1    = (6<<4),
+COMPRESS_LZMA    = (7<<4),
+COMPRESS_BALZ    = (8<<4),
+COMPRESS_LZW3    = (9<<4),
+COMPRESS_LZSS    = (10<<4),
+COMPRESS_BCM     = (11<<4),
+COMPRESS_ZLIB    = (12<<4),
+};
+ unsigned zbounds(unsigned inlen, unsigned flags);
+ unsigned zencode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+ unsigned zexcess(unsigned flags);
+ unsigned zdecode(void *out, unsigned outlen, const void *in, unsigned inlen, unsigned flags);
+ void *interleave( void *out, const void *list, int list_count, int sizeof_item, unsigned columns );
+ unsigned cobs_bounds(unsigned len);
+ unsigned cobs_encode(const void *in, unsigned inlen, void *out, unsigned outlen);
+ unsigned cobs_decode(const void *in, unsigned inlen, void *out, unsigned outlen);
+ unsigned base92_encode(const void *in, unsigned inlen, void* out, unsigned outlen);
+ unsigned base92_decode(const void *in, unsigned inlen, void* out, unsigned outlen);
+ unsigned base92_bounds(unsigned inlen);
+ unsigned netstring_bounds(unsigned inlen);
+ unsigned netstring_encode(const char *in, unsigned inlen, char *out, unsigned outlen);
+ unsigned netstring_decode(const char *in, unsigned inlen, char *out, unsigned outlen);
+ void delta8_encode(void *buffer, unsigned count);
+ void delta8_decode(void *buffer, unsigned count);
+ void delta16_encode(void *buffer, unsigned count);
+ void delta16_decode(void *buffer, unsigned count);
+ void delta32_encode(void *buffer, unsigned count);
+ void delta32_decode(void *buffer, unsigned count);
+ void delta64_encode(void *buffer, unsigned count);
+ void delta64_decode(void *buffer, unsigned count);
+ uint64_t zig64( int64_t value );
+ int64_t zag64( uint64_t value );
+ uint32_t enczig32u( int32_t n);
+ uint64_t enczig64u( int64_t n);
+  int32_t deczig32i(uint32_t n);
+  int64_t deczig64i(uint64_t n);
+ void *arc4( void *buffer, unsigned buflen, const void *pass, unsigned passlen );
+ uint64_t crc64(uint64_t h, const void *ptr, uint64_t len);
+ void entropy( void *buf, unsigned n );
  int semver( int major, int minor, int patch );
  int semvercmp( int v1, int v2 );
 typedef struct byte2 { uint8_t x,y; } byte2;
@@ -2533,6 +2629,7 @@ unsigned bytes;
  void               struct_inscribe(const char *T,unsigned Tsz,unsigned OBJTYPEid, const char *infos);
  void               member_inscribe(const char *T, const char *M,unsigned Msz, const char *infos, const char *type, unsigned bytes);
  void               function_inscribe(const char *F,void *func,const char *infos);
+ const char*        symbol_naked(const char *s);
  int                ui_reflect(const char *mask);
 typedef unsigned handle;
  unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
@@ -2540,6 +2637,8 @@ typedef unsigned handle;
  unsigned rgbaf( float r, float g, float b, float a );
  unsigned bgraf( float b, float g, float r, float a );
  unsigned alpha( unsigned rgba );
+ unsigned atorgba(const char *s);
+ char *   rgbatoa(unsigned rgba);
 enum IMAGE_FLAGS {
 IMAGE_R     =4096,
 IMAGE_RG    =8192,
@@ -2578,6 +2677,7 @@ TEXTURE_RGBA = IMAGE_RGBA,
 TEXTURE_FLIP = IMAGE_FLIP,
 TEXTURE_SRGB = 1 << 24,
 TEXTURE_BGR = 1 << 25,
+TEXTURE_BGRA = TEXTURE_BGR,
 TEXTURE_ARRAY = 1 << 26,
 };
 typedef struct texture_t {
@@ -2591,6 +2691,7 @@ unsigned flags;
 char* filename;
 bool transparent;
 unsigned fbo;
+union { unsigned userdata, delay; };
 } texture_t;
  texture_t texture_compressed(const char *filename, unsigned flags);
  texture_t texture_compressed_from_mem(const void *data, int len, unsigned flags);
@@ -2627,50 +2728,6 @@ float specular_shininess;
  void fullscreen_quad_rgb_flipped( texture_t texture, float gamma );
  void fullscreen_quad_ycbcr( texture_t texture_YCbCr[3], float gamma );
  void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3], float gamma );
- void sprite( texture_t texture, float position[3], float rotation , uint32_t color );
- void sprite_rect( texture_t t, vec4 rect, float zindex, vec3 pos, float tilt_deg, unsigned tint_rgba);
- void sprite_sheet( texture_t texture, float sheet[3], float position[3], float rotation, float offset[2], float scale[2], int is_additive, uint32_t rgba, int resolution_independant);
- void sprite_flush();
-typedef struct tileset_t {
-texture_t tex;
-unsigned tile_w, tile_h;
-unsigned cols, rows;
-unsigned selected;
-} tileset_t;
- tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows);
- int       tileset_ui( tileset_t t );
-typedef struct tilemap_t {
-int blank_chr;
-unsigned cols, rows;
-int* map;
-vec3 position;
-float zindex;
-float tilt;
-unsigned tint;
-bool is_additive;
-} tilemap_t;
- tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
- void      tilemap_render( tilemap_t m, tileset_t style );
- void      tilemap_render_ext( tilemap_t m, tileset_t style, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive );
-typedef struct tiled_t {
-char *map_name;
-unsigned first_gid, tilew, tileh, w, h;
-bool parallax;
-vec3 position;
-bool* visible;
-tilemap_t* layers;
-tileset_t* sets;
-char** names;
-} tiled_t;
- tiled_t tiled(const char *file_tmx);
- void    tiled_render(tiled_t tmx, vec3 pos);
- void    tiled_ui(tiled_t *t);
-typedef struct spine_t spine_t;
- spine_t*spine(const char *file_json, const char *file_atlas, unsigned flags);
- void    spine_skin(spine_t *p, unsigned skin);
- void    spine_render(spine_t *p, vec3 offset, unsigned flags);
- void    spine_animate(spine_t *p, float delta);
- void    spine_ui(spine_t *p);
 typedef struct cubemap_t {
 unsigned id;
 vec3 sh[9];
@@ -2872,6 +2929,13 @@ unsigned billboard;
 float *instanced_matrices;
 unsigned num_instances;
 } model_t;
+enum BILLBOARD_MODE {
+BILLBOARD_X =1,
+BILLBOARD_Y =2,
+BILLBOARD_Z =4,
+BILLBOARD_CYLINDRICAL = BILLBOARD_X|BILLBOARD_Z,
+BILLBOARD_SPHERICAL = BILLBOARD_X|BILLBOARD_Y|BILLBOARD_Z
+};
  model_t  model(const char *filename, int flags);
  model_t  model_from_mem(const void *mem, int sz, int flags);
  float    model_animate(model_t, float curframe);
@@ -2971,6 +3035,9 @@ float *pixels;
  void ddraw_demo();
  void ddraw_flush();
  void ddraw_flush_projview(mat44 proj, mat44 view);
+ int  gizmo(vec3 *pos, vec3 *rot, vec3 *sca);
+ bool gizmo_active();
+ bool gizmo_hover();
 typedef struct camera_t {
 mat44 view, proj;
 vec3 position, updir, lookdir;
@@ -2980,6 +3047,8 @@ float move_friction, move_damping;
 float look_friction, look_damping;
 vec2 last_look; vec3 last_move;
 bool damping;
+bool orthographic;
+float distance;
 } camera_t;
  camera_t camera();
  void camera_teleport(camera_t *cam, vec3 pos);
@@ -3069,13 +3138,6 @@ int u_coefficients_sh;
  light_t*  scene_spawn_light();
  unsigned  scene_count_light();
  light_t*  scene_index_light(unsigned index);
- void script_init();
- void script_run(const char *script);
- void script_runfile(const char *pathfile);
- void script_bind_class(const char *objname, int num_methods, const char **c_names, void **c_functions);
- void script_bind_function(const char *c_name, void *c_function);
- void script_call(const char *lua_function);
- bool script_tests();
  char*   tempvl(const char *fmt, va_list);
  char*   tempva(const char *fmt, ...);
  char*   strcatf(char **s, const char *buf);
@@ -3098,8 +3160,9 @@ int u_coefficients_sh;
  size_t       strlcpy(char *dst, const char *src, size_t dstcap);
  char**    strsplit(const char *string, const char *delimiters);
  char*           strjoin(char** list, const char *separator);
- char *          string8(const wchar_t *str);
+ char*           string8(const wchar_t *str);
  uint32_t* string32( const char *utf8 );
+ const char*     codepoint_to_utf8(unsigned cp);
  unsigned    intern( const char *string );
  const char *quark( unsigned key );
 typedef struct quarks_db {
@@ -3108,10 +3171,143 @@ vec2i* entries;
 } quarks_db;
  unsigned    quark_intern( quarks_db*, const char *string );
  const char *quark_string( quarks_db*, unsigned key );
+ bool  kit_load( const char *filename );
+ bool  kit_merge( const char *filename );
+ void  kit_insert( const char *id, const char *translation );
+ void  kit_clear();
+ void  kit_set( const char *variable, const char *value );
+ void  kit_reset();
+ void  kit_dump_state( FILE *fp );
+ char* kit_translate2( const char *id, const char *langcode_iso639_1 );
+ void  kit_locale( const char *langcode_iso639_1 );
+ char* kit_translate( const char *id );
+typedef enum SPRITE_FLAGS {
+SPRITE_PROJECTED = 1,
+SPRITE_ADDITIVE = 2,
+SPRITE_CENTERED = 4,
+SPRITE_RESOLUTION_INDEPENDANT = 128,
+} SPRITE_FLAGS;
+ void sprite( texture_t texture, float position[3], float rotation , unsigned color , unsigned flags);
+ void sprite_rect( texture_t t, vec4 rect, vec4 pos, vec4 scaleoff, float tilt_deg, unsigned tint_rgba, unsigned flags);
+ void sprite_sheet( texture_t texture, float sheet[3], float position[3], float rotation, float offset[2], float scale[2], unsigned rgba, unsigned flags);
+ void sprite_flush();
+typedef struct tileset_t {
+texture_t tex;
+unsigned tile_w, tile_h;
+unsigned cols, rows;
+unsigned selected;
+} tileset_t;
+ tileset_t tileset(texture_t tex, unsigned tile_w, unsigned tile_h, unsigned cols, unsigned rows);
+ int       ui_tileset( tileset_t t );
+typedef struct tilemap_t {
+int blank_chr;
+unsigned cols, rows;
+int* map;
+vec3 position;
+float zindex;
+float tilt;
+unsigned tint;
+bool is_additive;
+} tilemap_t;
+ tilemap_t tilemap(const char *map, int blank_chr, int linefeed_chr);
+ void      tilemap_render( tilemap_t m, tileset_t style );
+ void      tilemap_render_ext( tilemap_t m, tileset_t style, float zindex, float xy_zoom[3], float tilt, unsigned tint, bool is_additive );
+typedef struct tiled_t {
+char *map_name;
+unsigned first_gid, tilew, tileh, w, h;
+bool parallax;
+vec3 position;
+bool* visible;
+tilemap_t* layers;
+tileset_t* sets;
+char** names;
+} tiled_t;
+ tiled_t tiled(const char *file_tmx);
+ void    tiled_render(tiled_t tmx, vec3 pos);
+ void    ui_tiled(tiled_t *t);
+typedef struct spine_t spine_t;
+ spine_t*spine(const char *file_json, const char *file_atlas, unsigned flags);
+ void    spine_skin(spine_t *p, unsigned skin);
+ void    spine_render(spine_t *p, vec3 offset, unsigned flags);
+ void    spine_animate(spine_t *p, float delta);
+ void    ui_spine(spine_t *p);
+typedef struct atlas_frame_t {
+unsigned delay;
+vec4 sheet;
+vec2 anchor;
+vec3i* indices;
+vec2* coords;
+vec2* uvs;
+} atlas_frame_t;
+typedef struct atlas_anim_t {
+unsigned name;
+unsigned* frames;
+} atlas_anim_t;
+typedef struct atlas_slice_frame_t {
+vec4 bounds;
+bool has_9slice;
+vec4 core;
+vec2 pivot;
+} atlas_slice_frame_t;
+typedef struct atlas_slice_t {
+unsigned name;
+unsigned* frames;
+} atlas_slice_t;
+typedef struct atlas_t {
+texture_t tex;
+atlas_frame_t* frames;
+atlas_anim_t*  anims;
+atlas_slice_t* slices;
+atlas_slice_frame_t* slice_frames;
+quarks_db db;
+} atlas_t;
+ atlas_t atlas_create(const char *inifile, unsigned flags);
+ int         ui_atlas(atlas_t *a);
+ int         ui_atlas_frame(atlas_frame_t *f);
+ void    atlas_destroy(atlas_t *a);
+typedef struct sprite_t { struct {          ifdef(debug, const char *objname;)          union {              uintptr_t objheader;              struct {               uintptr_t objtype:8;              uintptr_t objsizew:8;              uintptr_t objrefs:8;              uintptr_t objheap:1;              uintptr_t objcomps:1;               uintptr_t objunused:64-8-8-8-1-1-16-3;               uintptr_t objid:16+3;               };          };          struct obj** objchildren;      };
+vec4 gamepad;
+vec2 fire;
+vec4 pos;
+vec2 sca;
+float tilt;
+unsigned tint;
+unsigned frame;
+unsigned timer, timer_ms;
+unsigned flip_, flipped;
+unsigned play;
+bool paused;
+struct atlas_t *a;
+} sprite_t;
+enum { OBJTYPE_sprite_t = 10 };       typedef struct { unsigned static_assert_on_L__LINE__ : !!(10 <= 255); } static_assert_on_Lconcat(_L,3869)___COUNTER__;       typedef struct { unsigned static_assert_on_L__LINE__ : !!(sizeof(sprite_t)); } static_assert_on_Lconcat(_L,3869)___COUNTER__;;
+ void     sprite_ctor(sprite_t *s);
+ void     sprite_dtor(sprite_t *s);
+ void     sprite_tick(sprite_t *s);
+ void     sprite_draw(sprite_t *s);
+ void     sprite_edit(sprite_t *s);
+ sprite_t*sprite_new(const char *ase, int bindings[6]);
+ void     sprite_del(sprite_t *s);
+ void     sprite_setanim(sprite_t *s, unsigned name);
+typedef struct guiskin_t {
+void (*draw_rect_func)(void* userdata, const char *skin, vec4 rect);
+void (*free)(void* userdata);
+void *userdata;
+} guiskin_t;
+ void    gui_pushskin(guiskin_t skin);
+ void*       gui_userdata();
+ void        gui_panel(int id, vec4 rect, const char *skin);
+ bool        gui_button(int id, vec4 rect, const char *skin);
+ void    gui_popskin();
+typedef struct skinned_t {
+atlas_t atlas;
+float scale;
+} skinned_t;
+ guiskin_t gui_skinned(const char *inifile, float scale);
  void*       thread( int (*thread_func)(void* user_data), void* user_data );
  void        thread_destroy( void *thd );
  int         argc();
  char*       argv(int);
+ void        argvadd(const char *arg);
  int         flag(const char *commalist);
  const char* option(const char *commalist, const char *defaults);
  int         optioni(const char *commalist, int defaults);
@@ -3245,6 +3441,18 @@ float duration;
  float     tween_update(tween_t *tw, float dt);
  void      tween_reset(tween_t *tw);
  void    tween_destroy(tween_t *tw);
+typedef struct curve_t {
+float* lengths;
+unsigned* colors;
+vec3*  samples;
+vec3*  points;
+int*   indices;
+} curve_t;
+ curve_t curve();
+ void      curve_add(curve_t *c, vec3 p);
+ void      curve_end(curve_t *c, int num_points);
+ vec3       curve_eval(curve_t *c, float dt, unsigned *color);
+ void    curve_destroy(curve_t *c);
 enum PANEL_FLAGS {
 PANEL_OPEN = 1,
 };
@@ -3268,11 +3476,13 @@ PANEL_OPEN = 1,
  int    ui_double(const char *label, double *value);
  int    ui_buffer(const char *label, char *buffer, int buflen);
  int    ui_string(const char *label, char **string);
- int    ui_color3(const char *label, float *color3);
- int    ui_color3f(const char *label, float *color3);
- int    ui_color4(const char *label, float *color4);
- int    ui_color4f(const char *label, float *color4);
+ int    ui_color3(const char *label, unsigned *color);
+ int    ui_color3f(const char *label, float color[3]);
+ int    ui_color4(const char *label, unsigned *color);
+ int    ui_color4f(const char *label, float color[4]);
  int    ui_unsigned(const char *label, unsigned *value);
+ int    ui_unsigned2(const char *label, unsigned *value);
+ int    ui_unsigned3(const char *label, unsigned *value);
  int    ui_button(const char *label);
  int    ui_button_transparent(const char *label);
  int    ui_buttons(int buttons, ...);
@@ -3353,6 +3563,7 @@ WINDOW_LANDSCAPE =128,
 WINDOW_ASPECT =256,
 WINDOW_FIXED =512,
 WINDOW_TRANSPARENT =1024,
+WINDOW_BORDERLESS =2048,
 WINDOW_VSYNC = 0,
 WINDOW_VSYNC_ADAPTIVE =4096,
 WINDOW_VSYNC_DISABLED =8192,
@@ -3406,13 +3617,71 @@ enum CURSOR_SHAPES {
 CURSOR_NONE,
 CURSOR_HW_ARROW,
 CURSOR_HW_IBEAM,
-CURSOR_HW_CROSS,
-CURSOR_HW_HAND,
 CURSOR_HW_HDRAG,
 CURSOR_HW_VDRAG,
+CURSOR_HW_HAND,
+CURSOR_HW_CROSS,
 CURSOR_SW_AUTO,
 };
  void     window_cursor_shape(unsigned shape);
+ const char *window_clipboard();
+ void        window_setclipboard(const char *text);
+typedef struct editor_bind_t {
+const char *command;
+const char *bindings;
+void (*fn)();
+} editor_bind_t;
+ void editor_addbind(editor_bind_t bind);
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_open_map_t;   editor_open_map_t *editor_open_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_open(const void *obj);   void editor_setopen(const void *obj, int value);   void editor_altopen(const void *obj);   void editor_noopen(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_selected_map_t;   editor_selected_map_t *editor_selected_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_selected(const void *obj);   void editor_setselected(const void *obj, int value);   void editor_altselected(const void *obj);   void editor_noselected(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_changed_map_t;   editor_changed_map_t *editor_changed_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_changed(const void *obj);   void editor_setchanged(const void *obj, int value);   void editor_altchanged(const void *obj);   void editor_nochanged(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_popup_map_t;   editor_popup_map_t *editor_popup_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_popup(const void *obj);   void editor_setpopup(const void *obj, int value);   void editor_altpopup(const void *obj);   void editor_nopopup(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_bookmarked_map_t;   editor_bookmarked_map_t *editor_bookmarked_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_bookmarked(const void *obj);   void editor_setbookmarked(const void *obj, int value);   void editor_altbookmarked(const void *obj);   void editor_nobookmarked(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_visible_map_t;   editor_visible_map_t *editor_visible_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_visible(const void *obj);   void editor_setvisible(const void *obj, int value);   void editor_altvisible(const void *obj);   void editor_novisible(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_script_map_t;   editor_script_map_t *editor_script_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_script(const void *obj);   void editor_setscript(const void *obj, int value);   void editor_altscript(const void *obj);   void editor_noscript(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_event_map_t;   editor_event_map_t *editor_event_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_event(const void *obj);   void editor_setevent(const void *obj, int value);   void editor_altevent(const void *obj);   void editor_noevent(void *obj);;
+typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconinstance_map_t;   editor_iconinstance_map_t *editor_iconinstance_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconinstance(const void *obj);   void editor_seticoninstance(const void *obj, char* value);   void editor_alticoninstance(const void *obj);   void editor_noiconinstance(void *obj);;
+typedef struct { map base; struct { pair p; void* key; char* val; } tmp, *ptr; char** tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_iconclass_map_t;   editor_iconclass_map_t *editor_iconclass_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   char* editor_iconclass(const void *obj);   void editor_seticonclass(const void *obj, char* value);   void editor_alticonclass(const void *obj);   void editor_noiconclass(void *obj);;
+typedef struct { map base; struct { pair p; void* key; int val; } tmp, *ptr; int* tmpval;          int (*typed_cmp)(void*, void*); uint64_t (*typed_hash)(void*); } * editor_treeoffsety_map_t;   editor_treeoffsety_map_t *editor_treeoffsety_struct { map base; struct { pair p;  key;  val; } tmp, *ptr; * tmpval;          int (*typed_cmp)(, ); uint64_t (*typed_hash)(); } *;   int editor_treeoffsety(const void *obj);   void editor_settreeoffsety(const void *obj, int value);   void editor_alttreeoffsety(const void *obj);   void editor_notreeoffsety(void *obj);;
+ void editor_destroy_properties(void *o);
+ void editor_load_on_boot(void);
+ void editor_save_on_quit(void);
+enum EDITOR_MODE {
+EDITOR_PANEL,
+EDITOR_WINDOW,
+EDITOR_WINDOW_NK,
+EDITOR_WINDOW_NK_SMALL,
+};
+ int editor_begin(const char *title, int mode);
+ int editor_end(int mode);
+ int editor_filter();
+ void editor_select(const char *mask);
+ void editor_unselect();
+ void editor_select_aabb(aabb box);
+ void editor_selectgroup(obj *first, obj *last);
+ void* editor_first_selected();
+ void* editor_last_selected();
+ void editor_addtoworld(obj *o);
+ void editor_watch(const void *o);
+ void* editor_spawn(const char *ini);
+ void editor_spawn1();
+ void editor_destroy_selected();
+ void editor_inspect(obj *o);
+ vec3   editor_pick(float mouse_x, float mouse_y);
+ char*  editor_path(const char *path);
+ void editor_setmouse(int x, int y);
+ vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint);
+ vec2 editor_glyphs(int x, int y, const char *style, const char *utf8);
+ void editor_gizmos(int dim);
+ int         editor_send(const char *cmd);
+ const char* editor_recv(int jobid, double timeout_ss);
+ void editor_pump();
+ void editor_frame( void (*game)(unsigned, float, double) );
+ float* engine_getf(const char *key);
+ int*   engine_geti(const char *key);
+ char** engine_gets(const char *key);
+ int    engine_send(const char *cmd, const char *optional_value);
+ int    ui_engine();
 ]])
 local _M = {}
 function _M.vec2(x,y)

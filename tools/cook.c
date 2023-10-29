@@ -28,8 +28,11 @@ int main(int argc, const char **argv) {
     return 0;
 }
 
-// compiled with:
-// tcc cook.c      -I..\engine
-// cl  cook.c      -I..\engine /openmp /Os /Ox /O2 /Oy /MT /DNDEBUG /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
-// cc -ObjC cook.c -I../engine -o cook.osx -framework Cocoa -framework IOKit -framework audiotoolbox -O3
-// cc cook.c       -I../engine -o cook.linux -lm -lpthread -ldl -lX11 -O3
+/*
+   compiled with:
+   cc -ObjC cook.c -I../engine -o cook.osx -framework Cocoa -framework IOKit -framework audiotoolbox -framework coreaudio -O3
+   cc cook.c       -I../engine -o cook.linux -lm -lpthread -ldl -lX11 -O3
+   tcc cook.c      -I..\engine
+   cl  cook.c      -I..\engine /openmp /Os /Ox /O2 /Oy /MT /DNDEBUG /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
+   del cook.o & del cook.obj & del cook.lib & del cook.exp
+*/

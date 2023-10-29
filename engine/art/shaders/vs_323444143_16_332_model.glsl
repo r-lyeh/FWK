@@ -5,7 +5,8 @@ uniform mat3x4 vsBoneMatrix[MAX_BONES];
 uniform bool SKINNED = false;
 uniform mat4 M; // RIM
 uniform mat4 VP;
-
+uniform mat4 P;
+uniform int u_billboard;
 
 #if 0
 // Fetch blend channels from all attached blend deformers.
@@ -109,16 +110,44 @@ void main() {
         v_normal = vec4(att_normal, 0.0) * m;
         //@todo: tangents
     }
-        
-        //   vec3 tangent = att_tangent.xyz;
-        //   vec3 bitangent = cross(att_normal, att_tangent.xyz) * att_tangent.w;
-        
-        v_normal_ws = normalize(vec3(model * vec4(v_normal, 0.))); // normal to world/model space
-        v_normal = normalize(v_normal);
-        v_position_ws = (att_instanced_matrix * vec4( objPos, 1.0 )).xyz;
-        v_position = att_position;
-        v_texcoord = att_texcoord;
-        v_color = att_color;
-        gl_Position = VP * att_instanced_matrix * vec4( objPos, 1.0 );
-        do_shadow();
+
+    //   vec3 tangent = att_tangent.xyz;
+    //   vec3 bitangent = cross(att_normal, att_tangent.xyz) * att_tangent.w;
+    v_normal_ws = normalize(vec3(model * vec4(v_normal, 0.))); // normal to world/model space
+    v_normal = normalize(v_normal);
+    v_position = att_position;
+    v_texcoord = att_texcoord;
+    v_color = att_color;
+    mat4 modelView = view * att_instanced_matrix;
+    mat4 l_model = att_instanced_matrix;
+    v_position_ws = (l_model * vec4( objPos, 1.0 )).xyz;
+
+    if(u_billboard > 0) {
+        vec3 cameraPosition = -transpose(mat3(view)) * view[3].xyz;
+        vec3 lookDir = normalize(cameraPosition - v_position_ws);
+
+        vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
+        vec3 right = normalize(cross(up, lookDir));
+        up = cross(lookDir, right);
+
+        vec3 scale;
+        scale.x = length(vec3(att_instanced_matrix[0]));
+        scale.y = length(vec3(att_instanced_matrix[1]));
+        scale.z = length(vec3(att_instanced_matrix[2]));
+
+        mat4 billboardRotation = mat4(
+            vec4(right * scale.x, 0.0),
+            vec4(-up * scale.y, 0.0),
+            vec4(-lookDir * scale.z, 0.0),
+            vec4(0.0, 0.0, 0.0, 1.0)
+        );
+
+        if((u_billboard & 0x4) != 0) l_model[0] = billboardRotation[0];
+        if((u_billboard & 0x2) != 0) l_model[1] = billboardRotation[1];
+        if((u_billboard & 0x1) != 0) l_model[2] = billboardRotation[2];
+        modelView = view * l_model;
     }
+    v_position_ws = (l_model * vec4( objPos, 1.0 )).xyz;
+    gl_Position = P * modelView * vec4( objPos, 1.0 );
+    do_shadow();
+}

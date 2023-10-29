@@ -10,16 +10,15 @@ void (ui_profiler)() {
     double fps = window_fps();
     profile_setstat("Render.num_fps", fps);
 
-    // draw fps-meter: 300 samples, [0..70] range each, 70px height plot.
-    nk_layout_row_dynamic(ui_ctx, 70, 1);
-
     enum { COUNT = 300 };
-
     static float values[COUNT] = {0}; static int offset = 0;
     values[offset=(offset+1)%COUNT] = fps;
 
-    // draw chart unless filterig is enabled
+    // draw fps-meter: 300 samples, [0..70] range each, 70px height plot ...
+    // ... unless filtering is enabled
     if( !(ui_filter && ui_filter[0]) ) {
+        nk_layout_row_dynamic(ui_ctx, 70, 1);
+
         int index = -1;
         if( nk_chart_begin(ui_ctx, NK_CHART_LINES, COUNT, 0.f, 70.f) ) {
             for( int i = 0; i < COUNT; ++i ) {

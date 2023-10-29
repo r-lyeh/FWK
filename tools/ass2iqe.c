@@ -1,8 +1,6 @@
 // License: BSD unless otherwise stated.
 // https://github.com/ccxvii/asstools
 
-char* base64_encode(const void *inbuffer, unsigned inlen);
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +11,11 @@ char* base64_encode(const void *inbuffer, unsigned inlen);
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+
+#define BASE64_C
+#define FREE free
+#define MALLOC malloc
+#include "3rd_base64.h"
 
 int verbose = 0;
 int need_to_bake_skin = 0;
@@ -1539,49 +1542,3 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
     return 0;
 }
 
-// base64 de/encoder. Based on code by Jon Mayo - November 13, 2003 (PUBLIC DOMAIN).
-// - rlyeh, public domain
-
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <ctype.h>
-
-unsigned base64_bounds(unsigned size) {
-    return 4 * ((size + 2) / 3);
-}
-
-char* base64_encode(const void *in_, unsigned inlen) {
-    unsigned outlen = base64_bounds(inlen);
-    char *out_ = calloc(1, outlen);
-
-    uint_least32_t v;
-    unsigned ii, io, rem;
-    char *out = (char *)out_;
-    const unsigned char *in = (const unsigned char *)in_;
-    const uint8_t base64enc_tab[]= "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-    for(io = 0, ii = 0, v = 0, rem = 0; ii < inlen; ii ++) {
-        unsigned char ch;
-        ch = in[ii];
-        v = (v << 8) | ch;
-        rem += 8;
-        while (rem >= 6) {
-            rem -= 6;
-            if (io >= outlen)
-                return (free(out_), 0); /* truncation is failure */
-            out[io ++] = base64enc_tab[(v >> rem) & 63];
-        }
-    }
-    if (rem) {
-        v <<= (6 - rem);
-        if (io >= outlen)
-            return (free(out_), 0); /* truncation is failure */
-        out[io ++] = base64enc_tab[v & 63];
-    }
-    if (io < outlen)
-        out[io] = 0;
-
-    return out_;
-}

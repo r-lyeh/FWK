@@ -27,6 +27,7 @@
 #define ZIP_H
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 
 typedef struct zip zip;
 
@@ -550,7 +551,7 @@ bool zip_append_file_timeinfo(zip *z, const char *entryname, const char *comment
 
     // @fixme: calc whole crc contents
     uint32_t crc = 0;
-    unsigned char buf[1<<15];
+    unsigned char buf[4096];
     while(!feof(in) && !ferror(in)) crc = zip__crc32(crc, buf, fread(buf, 1, sizeof(buf), in));
     if(ferror(in)) return ERR(false, "Error while calculating CRC, skipping store.");
 
@@ -1491,8 +1492,12 @@ struct dir {
 
 // ---
 
-#if !defined(S_ISDIR)
-#   define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+#endif
+
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #endif
 
 int dir_yield(dir *d, const char *pathfile, char *name, int namelen) {

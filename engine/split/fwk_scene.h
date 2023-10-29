@@ -14,6 +14,11 @@ typedef struct camera_t {
     float look_friction, look_damping;
     vec2 last_look; vec3 last_move; // used for friction and damping
     bool damping;
+
+    bool orthographic; // 0 perspective, 1 orthographic; when ortho: dimetric[if pitch == -30º], isometric[if pitch == 35.264º]
+    float distance;    // distance to pivot, when orbiting
+    // vec2 polarity = { +1,-1 }; // @todo
+    // vec2 sensitivity = { 2,2 }; // @todo
 } camera_t;
 
 API camera_t camera();

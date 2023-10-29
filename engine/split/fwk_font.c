@@ -1292,15 +1292,12 @@ static const char bm_mini_ttf[] = {
 /*004ec0*/ 0x00,0x08,0x00,0x40,0x00,0x0a,0x00,0x00,0x00,0x84,0x00,0xde,0x00,0x01,0x00,0x01
 };
 
-static const unsigned bm_mini_ttf_length = (unsigned)sizeof(bm_mini_ttf);
-
 // -----------------------------------------------------------------------------
 
 // The following data tables are coming from Dear Imgui.
 // Re-licensed under permission as MIT-0.
 //
 // @todo: 0x3100, 0x312F, FONT_TW, // Bopomofo
-//        0xE000, 0xEB4C, FONT_EM, // Private use (emojis)
 
 static const unsigned table_common[] = {
     0x0020, 0x00FF, // Basic Latin + Latin Supplement
@@ -1385,6 +1382,13 @@ static const unsigned table_middle_east[] = {
     0x0590, 0x05FF, // Hebrew, Yiddish, Ladino, and other Jewish diaspora languages.
     0x0600, 0x06FF, // Arabic script and Arabic-Indic digits
     0xFB00, 0xFB4F, // Ligatures for the Latin, Armenian, and Hebrew scripts
+    0
+};
+
+static const unsigned table_emoji[] = {
+//  0xE000, 0xEB4C, // Private use (emojis)
+    0xE000, 0xF8FF, // Private use (emojis+webfonts)
+    0xF0001,0xF1CC7,// Private use (icon mdi)
     0
 };
 
@@ -1572,6 +1576,7 @@ typedef struct font_t {
     unsigned num_glyphs;
     unsigned *cp2iter;
     unsigned *iter2cp;
+    unsigned begin; // first glyph. used in cp2iter table to clamp into a lesser range
 
     // font info and data
     int height;      // bitmap height
@@ -1612,18 +1617,18 @@ static font_t fonts[8] = {0};
 static
 void font_init() {
     do_once {
-        font_face_from_mem(FONT_FACE1, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE2, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE3, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE4, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE5, bm_mini_ttf,0, 42.5f, 0);
-        font_face_from_mem(FONT_FACE6, bm_mini_ttf,0, 42.5f, 0);
+        font_face_from_mem(FONT_FACE1, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE2, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE3, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE4, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE5, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE6, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
     }
 }
 
 // Remap color within all existing color textures
 void font_color(const char *tag, uint32_t color) {
-    do_once font_init();
+    font_init();
 
     unsigned index = *tag - FONT_COLOR1[0];
     if( index < FONT_MAX_COLORS ) {
@@ -1641,7 +1646,7 @@ void font_color(const char *tag, uint32_t color) {
 }
 
 void font_scales(const char *tag, float h1, float h2, float h3, float h4, float h5, float h6) {
-    do_once font_init();
+    font_init();
 
     unsigned index = *tag - FONT_FACE1[0];
     if( index >= 8 ) return;
@@ -1662,16 +1667,14 @@ void font_scales(const char *tag, float h1, float h2, float h3, float h4, float 
 // 1. Call stb_truetype.h routines to read and parse a .ttf file.
 // 1. Create a bitmap that is uploaded to the gpu using opengl.
 // 1. Calculate and save a bunch of useful variables and put them in the global font variable.
-void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_len, float font_size, unsigned flags) {
-    const unsigned char *ttf_buffer = ttf_bufferv;
-
-    flags |= FONT_ASCII; // ensure this minimal range [0020-00FF] is always in
-
+void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len, float font_size, unsigned flags) {
     unsigned index = *tag - FONT_FACE1[0];
-
     if( index >= 8 ) return;
-    if( !ttf_buffer /*|| !ttf_len*/ ) return;
     if( font_size <= 0 || font_size > 72 ) return;
+    if( !ttf_data || !ttf_len ) return;
+
+    if(!(flags & FONT_EM))
+    flags |= FONT_ASCII; // ensure this minimal range [0020-00FF] is almost always in
 
     font_t *f = &fonts[index];
     f->initialized = 1;
@@ -1692,8 +1695,8 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     f->scale[6] = 0.2500f; // H6
 
     const char *vs_filename = 0, *fs_filename = 0;
-    const char *vs = vs_filename ? file_read(vs_filename) : mv_vs_source;
-    const char *fs = fs_filename ? file_read(fs_filename) : mv_fs_source;
+    const char *vs = vs_filename ? vfs_read(vs_filename) : mv_vs_source;
+    const char *fs = fs_filename ? vfs_read(fs_filename) : mv_fs_source;
     f->program = shader(vs, fs, "vertexPosition,instanceGlyph", "outColor", NULL);
 
     // figure out what ranges we're about to bake
@@ -1712,6 +1715,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 
     array(uint64_t) sorted = 0;
     if(flags & FONT_ASCII) { MERGE_TABLE(table_common); }
+    if(flags & FONT_EM)    { MERGE_TABLE(table_emoji); }
     if(flags & FONT_EU)    { MERGE_TABLE(table_eastern_europe); }
     if(flags & FONT_RU)    { MERGE_TABLE(table_western_europe); }
     if(flags & FONT_EL)    { MERGE_TABLE(table_western_europe); }
@@ -1724,18 +1728,19 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
     if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_japanese_common); MERGE_PACKED_TABLE(0x4E00, packed_table_chinese); } // zh-simplified
     if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_punctuation); } // both zh-simplified and zh-full
 //  if(flags & FONT_ZH)    { MERGE_TABLE(table_chinese_full); } // zh-full
-    array_sort(sorted, sort_64);
-    array_unique(sorted, sort_64); // sort + unique pass
+    array_sort(sorted, less_64_ptr);
+    array_unique(sorted, less_64_ptr); // sort + unique pass
 
     // pack and create bitmap
     unsigned char *bitmap = (unsigned char*)MALLOC(f->height*f->width);
 
-        int charCount = 0xFFFF;
+        int charCount = *array_back(sorted) - sorted[0] + 1; // 0xEFFFF;
+        f->begin = sorted[0];
         f->cdata = (stbtt_packedchar*)CALLOC(1, sizeof(stbtt_packedchar) * charCount);
-        f->iter2cp = (unsigned*)CALLOC( 1, sizeof(unsigned) * charCount );
-        for( int i = 0; i < charCount; ++i ) f->iter2cp[i] = 0xFFFD; // default invalid glyph
-        f->cp2iter = (unsigned*)CALLOC( 1, sizeof(unsigned) * charCount );
-        for( int i = 0; i < charCount; ++i ) f->cp2iter[i] = 0xFFFD; // default invalid glyph
+        f->iter2cp = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
+        f->cp2iter = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
+        for( int i = 0; i < charCount; ++i )
+            f->iter2cp[i] = f->cp2iter[i] = 0xFFFD; // default invalid glyph
 
         stbtt_pack_context pc;
         if( !stbtt_PackBegin(&pc, bitmap, f->width, f->height, 0, 1, NULL) ) {
@@ -1749,11 +1754,11 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
             while( i < (num-1) && (sorted[i+1]-sorted[i]) == 1 ) end = sorted[++i];
             //printf("(%d,%d)", (unsigned)begin, (unsigned)end);
 
-            if( stbtt_PackFontRange(&pc, ttf_buffer, 0, f->font_size, begin, end - begin + 1, (stbtt_packedchar*)f->cdata + begin) ) {
-                for( int j = begin; j <= end; ++j ) {
+            if( stbtt_PackFontRange(&pc, ttf_data, 0, f->font_size, begin, end - begin + 1, (stbtt_packedchar*)f->cdata + begin - f->begin) ) {
+                for( uint64_t cp = begin; cp <= end; ++cp ) {
                     // unicode->index runtime lookup
-                    f->cp2iter[ j ] = count;
-                    f->iter2cp[ count++ ] = j;
+                    f->cp2iter[ cp - f->begin ] = count;
+                    f->iter2cp[ count++ ] = cp;
                 }
             } else {
                 PRINTF("!Failed to pack atlas font. Likely out of texture mem.");
@@ -1762,11 +1767,13 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         stbtt_PackEnd(&pc);
         f->num_glyphs = count;
 
+        assert( f->num_glyphs < charCount );
+
     array_free(sorted);
 
     // calculate vertical font metrics
-    stbtt_fontinfo info;
-    stbtt_InitFont(&info, ttf_buffer, stbtt_GetFontOffsetForIndex(ttf_buffer,0));
+    stbtt_fontinfo info = {0};
+    stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data,0));
 
     int a, d, l;
     float s = stbtt_ScaleForPixelHeight(&info, f->font_size);
@@ -1783,7 +1790,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         for (int i = 0; i < f->num_glyphs; i++) {
             int cp = f->iter2cp[i];
             if( cp == 0xFFFD ) continue;
-            stbtt_packedchar *cd = &f->cdata[ cp ];
+            stbtt_packedchar *cd = &f->cdata[ cp - f->begin ];
             if (cd->y1 > max_y1) {
                 max_y1 = cd->y1;
             }
@@ -1832,7 +1839,7 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 
     // last chance to inspect the font atlases
     if( flag("--font-debug") )
-    stbi_write_png(va("debug_font_atlas%d.png", index), f->width, f->height, 1, bitmap, 0);
+    stbi_write_png(va("font_debug%d.png", index), f->width, f->height, 1, bitmap, 0);
 
     FREE(bitmap);
 
@@ -1850,8 +1857,8 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
         unsigned cp = f->iter2cp[ i ];
         if(cp == 0xFFFD) continue;
 
-        stbtt_packedchar *cd = &f->cdata[ cp ];
-//      if(cd->x1==cd->x0) { f->iter2cp[i] = f->cp2iter[cp] = 0xFFFD; continue; }
+        stbtt_packedchar *cd = &f->cdata[ cp - f->begin ];
+//      if(cd->x1==cd->x0) { f->iter2cp[i] = f->cp2iter[cp - f->begin] = 0xFFFD; continue; }
 
         int k1 = 0*f->num_glyphs + count;
         int k2 = 1*f->num_glyphs + count; ++count;
@@ -1899,12 +1906,13 @@ void font_face_from_mem(const char *tag, const void *ttf_bufferv, unsigned ttf_l
 }
 
 void font_face(const char *tag, const char *filename_ttf, float font_size, unsigned flags) {
-    do_once font_init();
+    font_init();
 
-    const char *buffer = //file_read(filename_ttf);
-    //if(!buffer) buffer =
-        vfs_read(filename_ttf);
-    font_face_from_mem(tag, buffer,0, font_size, flags);
+    int len;
+    const char *buffer = vfs_load(filename_ttf, &len);
+    if( !buffer ) buffer = file_load(filename_ttf, &len);
+
+    font_face_from_mem(tag, buffer,len, font_size, flags);
 }
 
 static
@@ -1989,7 +1997,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
 // 1. draw the string
 static
 vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2)) {
-    do_once font_init();
+    font_init();
 
     // sanity checks
     int len = strlen(text);
@@ -2054,8 +2062,10 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         }
 
         // convert to vbo data
-        int cp = ch; // f->cp2iter[ch];
+        int cp = ch - f->begin; // f->cp2iter[ch - f->begin];
         //if(cp == 0xFFFD) continue;
+        //if(cp > f->num_glyphs) cp = 0xFFFD;
+
         *t++ = X;
         *t++ = Y;
         *t++ = f->cp2iter[cp];

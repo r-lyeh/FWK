@@ -114,21 +114,19 @@
 
 {{FILE:fwk_audio.c}}
 
-{{FILE:fwk_buffer.c}}
-
 {{FILE:fwk_collide.c}}
 
-{{FILE:fwk_cooker.c}}
+{{FILE:fwk_cook.c}}
 
 {{FILE:fwk_data.c}}
 
-{{FILE:fwk_dll.c}}
+{{FILE:fwk_extend.c}}
 
 {{FILE:fwk_file.c}}
 
 {{FILE:fwk_font.c}}
 
-{{FILE:fwk_id.c}}
+{{FILE:fwk_gui.c}}
 
 {{FILE:fwk_input.c}}
 
@@ -150,13 +148,11 @@
 
 {{FILE:fwk_scene.c}}
 
-{{FILE:fwk_script.c}}
+{{FILE:fwk_sprite.c}}
 
 {{FILE:fwk_system.c}}
 
 {{FILE:fwk_time.c}}
-
-{{FILE:fwk_tween.c}}
 
 {{FILE:fwk_profile.c}}
 
@@ -168,12 +164,17 @@
 
 {{FILE:fwk_ai.c}}
 
-{{FILE:fwk_bt.c}}
-
-{{FILE:fwk_editor.c}}
-
-// editor is last in place, so it can use all internals from above headers
+{{FILE:fwk_editor0.c}}
 
 {{FILE:fwk_main.c}}
+
+// editor is last in place, so it can use all internals from above headers
+{{FILE:fwk_editor.c}}
+{{FILE:fwk_editor_scene.h}}
+{{FILE:fwk_editor_browser.h}}
+{{FILE:fwk_editor_timeline.h}}
+{{FILE:fwk_editor_console.h}}
+{{FILE:fwk_editor_nodes.h}}
+{{FILE:fwk_editor_script.h}}
 
 {{FILE:fwk_end.c}}
