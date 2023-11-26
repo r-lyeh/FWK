@@ -218,6 +218,10 @@ static vec2 atlas__itof2(const s2o_point p)
     return vec2((float)p.x, (float)p.y);
 }
 
+static unsigned atlas__rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a ) {
+    return (unsigned)a << 24 | b << 16 | g << 8 | r;
+}
+
 // modified version of:
 // https://github.com/anael-seghezzi/Maratis-Tiny-C-library/blob/master/include/m_raster.h
 static bool atlas__test_line(const uint8_t* buffer, int w, int h, s2o_point p0, s2o_point p1)
@@ -702,6 +706,11 @@ atlas_t* atlas_loadfiles(array(char*) files, atlas_flags flags)
                         strcatf(&atlas_slices, "[%d].sl_core=%d,%d,%d,%d\n", slice_idx, slice->center_x, slice->center_y, slice->center_w, slice->center_h);
                     if (slice->has_pivot)
                         strcatf(&atlas_slices, "[%d].sl_pivot=%d,%d\n", slice_idx, slice->pivot_x, slice->pivot_y);
+                    if (slice->udata.has_color)
+                        strcatf(&atlas_slices, "[%d].sl_color=%u\n", slice_idx, atlas__rgba(slice->udata.color.r, slice->udata.color.g, slice->udata.color.b, slice->udata.color.a));
+                    if (slice->udata.has_text)
+                        strcatf(&atlas_slices, "[%d].sl_text=%s\n", slice_idx, slice->udata.text);
+                    
                     slice_name = slice->name;
                     ++slice_frame_idx;
                 }

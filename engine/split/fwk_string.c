@@ -1,5 +1,9 @@
 #include <stdarg.h>
 
+#ifndef STACK_ALLOC_SIZE
+#define STACK_ALLOC_SIZE (512*1024)
+#endif
+
 char* tempvl(const char *fmt, va_list vl) {
     va_list copy;
     va_copy(copy, vl);
@@ -13,7 +17,7 @@ char* tempvl(const char *fmt, va_list vl) {
     static __thread char buf[STACK_ALLOC];
 #else
     int heap = 1;
-    static __thread int STACK_ALLOC = 512*1024;
+    static __thread int STACK_ALLOC = STACK_ALLOC_SIZE;
     static __thread char *buf = 0; if(!buf) buf = REALLOC(0, STACK_ALLOC); // @leak
 #endif
     static __thread int cur = 0; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
@@ -327,7 +331,7 @@ const char *extract_utf32(const char *s, uint32_t *out) {
     /**/ if( (s[0] & 0x80) == 0x00 ) return *out = (s[0]), s + 1;
     else if( (s[0] & 0xe0) == 0xc0 ) return *out = (s[0] & 31) <<  6 | (s[1] & 63), s + 2;
     else if( (s[0] & 0xf0) == 0xe0 ) return *out = (s[0] & 15) << 12 | (s[1] & 63) <<  6 | (s[2] & 63), s + 3;
-    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
+    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 6 | (s[3] & 63), s + 4;
     return *out = 0, s + 0;
 }
 array(uint32_t) string32( const char *utf8 ) {

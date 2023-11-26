@@ -1693,6 +1693,8 @@ API int     audio_play_gain( audio_t a, int flags, float gain/*0*/ );
 API int     audio_play_gain_pitch( audio_t a, int flags, float gain, float pitch/*1*/ );
 API int     audio_play_gain_pitch_pan( audio_t a, int flags, float gain, float pitch, float pan/*0*/ );
 API int     audio_stop( audio_t a );
+API void    audio_loop( audio_t a, bool loop );
+API bool    audio_playing( audio_t a );
 
 API float   audio_volume_clip(float gain);   // set     fx volume if gain is in [0..1] range. returns current     fx volume in any case
 API float   audio_volume_stream(float gain); // set    bgm volume if gain is in [0..1] range. returns current    bgm volume in any case
@@ -2072,6 +2074,7 @@ API char *       vfs_read(const char *pathfile);
 API char *       vfs_load(const char *pathfile, int *size);
 API int          vfs_size(const char *pathfile);
 
+API void         vfs_reload();
 API const char * vfs_resolve(const char *fuzzyname); // guess best match. @todo: fuzzy path
 //API const char*vfs_extract(const char *pathfile); // extracts vfs file into local filesystem (temporary file), so it can be read by foreign/3rd party libs
 API FILE*        vfs_handle(const char *pathfile); // same as above, but returns file handle instead. preferred way, will clean descriptors at exit
@@ -2115,24 +2118,24 @@ API bool         ini_write(const char *filename, const char *section, const char
 #define FONT_H6 "\6" // smallest
 
 // font color tags
-#define FONT_COLOR1  "\x10"
-#define FONT_COLOR2  "\x11"
-#define FONT_COLOR3  "\x12"
-#define FONT_COLOR4  "\x13"
-#define FONT_COLOR5  "\x14"
-#define FONT_COLOR6  "\x15"
-#define FONT_COLOR7  "\x16"
-#define FONT_COLOR8  "\x17"
-#define FONT_COLOR9  "\x18"
-#define FONT_COLOR10 "\x19"
+#define FONT_COLOR1   "\x1a"
+#define FONT_COLOR2   "\x1b"
+#define FONT_COLOR3   "\x1c"
+#define FONT_COLOR4   "\x1d"
+#define FONT_COLOR5   "\x1e"
+#define FONT_COLOR6   "\x1f"
 
 // font face tags
-#define FONT_FACE1   "\x1a"
-#define FONT_FACE2   "\x1b"
-#define FONT_FACE3   "\x1c"
-#define FONT_FACE4   "\x1d"
-#define FONT_FACE5   "\x1e"
-#define FONT_FACE6   "\x1f"
+#define FONT_FACE1    "\x10"
+#define FONT_FACE2    "\x11"
+#define FONT_FACE3    "\x12"
+#define FONT_FACE4    "\x13"
+#define FONT_FACE5    "\x14"
+#define FONT_FACE6    "\x15"
+#define FONT_FACE7    "\x16"
+#define FONT_FACE8    "\x17" // editor may override this one
+#define FONT_FACE9    "\x18" // editor may override this one
+#define FONT_FACE10   "\x19" // editor may override this one
 
 // font align tags
 #define FONT_LEFT     "\\<"
@@ -2174,6 +2177,13 @@ enum FONT_FLAGS {
     // FONT_DEFAULTS = FONT_512 | FONT_NO_OVERSAMPLE | FONT_ASCII,
 };
 
+typedef struct font_metrics_t {
+    float ascent;   // max distance above baseline for all glyphs
+    float descent;  // max distance below baseline for all glyphs
+    float linegap;  // distance betwen ascent of next line and descent of current line
+    float linedist; // distance between the baseline of two lines (ascent - descent + linegap)
+} font_metrics_t;
+
 // configures
 API void  font_face(const char *face_tag, const char *filename_ttf, float font_size, unsigned flags);
 API void  font_face_from_mem(const char *tag, const void *ttf_buffer, unsigned ttf_len, float font_size, unsigned flags);
@@ -2181,16 +2191,20 @@ API void  font_scales(const char *face_tag, float h1, float h2, float h3, float 
 API void  font_color(const char *color_tag, uint32_t color);
 
 // commands
-API vec2  font_xy();
-API void  font_goto(float x, float y);
-API vec2  font_print(const char *text);
-API vec2  font_rect(const char *text);
+API vec2           font_xy();
+API void           font_goto(float x, float y);
+API vec2           font_print(const char *text);
+API vec2           font_rect(const char *text);
+API font_metrics_t font_metrics(const char *text);
 //  void  font_clip(vec2 topleft, vec2 bottomright);
 //  void  font_wrap(vec2 topleft, vec2 bottomright);
 
 // syntax highlighting
 API void* font_colorize(const char *text, const char *comma_types, const char *comma_keywords); // comma separated tokens. expensive, please cache result.
 API vec2  font_highlight(const char *text, const void *colors);
+
+// ui
+API void  ui_font();
 #line 0
 
 #line 1 "fwk_input.h"
@@ -2453,7 +2467,7 @@ enum {
 };
 
 /* errcode and errstr are optional arguments, pass NULL to ignore them,
-	errstr is filled by va() */
+    errstr is filled by va() */
 API int network_event(const char *msg, int *errcode, char **errstr);
 
 enum { NETWORK_RANK = 0 }; // [0..N] where 0 is server
@@ -3386,25 +3400,25 @@ typedef struct mesh_t {
     unsigned index_count;
     unsigned flags;
 
-	array(int) lod_collapse_map; // to which neighbor each vertex collapses. ie, [10] -> 7 (used by LODs) @leak
+    array(int) lod_collapse_map; // to which neighbor each vertex collapses. ie, [10] -> 7 (used by LODs) @leak
 
     // @leaks: following members are totally unused. convenient for end-users to keep their custom datas somewhere while processing.
     union {
-	array(unsigned) in_index;
-	array(vec3i)    in_index3;
+    array(unsigned) in_index;
+    array(vec3i)    in_index3;
     };
     union {
-	array(unsigned) out_index;
-	array(vec3i)    out_index3;
+    array(unsigned) out_index;
+    array(vec3i)    out_index3;
     };
-	union {
+    union {
     array(float) in_vertex;
     array(vec3) in_vertex3;
-	};
-	union {
+    };
+    union {
     array(float) out_vertex;
     array(vec3) out_vertex3;
-	};
+    };
 } mesh_t;
 
 API mesh_t mesh();
@@ -3513,6 +3527,9 @@ typedef struct model_t {
     char **texture_names;
     array(material_t) materials;
 
+    texture_t lightmap;
+    float *lmdata;
+
     unsigned num_meshes;
     unsigned num_triangles;
     unsigned num_joints; // num_poses;
@@ -3522,9 +3539,11 @@ typedef struct model_t {
     float curframe;
     mat44 pivot;
 
-    int stride; // usually 60 bytes (12*4+4*3) for a p3 u2 n3 t4 i4B w4B c4B vertex stream
+    int stride; // usually 68 bytes for a p3 u2 u2 n3 t4 i4B w4B c4B vertex stream
     void *verts;
     int num_verts;
+    void *tris;
+    int num_tris;
     handle vao, ibo, vbo, vao_instanced;
 
     unsigned flags;
@@ -3568,6 +3587,25 @@ typedef struct anims_t {
 } anims_t;
 
 API anims_t animations(const char *pathfile, int flags);
+
+// -----------------------------------------------------------------------------
+// lightmapping utils
+// @fixme: support xatlas uv packing
+
+typedef struct lightmap_t {
+    struct lm_context *ctx; // private
+    bool ready;
+    int w, h;
+    int atlas_w, atlas_h; //@fixme: implement
+    texture_t atlas; //@fixme: implement this
+    array(model_t*) models;
+    unsigned shader;
+} lightmap_t;
+
+API lightmap_t lightmap(int hmsize /*64*/, float near, float far, vec3 color /*1,1,1 for AO*/, int passes /*2*/, float threshold /*0.01f*/, float distmod /*0.0f*/);
+API void       lightmap_setup(lightmap_t *lm, int w, int h);
+API void          lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata);
+API void       lightmap_destroy(lightmap_t *lm);
 
 // -----------------------------------------------------------------------------
 // skyboxes
@@ -3925,8 +3963,8 @@ API unsigned    intern( const char *string );
 API const char *quark( unsigned key );
 
 typedef struct quarks_db {
-	array(char) blob;
-	array(vec2i) entries;
+    array(char) blob;
+    array(vec2i) entries;
 } quarks_db;
 
 API unsigned    quark_intern( quarks_db*, const char *string );
@@ -4055,6 +4093,8 @@ typedef struct atlas_slice_frame_t {
     bool has_9slice;
     vec4 core;
     vec2 pivot;
+    unsigned color;
+    char *text;
 } atlas_slice_frame_t;
 
 typedef struct atlas_slice_t {
@@ -4115,33 +4155,80 @@ API void     sprite_setanim(sprite_t *s, unsigned name);
 // game ui
 
 typedef struct guiskin_t {
-    void (*drawrect)(void* userdata, const char *skin, vec4 rect);
-    void (*getskinsize)(void* userdata, const char *skin, vec2 *size);
+    void (*drawrect)(void* userdata, const char *skin, const char *fallback, vec4 rect);
+    void (*getskinsize)(void* userdata, const char *skin, const char *fallback, vec2 *size);
+    void (*getskincolor)(void* userdata, const char *skin, const char *fallback, unsigned *color);
+    void (*getscissorrect)(void* userdata, const char *skin, const char *fallback, vec4 rect, vec4 *dims);
+    bool (*ismouseinrect)(void* userdata, const char *skin, const char *fallback, vec4 rect);
     void (*free)(void* userdata);
     void *userdata;
 } guiskin_t;
 
 API void    gui_pushskin(guiskin_t skin);
 API void*       gui_userdata();
-API vec2        gui_getskinsize(const char *skin);
+API vec2        gui_getskinsize(const char *skin, const char *fallback);
+API unsigned    gui_getskincolor(const char *skin, const char *fallback);
+API bool        gui_ismouseinrect(const char *skin, const char *fallback, vec4 rect);
+API vec4        gui_getscissorrect(const char *skin, const char *fallback, vec4 rect);
 // --
-API void        gui_panel(int id, vec4 rect, const char *skin);
-API bool        gui_button(int id, vec4 rect, const char *skin);
+API void        gui_panel_id(int id, vec4 rect, const char *skin);
+API void            gui_rect_id(int id, vec4 rect, const char *skin);
+API void            gui_label_id(int id, const char *skin, const char *text, vec4 rect);
+API bool            gui_button_id(int id, vec4 rect, const char *skin);
+API bool            gui_button_label_id(int id, const char *text, vec4 rect, const char *skin);
+API bool            gui_slider_id(int id, vec4 rect, const char *skin, float min, float max, float step, float *value);
+API bool            gui_slider_label_id(int id, const char *text, vec4 rect, const char *skin, float min, float max, float step, float *value);
+API void        gui_panel_end();
 API void    gui_popskin();
 
 // helpers
-#define gui_panel(...) gui_panel(__LINE__, __VA_ARGS__)
-#define gui_button(...) gui_button(__LINE__, __VA_ARGS__)
+#define gui_panel(...) gui_panel_id(__LINE__, __VA_ARGS__)
+#define gui_rect(...) gui_rect_id(__LINE__, __VA_ARGS__)
+#define gui_label(...) gui_label_id(__LINE__, __VA_ARGS__)
+#define gui_button(...) gui_button_id(__LINE__, __VA_ARGS__)
+#define gui_button_label(...) gui_button_label_id(__LINE__, __VA_ARGS__)
+#define gui_slider(...) gui_slider_id(__LINE__, __VA_ARGS__)
+#define gui_slider_label(...) gui_slider_label_id(__LINE__, __VA_ARGS__)
 
 // default renderers
 
-/// skinned
 typedef struct skinned_t {
     atlas_t atlas;
     float scale;
 } skinned_t;
 
-API guiskin_t gui_skinned(const char *inifile, float scale);
+// The skinning engine depends on an Aseprite asset with slices set up.
+//   While you can specify your own skins for various GUI widgets, some
+//   skin variants are hardcoded and expected to be present in your asset:
+//
+//   gui_panel():
+//    - "panel" (overridable)
+//   gui_button():
+//    - "button" (base overridable)
+//      - "_hover" (ex. "scarybtn_hover")
+//      - "_press"
+//   gui_rect():
+//    - no defaults, always pass your own skin/slice name
+//   gui_slider():
+//    - "slider" (overridable)
+//    - "slider_cursor" (partially overridable, ex. "bigslider_cursor")
+//      - "_hover" (ex. "slider_cursor_hover")
+//      - "_press"
+//
+API guiskin_t gui_skinned(const char *asefile, float scale);
+#line 0
+
+#line 1 "fwk_steam.h"
+// ----------------------------------------------------------------------------
+// steam framework
+
+API bool steam_init(unsigned app_id);
+API void steam_tick();
+API void steam_trophy(const char *trophy_id, bool redeem);
+API void steam_screenshot();
+API void steam_destroy();
+
+API int  ui_steam();
 #line 0
 
 #line 1 "fwk_system.h"
@@ -4280,7 +4367,8 @@ AUTORUN {
 // ----------------------------------------------------------------------------
 // ease
 
-API float ease_nop(float t);
+API float ease_zero(float t);
+API float ease_one(float t);
 API float ease_linear(float t);
 
 API float ease_out_sine(float t);
@@ -4334,7 +4422,8 @@ enum EASE_FLAGS {
     EASE_OUT = 0,
     EASE_INOUT = EASE_IN * 2,
 
-    EASE_NOP = EASE_INOUT | (EASE_BOUNCE + 1),
+    EASE_ZERO = EASE_INOUT | (EASE_BOUNCE + 1),
+    EASE_ONE,
     EASE_LINEAR,
     EASE_INOUT_PERLIN,
 

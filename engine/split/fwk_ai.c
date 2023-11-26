@@ -625,7 +625,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
 // [ ]     CompareKeys(keyVar1, operator < <= > >= == !=, keyVar2)
 // [ ]     SetTags(names=blank,cooldownTime=inf,bIsCooldownAdditive=false)
 // [ ]     HasTags(names=blank,bAllRequired=true)
-// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesn’t exist, and stores it in the passed variable name, and then pushes ‘item’ object onto it.
+// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesnt exist, and stores it in the passed variable name, and then pushes item object onto it.
 // [ ]     PopFromStack(keyVar,itemVar): pop pops an item off the stack, and stores it in the itemVar variable, failing if the stack is already empty.
 // [ ]     IsEmptyStack(keyVar): checks if the stack passed is empty and returns success if it is, and failure if its not.
 // [ ] Communication Node: This is a type of action node that allows an AI agent to communicate with other agents or entities in the game world. The node takes an input specifying the message to be communicated and the recipient(s) of the message (wildmask,l/p/f/g prefixes). The node then sends the message to the designated recipient(s) and returns success when the communication is completed. This node can be useful for implementing behaviors that require the AI agent to coordinate with other agents or to convey information to the player. It could use a radius argument to specify the maximum allowed distance for the recipients.

@@ -281,6 +281,7 @@ if "%1"=="help" (
     :showhelp
     echo %0                   ; compile hello. uses `dll dev` settings
     echo %0 [all]             ; build everything
+    echo %0 [run]             ; run everything built
     echo %0 [bind]            ; generate lua bindings
     echo %0 [cook]            ; generate cooked zip files. uses tools/cook.ini cookbook
     echo %0 [docs]            ; generate engine/fwk.html file
@@ -365,6 +366,11 @@ if "%1"=="docs" (
     docs engine\fwk.h --excluded=3rd_glad.h,fwk.h,fwk_compat.h, > fwk.html
     move /y fwk.html engine\
 
+    exit /b
+)
+rem run all generated executables
+if "%1"=="run" (
+    for %%i in (*.exe) do start /wait %%i
     exit /b
 )
 
@@ -551,7 +557,7 @@ setlocal enableDelayedExpansion
 rem ASK what to build if double-clicked from Windows explorer
 if "%1"=="" (((echo.%cmdcmdline%)|%WINDIR%\system32\find.exe /I "%~0")>nul) && (
     set "bak=!cc!"
-    for /L %%i in (0,0,1) do (
+    for /L %%j in (0,0,1) do (
         echo Menu:
         echo ^(H^)ello intro ^(!cc!^)
         echo ^(E^)ditor ^(!cc!^)
@@ -573,7 +579,7 @@ if "%1"=="" (((echo.%cmdcmdline%)|%WINDIR%\system32\find.exe /I "%~0")>nul) && (
         if "!choice!"== "2" ( if exist editor.exe ( start editor ) else ( call make editor static !cc! -- -DUI_FONT_SMALL && start editor ) )
         if "!choice!"== "3" call make all static !cc!
         if "!choice!"== "4" call make cook
-        if "!choice!"== "5" for %%i in (*.exe) do start /wait %%i
+        if "!choice!"== "5" call make run
         if "!choice!"== "6" start engine/fwk.html && rem start "" "https://bit.ly/fwk2023"
         if "!choice!"== "7" call make all retail static !cc! && make fuse
         if "!choice!"== "8" call make tidy
@@ -887,6 +893,8 @@ if "!demos!"=="yes" (
 !echo! 99-pathfind   && !cc! !o! 99-pathfind.exe    demos\99-pathfind.c     !import! !args! || set rc=1
 !echo! 99-sponza     && !cc! !o! 99-sponza.exe      demos\99-sponza.c       !import! !args! || set rc=1
 !echo! 99-gui        && !cc! !o! 99-gui.exe         demos\99-gui.c          !import! !args! || set rc=1
+!echo! 99-lmap       && !cc! !o! 99-lmap.exe        demos\99-lmap.c         !import! !args! || set rc=1
+!echo! 99-steam      && !cc! !o! 99-steam.exe       demos\99-steam.c        !import! !args! || set rc=1
 )
 
 rem hello

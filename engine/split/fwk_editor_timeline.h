@@ -72,7 +72,7 @@ int ui_tween(const char *label, tween_t *t) {
         ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
 
         struct nk_color c = nk_hsva_f(ui_hue, 0.75f, 0.8f, ui_alpha);
-        nk_fill_rect(canvas, pos, ROUNDING, k->ease == EASE_NOP ? AS_NKCOLOR(0) : c); // AS_NKCOLOR(track_color));
+        nk_fill_rect(canvas, pos, ROUNDING, k->ease == EASE_ZERO ? AS_NKCOLOR(0) : c); // AS_NKCOLOR(track_color));
     }
 
     // horizontal line

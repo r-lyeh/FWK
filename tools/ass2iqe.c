@@ -16,6 +16,12 @@
 #define FREE free
 #define MALLOC malloc
 #include "3rd_base64.h"
+//
+#ifdef _MSC_VER
+#define strcmpi _stricmp
+#else
+#define strcmpi strcasecmp
+#endif
 
 int verbose = 0;
 int need_to_bake_skin = 0;
@@ -34,6 +40,9 @@ int doanimlist = 0; // generate list of animations with properties
 int doaxis = 0; // flip bone axis from X to Y to match blender
 int dounscale = 0; // remove scaling from bind pose
 int dohips = 0; // reparent thighs to pelvis (see zo_hom_marche)
+
+char *output = NULL; // output filename
+char *input = NULL; // input filename
 
 char *only_one_node = NULL;
 int list_all_meshes = 0;
@@ -1080,31 +1089,51 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 
 #if 1 // embedded textures
             char *embedded = 0;
-            if( strchr(buffer, '*') ) { // look for embedded textures. referenced like *1, *2, *3... where N is texture ID
-                int tex_id = atoi(buffer+1);
-                if( tex_id < scene->mNumTextures ) {
-                    struct aiTexture *tex = scene->mTextures[tex_id];
-                    struct aiTexel *data = tex->pcData;
-                    unsigned w = tex->mWidth + !tex->mWidth;
-                    unsigned h = tex->mHeight + !tex->mHeight;
-                    const char *hint = tex->achFormatHint; // "rgba8888" or "png"
-                    #if 1
-                    embedded = base64_encode(data, w * h * sizeof(struct aiTexel)); // leak
-                    #else
-                    fprintf(stderr, "%dx%d (%s)\n", w,h,hint);
-                    char name[260]; sprintf(name, "tex_%d.%s", tex_id, hint);
-                    FILE *out = fopen(name, "wb");
-                    for(unsigned y = 0; y < h; ++y)
-                        for(unsigned x = 0; x < w; ++x)
-                            fwrite(&data[x+y*w].b, 1, 4, out);
-                    fclose(out);
-                    #endif
+
+            // look for embedded textures. referenced like *1, *2, *3... where N is texture ID
+            // note: mHeight can be zero, in this case texture->pcData is not RGB values but
+            // compressed JPEG/PNG/etc. data. Could use stb_image to decode such image in that case.
+
+            unsigned tex_id = ~0u;
+
+            if( buffer[0] ) {
+                if( strchr(buffer, '*') ) {
+                    tex_id = atoi(buffer+1);
+                } else {
+                    const char *fname = buffer + (buffer[0] == '+');
+
+                    for( int j = 0; j < scene->mNumTextures; ++j ) {
+                        struct aiTexture *tex = scene->mTextures[j];
+
+                        const char *basename = tex->mFilename.data;
+                        if( strrchr(basename, '/') ) basename = strrchr(basename, '/')+1;
+                        if( strrchr(basename,'\\') ) basename = strrchr(basename,'\\')+1;
+
+                        if( !strcmpi(basename, fname) ) {
+                            tex_id = j;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if( tex_id < scene->mNumTextures ) {
+                struct aiTexture *tex = scene->mTextures[tex_id];
+                const char *hint = tex->achFormatHint; // "rgba8888" or "png", "bmp", etc.
+
+                if( !tex->mHeight )
+                {
+                    embedded = base64_encode(tex->pcData, (int)tex->mWidth ); // @leak
+                }
+                else
+                {
+                    embedded = base64_encode(tex->pcData, (int)(tex->mWidth * tex->mHeight * sizeof(struct aiTexel))); // @leak
                 }
             }
 #endif
 
             aiGetMaterialString(material, AI_MATKEY_NAME, &str);
-            fprintf(out, "material \"%s%s%s%s%s\"\n", str.data, buffer, colorbuffer, embedded ? "+b64:":"", embedded ? embedded:"");
+            fprintf(out, "material \"%s%s%s%s%s\"\n", buffer[0] == '*' ? "" : str.data, buffer, colorbuffer, embedded ? "+b64:":"", embedded ? embedded:"");
         }
 
         struct vb *vb = (struct vb*) malloc(mesh->mNumVertices * sizeof(*vb));
@@ -1317,8 +1346,6 @@ int main(int argc, char **argv)
     char *p;
     int c;
 
-    char *output = NULL;
-    char *input = NULL;
     int onlyanim = 0;
     int onlymesh = 0;
 

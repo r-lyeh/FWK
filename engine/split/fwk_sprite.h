@@ -102,6 +102,8 @@ typedef struct atlas_slice_frame_t {
     bool has_9slice;
     vec4 core;
     vec2 pivot;
+    unsigned color;
+    char *text;
 } atlas_slice_frame_t;
 
 typedef struct atlas_slice_t {

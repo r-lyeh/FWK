@@ -57,10 +57,11 @@ in vec4 att_weights; // @todo: downgrade from float to byte
 in float att_vertexindex; // for blendshapes
 in vec4 att_color;
 in vec3 att_bitangent; // @todo: remove? also, ass2iqe might output this
+in vec2 att_texcoord2;
 out vec4 v_color;
 out vec3 v_position, v_position_ws;
 out vec3 v_normal, v_normal_ws;
-out vec2 v_texcoord;
+out vec2 v_texcoord, v_texcoord2;
 
 
 
@@ -110,13 +111,14 @@ void main() {
         v_normal = vec4(att_normal, 0.0) * m;
         //@todo: tangents
     }
-
+    
     //   vec3 tangent = att_tangent.xyz;
     //   vec3 bitangent = cross(att_normal, att_tangent.xyz) * att_tangent.w;
     v_normal_ws = normalize(vec3(model * vec4(v_normal, 0.))); // normal to world/model space
     v_normal = normalize(v_normal);
     v_position = att_position;
     v_texcoord = att_texcoord;
+    v_texcoord2 = att_texcoord2;
     v_color = att_color;
     mat4 modelView = view * att_instanced_matrix;
     mat4 l_model = att_instanced_matrix;
@@ -126,14 +128,17 @@ void main() {
         vec3 cameraPosition = -transpose(mat3(view)) * view[3].xyz;
         vec3 lookDir = normalize(cameraPosition - v_position_ws);
 
-        vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
+        vec3 up = vec3(modelView[0][1], modelView[1][1], modelView[2][1]);
         vec3 right = normalize(cross(up, lookDir));
         up = cross(lookDir, right);
 
         vec3 scale;
-        scale.x = length(vec3(att_instanced_matrix[0]));
-        scale.y = length(vec3(att_instanced_matrix[1]));
-        scale.z = length(vec3(att_instanced_matrix[2]));
+        scale.x = length(vec3(l_model[0]));
+        scale.y = length(vec3(l_model[1]));
+        scale.z = length(vec3(l_model[2]));
+        // scale.x *= sign(l_model[0][0]);
+        // scale.y *= sign(l_model[1][1]);
+        // scale.z *= sign(l_model[2][2]);
 
         mat4 billboardRotation = mat4(
             vec4(right * scale.x, 0.0),

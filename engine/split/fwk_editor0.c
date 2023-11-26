@@ -86,42 +86,6 @@ vec3 editor_pick(float mouse_x, float mouse_y) {
 #endif
 }
 
-#if 0
-int editor_ui_bits8(const char *label, uint8_t *enabled) { // @to deprecate
-    int clicked = 0;
-    uint8_t copy = *enabled;
-
-    // @fixme: better way to retrieve widget width? nk_layout_row_dynamic() seems excessive
-    nk_layout_row_dynamic(ui_ctx, 1, 1);
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-
-    // actual widget: label + 8 checkboxes
-    enum { HEIGHT = 18, BITS = 8, SPAN = 118 }; // bits widget below needs at least 118px wide
-    nk_layout_row_begin(ui_ctx, NK_STATIC, HEIGHT, 1+BITS);
-
-        int offset = bounds.w > SPAN ? bounds.w - SPAN : 0;
-        nk_layout_row_push(ui_ctx, offset);
-        if( ui_label_(label, NK_TEXT_LEFT) ) clicked = 1<<31;
-
-        for( int i = 0; i < BITS; ++i ) {
-            nk_layout_row_push(ui_ctx, 10);
-            // bit
-            int val = (*enabled >> i) & 1;
-            int chg = nk_checkbox_label(ui_ctx, "", &val);
-            *enabled = (*enabled & ~(1 << i)) | ((!!val) << i);
-            // tooltip
-            struct nk_rect bb = { offset + 10 + i * 14, bounds.y, 14, HEIGHT }; // 10:padding,14:width
-            if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bb) && !ui_popups()) {
-                const char *tips[BITS] = {"Init","Tick","Draw","Quit","","","",""};
-                if(tips[i][0]) nk_tooltipf(ui_ctx, "%s", tips[i]);
-            }
-        }
-
-    nk_layout_row_end(ui_ctx);
-    return clicked | (copy ^ *enabled);
-}
-#endif
-
 
 typedef union engine_var {
     int i;
@@ -350,6 +314,10 @@ int ui_engine() {
                 ui_gamepad(q);
             }
         }
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_TEXT_FIELDS " Fonts", "Debug.Fonts") {
+        ui_font();
     }
 
 

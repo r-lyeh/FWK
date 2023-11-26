@@ -503,6 +503,10 @@ void (set_free)(set* m) {
 #line 1 "fwk_string.c"
 #include <stdarg.h>
 
+#ifndef STACK_ALLOC_SIZE
+#define STACK_ALLOC_SIZE (512*1024)
+#endif
+
 char* tempvl(const char *fmt, va_list vl) {
     va_list copy;
     va_copy(copy, vl);
@@ -516,7 +520,7 @@ char* tempvl(const char *fmt, va_list vl) {
     static __thread char buf[STACK_ALLOC];
 #else
     int heap = 1;
-    static __thread int STACK_ALLOC = 512*1024;
+    static __thread int STACK_ALLOC = STACK_ALLOC_SIZE;
     static __thread char *buf = 0; if(!buf) buf = REALLOC(0, STACK_ALLOC); // @leak
 #endif
     static __thread int cur = 0; //printf("string stack %d/%d\n", cur, STACK_ALLOC);
@@ -830,7 +834,7 @@ const char *extract_utf32(const char *s, uint32_t *out) {
     /**/ if( (s[0] & 0x80) == 0x00 ) return *out = (s[0]), s + 1;
     else if( (s[0] & 0xe0) == 0xc0 ) return *out = (s[0] & 31) <<  6 | (s[1] & 63), s + 2;
     else if( (s[0] & 0xf0) == 0xe0 ) return *out = (s[0] & 15) << 12 | (s[1] & 63) <<  6 | (s[2] & 63), s + 3;
-    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 8 | (s[3] & 63), s + 4;
+    else if( (s[0] & 0xf8) == 0xf0 ) return *out = (s[0] &  7) << 18 | (s[1] & 63) << 12 | (s[2] & 63) << 6 | (s[3] & 63), s + 4;
     return *out = 0, s + 0;
 }
 array(uint32_t) string32( const char *utf8 ) {
@@ -4161,6 +4165,7 @@ typedef struct {
     float               dataf[4096*2];
     };
     bool rewind;
+    bool loop;
 } mystream_t;
 
 static void downsample_to_mono_flt( int channels, float *buffer, int samples ) {
@@ -4185,7 +4190,7 @@ static void downsample_to_mono_s16( int channels, short *buffer, int samples ) {
 }
 
 // the callback to refill the (stereo) stream data
-static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
+static bool refill_stream(sts_mixer_sample_t* sample, void* userdata) {
     mystream_t* stream = (mystream_t*)userdata;
     switch( stream->type ) {
         default:
@@ -4194,6 +4199,7 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
             if (ma_dr_wav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
                 ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
+                if (!stream->loop) return false;
             }
         }
         break; case MP3: {
@@ -4201,6 +4207,7 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
             if (ma_dr_mp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
                 ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
+                if (!stream->loop) return false;
             }
         }
         break; case OGG: {
@@ -4208,9 +4215,12 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, stb_vorbis_seek(stream->ogg, 0);
             if( stb_vorbis_get_samples_short_interleaved(ogg, 2, (short*)stream->data, sample->length) == 0 )  {
                 stb_vorbis_seek(stream->ogg, 0);
+                if (!stream->loop) return false;
             }
         }
     }
+
+    return true;
 }
 static void reset_stream(mystream_t* stream) {
     if( stream ) memset( stream->data, 0, sizeof(stream->data) ), stream->rewind = 1;
@@ -4224,6 +4234,7 @@ static bool load_stream(mystream_t* stream, const char *filename) {
     int error;
     int HZ = 44100;
     stream->type = UNK;
+    stream->loop = true;
     if( stream->type == UNK && (stream->ogg = stb_vorbis_open_memory((const unsigned char *)data, datalen, &error, NULL)) ) {
         stb_vorbis_info info = stb_vorbis_get_info(stream->ogg);
         if( info.channels != 2 ) { puts("cannot stream ogg file. stereo required."); goto end; } // @fixme: upsample
@@ -4535,6 +4546,22 @@ int audio_stop( audio_t a ) {
     return 1;
 }
 
+void audio_loop( audio_t a, bool loop ) {
+    if ( a->is_stream ) {
+        a->stream.loop = loop;
+    }
+}
+
+bool audio_playing( audio_t a ) {
+    if( a->is_clip ) {
+        return !sts_mixer_sample_stopped(&mixer, &a->clip);
+    }
+    if( a->is_stream ) {
+        return !sts_mixer_stream_stopped(&mixer, &a->stream.stream);
+    }
+    return false;
+}
+
 // -----------------------------------------------------------------------------
 // audio queue
 
@@ -4562,7 +4589,7 @@ static void audio_queue_init() {
     do_once thread_queue_init(&queue_mutex, countof(audio_queues), audio_queues, 0);
 }
 
-static void audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
+static bool audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
     (void)userdata;
 
     int sl = sample->length / 2; // 2 ch
@@ -4586,6 +4613,8 @@ static void audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
             aq = 0;
         }
     } while( bytes > 0 );
+
+    return 1;
 }
 
 static int audio_queue_voice = -1;
@@ -8077,7 +8106,7 @@ static array(struct vfs_entry) vfs_hints;   // mounted raw assets
 static array(struct vfs_entry) vfs_entries; // mounted cooked assets
 
 static bool vfs_mount_hints(const char *path);
-static
+
 void vfs_reload() {
     const char *app = app_name();
 
@@ -10036,7 +10065,8 @@ static const unsigned table_middle_east[] = {
 
 static const unsigned table_emoji[] = {
 //  0xE000, 0xEB4C, // Private use (emojis)
-    0xE000, 0xF8FF, // Private use (emojis+webfonts)
+    0xE000, 0xF68B, // Private use (emojis+webfonts). U+F68C excluded
+    0xF68D, 0xF8FF, // Private use (emojis+webfonts)
     0xF0001,0xF1CC7,// Private use (icon mdi)
     0
 };
@@ -10231,6 +10261,7 @@ typedef struct font_t {
     int height;      // bitmap height
     int width;       // bitmap width
     float font_size; // font size in pixels (matches scale[0+1] size below)
+    float factor;    // font factor (font_size / (ascent - descent))
     float scale[7];  // user defined font scale (match H1..H6 tags)
 
     // displacement info
@@ -10261,7 +10292,9 @@ typedef struct font_t {
     GLuint vbo_instances; // vec4: (char_pos_x, char_pos_y, char_index, color_index)
 } font_t;
 
-static font_t fonts[8] = {0};
+enum { FONTS_MAX = 10 };
+
+static font_t fonts[FONTS_MAX] = {0};
 
 static
 void font_init() {
@@ -10272,6 +10305,10 @@ void font_init() {
         font_face_from_mem(FONT_FACE4, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
         font_face_from_mem(FONT_FACE5, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
         font_face_from_mem(FONT_FACE6, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE7, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE8, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE9, bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
+        font_face_from_mem(FONT_FACE10,bm_mini_ttf,countof(bm_mini_ttf), 42.5f, 0);
     }
 }
 
@@ -10283,7 +10320,7 @@ void font_color(const char *tag, uint32_t color) {
     if( index < FONT_MAX_COLORS ) {
         font_palette[index] = color;
 
-        for( int i = 0; i < 8; ++i ) {
+        for( int i = 0; i < FONTS_MAX; ++i ) {
             font_t *f = &fonts[i];
             if( f->initialized ) {
                 glActiveTexture(GL_TEXTURE2);
@@ -10294,11 +10331,24 @@ void font_color(const char *tag, uint32_t color) {
     }
 }
 
+void ui_font() {
+    for( int i = 0; i < countof(fonts); ++i ) {
+        if( ui_collapse(va("Font %d", i), va("%p%d", &fonts[i], i) ) ) {
+            font_t *f = &fonts[i];
+            ui_float("Ascent", &f->ascent);
+            ui_float("Descent", &f->descent);
+            ui_float("Line Gap", &f->linegap);
+            f->linedist = (f->ascent-f->descent+f->linegap);
+            ui_collapse_end();
+        }
+    }
+}
+
 void font_scales(const char *tag, float h1, float h2, float h3, float h4, float h5, float h6) {
     font_init();
 
     unsigned index = *tag - FONT_FACE1[0];
-    if( index >= 8 ) return;
+    if( index > FONTS_MAX ) return;
 
     font_t *f = &fonts[index];
     if (!f->initialized) return;
@@ -10318,7 +10368,7 @@ void font_scales(const char *tag, float h1, float h2, float h3, float h4, float 
 // 1. Calculate and save a bunch of useful variables and put them in the global font variable.
 void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len, float font_size, unsigned flags) {
     unsigned index = *tag - FONT_FACE1[0];
-    if( index >= 8 ) return;
+    if( index > FONTS_MAX ) return;
     if( font_size <= 0 || font_size > 72 ) return;
     if( !ttf_data || !ttf_len ) return;
 
@@ -10384,12 +10434,24 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     unsigned char *bitmap = (unsigned char*)MALLOC(f->height*f->width);
 
         int charCount = *array_back(sorted) - sorted[0] + 1; // 0xEFFFF;
-        f->begin = sorted[0];
         f->cdata = (stbtt_packedchar*)CALLOC(1, sizeof(stbtt_packedchar) * charCount);
         f->iter2cp = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
         f->cp2iter = (unsigned*)MALLOC( sizeof(unsigned) * charCount );
         for( int i = 0; i < charCount; ++i )
             f->iter2cp[i] = f->cp2iter[i] = 0xFFFD; // default invalid glyph
+
+        // find first char
+        {
+            stbtt_fontinfo info = {0};
+            stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data,0));
+
+            for( int i = 0, end = array_count(sorted); i < end; ++i ) {
+                unsigned glyph = sorted[i];
+                if(!stbtt_FindGlyphIndex(&info, glyph)) continue;
+                f->begin = glyph;
+                break;
+            }
+        }
 
         stbtt_pack_context pc;
         if( !stbtt_PackBegin(&pc, bitmap, f->width, f->height, 0, 1, NULL) ) {
@@ -10402,6 +10464,8 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
             uint64_t begin = sorted[i], end = sorted[i];
             while( i < (num-1) && (sorted[i+1]-sorted[i]) == 1 ) end = sorted[++i];
             //printf("(%d,%d)", (unsigned)begin, (unsigned)end);
+
+            if( begin < f->begin ) continue;
 
             if( stbtt_PackFontRange(&pc, ttf_data, 0, f->font_size, begin, end - begin + 1, (stbtt_packedchar*)f->cdata + begin - f->begin) ) {
                 for( uint64_t cp = begin; cp <= end; ++cp ) {
@@ -10425,13 +10489,14 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data,0));
 
     int a, d, l;
-    float s = stbtt_ScaleForPixelHeight(&info, f->font_size);
-    stbtt_GetFontVMetrics(&info, &a, &d, &l);
+    if (!stbtt_GetFontVMetricsOS2(&info, &a, &d, &l))
+        stbtt_GetFontVMetrics(&info, &a, &d, &l);
 
-    f->ascent = a * s;
-    f->descent = d * s;
-    f->linegap = l * s;
-    f->linedist = (a - d + l) * s;
+    f->ascent = a;
+    f->descent = d;
+    f->linegap = l;
+    f->linedist = (a - d + l);
+    f->factor = (f->font_size / (f->ascent - f->descent));
 
     // save some gpu memory by truncating unused vertical space in atlas texture
     {
@@ -10549,8 +10614,6 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     glUniform2f(glGetUniformLocation(f->program, "res_bitmap"), f->width, f->height);
     glUniform2f(glGetUniformLocation(f->program, "res_meta"), f->num_glyphs, 2);
     glUniform1f(glGetUniformLocation(f->program, "num_colors"), FONT_MAX_COLORS);
-    glUniform1f(glGetUniformLocation(f->program, "offset_firstline"), f->linedist-f->linegap);
-
     (void)flags;
 }
 
@@ -10611,6 +10674,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glUseProgram(f->program);
     glUniform1f(glGetUniformLocation(f->program, "scale_factor"), factor);
     glUniform2fv(glGetUniformLocation(f->program, "string_offset"), 1, &offset.x);
+    glUniform1f(glGetUniformLocation(f->program, "offset_firstline"), f->ascent*f->factor);
 
     GLint dims[4] = {0};
     glGetIntegerv(GL_VIEWPORT, dims);
@@ -10655,14 +10719,14 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
     }
 
     // pre-init
-    static __thread float *text_glyph_data, **init = 0;
-    if(!init) *(init = &text_glyph_data) = (float*)MALLOC(4 * FONT_MAX_STRING_LEN * sizeof(float));
+    static __thread float *text_glyph_data;
+    do_once text_glyph_data = MALLOC(4 * FONT_MAX_STRING_LEN * sizeof(float));
 
     // ready
     font_t *f = &fonts[0];
     int S = 3;
     uint32_t color = 0;
-    float X = 0, Y = 0, W = 0, L = f->linedist*f->scale[S], LL = L; // LL=largest linedist
+    float X = 0, Y = 0, W = 0, L = f->ascent*f->factor*f->scale[S], LL = L; // LL=largest linedist
     offset.y = -offset.y; // invert y polarity
 
     // utf8 to utf32
@@ -10677,7 +10741,10 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
             // change cursor, advance y, record largest x as width, increase height
             if( X > W ) W = X;
             X = 0.0;
-            Y -= L;
+            Y -= f->linedist*f->factor*f->scale[S];
+            if (i+1==end) { //@hack: ensures we terminate the height at the correct position
+                Y -= (f->descent+f->linegap)*f->factor*f->scale[S];
+            }
             continue;
         }
         if( ch >= 1 && ch <= 6 ) {
@@ -10686,26 +10753,27 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
             t = text_glyph_data;
 
             // reposition offset to align new baseline
-            offset.y += (f->linedist - f->linegap) * ( f->scale[ch] - f->scale[S] );
+            // @fixme:
+            // offset.y += (f->linedist - f->linegap) * ( f->scale[ch] - f->scale[S] );
 
             // change size
             S = ch;
-            L = f->linedist*f->scale[S];
+            L = f->ascent*f->factor*f->scale[S];
             if(L > LL) LL = L;
             continue;
         }
-        if( ch >= 0x10 && ch <= 0x19 ) {
-            color = ch - 0x10;
+        if( ch >= 0x1a && ch <= 0x1f ) {
+            color = ch - 0x1a;
             continue;
         }
-        if( ch >= 0x1a && ch <= 0x1f ) {
-            if( fonts[ ch - 0x1a ].initialized) {
+        if( ch >= 0x10 && ch <= 0x19 ) {
+            if( fonts[ ch - 0x10 ].initialized) {
             // flush previous state
             if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
             t = text_glyph_data;
 
             // change face
-            f = &fonts[ ch - 0x1a ];
+            f = &fonts[ ch - 0x10 ];
             }
             continue;
         }
@@ -10713,7 +10781,7 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         // convert to vbo data
         int cp = ch - f->begin; // f->cp2iter[ch - f->begin];
         //if(cp == 0xFFFD) continue;
-        //if(cp > f->num_glyphs) cp = 0xFFFD;
+        //if (cp > f->num_glyphs) continue;
 
         *t++ = X;
         *t++ = Y;
@@ -11004,6 +11072,37 @@ vec2 font_highlight(const char *text, const void *colors) {
 vec2 font_rect(const char *str) {
     return font_draw_ex(str, gotoxy, NULL, NULL);
 }
+
+font_metrics_t font_metrics(const char *text) {
+    font_metrics_t m={0};
+    int S = 3;
+    font_t *f = &fonts[0];
+
+    // utf8 to utf32
+    array(uint32_t) unicode = string32(text);
+
+    // parse string
+    for( int i = 0, end = array_count(unicode); i < end; ++i ) {
+        uint32_t ch = unicode[i];
+        if( ch >= 1 && ch <= 6 ) {
+            S = ch;
+            continue;
+        }
+        if( ch >= 0x1a && ch <= 0x1f ) {
+            if( fonts[ ch - 0x1a ].initialized) {
+                // change face
+                f = &fonts[ ch - 0x1a ];
+            }
+            continue;
+        }
+    }
+
+    m.ascent = f->ascent*f->factor*f->scale[S];
+    m.descent = f->descent*f->factor*f->scale[S];
+    m.linegap = f->linegap*f->factor*f->scale[S];
+    m.linedist = f->linedist*f->factor*f->scale[S];
+    return m;
+}
 #line 0
 
 #line 1 "fwk_gui.c"
@@ -11098,18 +11197,18 @@ void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, ve
 // ----------------------------------------------------------------------------
 // game ui
 
-typedef struct gui_state_t {
-    union {
-        struct {
-            bool held;
-            bool hover;
-        };
+typedef union gui_state_t {
+    struct {
+        bool held;
+        bool hover;
     };
 } gui_state_t;
 
 static __thread array(guiskin_t) skins=0;
 static __thread guiskin_t *last_skin=0;
 static __thread map(int, gui_state_t) ctl_states=0; //@leak
+static __thread array(vec4) scissor_rects=0;
+static __thread bool any_widget_used=0;
 
 void gui_pushskin(guiskin_t skin) {
     array_push(skins, skin);
@@ -11127,10 +11226,27 @@ void *gui_userdata() {
     return last_skin->userdata;
 }
 
-vec2 gui_getskinsize(const char *skin) {
+vec2 gui_getskinsize(const char *skin, const char *fallback) {
     vec2 size={0};
-    if (last_skin->getskinsize) last_skin->getskinsize(last_skin->userdata, skin, &size);
+    if (last_skin->getskinsize) last_skin->getskinsize(last_skin->userdata, skin, fallback, &size);
     return size;
+}
+
+unsigned gui_getskincolor(const char *skin, const char *fallback) {
+    unsigned color = 0xFFFFFFFF;
+    if (last_skin->getskincolor) last_skin->getskincolor(last_skin->userdata, skin, fallback, &color);
+    return color;
+}
+
+bool gui_ismouseinrect(const char *skin, const char *fallback, vec4 rect) {
+    if (last_skin->ismouseinrect) return last_skin->ismouseinrect(last_skin->userdata, skin, fallback, rect);
+    return false;
+}
+
+vec4 gui_getscissorrect(const char *skin, const char *fallback, vec4 rect) {
+    vec4 scissor = rect;
+    if (last_skin->getscissorrect) last_skin->getscissorrect(last_skin->userdata, skin, fallback, rect, &scissor);
+    return scissor;
 }
 
 static
@@ -11139,31 +11255,156 @@ gui_state_t *gui_getstate(int id) {
     return map_find_or_add(ctl_states, id, (gui_state_t){0});
 }
 
-bool (gui_button)(int id, vec4 r, const char *skin) {
+void gui_panel_id(int id, vec4 rect, const char *skin) {
+    (void)id;
+    vec4 scissor={0, 0, window_width(), window_height()};
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, skin, NULL, rect);
+    scissor = gui_getscissorrect(skin, NULL, rect);
+
+    if (!array_count(scissor_rects))
+        glEnable(GL_SCISSOR_TEST);
+    glScissor(scissor.x, window_height()-scissor.w-scissor.y, scissor.z, scissor.w);
+    array_push(scissor_rects, scissor);
+}
+
+void gui_panel_end() {
+    ASSERT(array_count(scissor_rects));
+    array_pop(scissor_rects);
+    if (array_count(scissor_rects)) {
+        vec4 scissor = *array_back(scissor_rects);
+        glScissor(scissor.x, scissor.y, scissor.z, scissor.w);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+    }
+}
+
+bool gui_button_id(int id, vec4 r, const char *skin) {
     gui_state_t *entry = gui_getstate(id);
     bool was_clicked=0;
-    entry->hover = false;
 
-    if (input(MOUSE_X) > r.x && input(MOUSE_X) < (r.x+r.z) && input(MOUSE_Y) > r.y && input(MOUSE_Y) < (r.y+r.w)) {
+    skin=skin?skin:"button";
+    char *btn = va("%s%s", skin, entry->held?"_press":entry->hover?"_hover":"");
+    if (gui_ismouseinrect(btn, skin, r)) {
         if (input_up(MOUSE_L) && entry->held) {
             was_clicked=1;
         }
 
-        entry->held = input_held(MOUSE_L);
-        entry->hover = true;
+        if (!any_widget_used) {
+            any_widget_used = entry->held = input_held(MOUSE_L);
+            entry->hover = true;
+        }
     }
-    else if (input_up(MOUSE_L) && entry->held) {
-        entry->held = false;
+    else {
+        entry->hover = false;
     }
 
-    char *btn = va("%s%s", skin?skin:"button", entry->held?"_press":entry->hover?"_hover":"");
-    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, btn, r);
+    if (input_up(MOUSE_L) && entry->held) {
+        entry->held = false;
+        any_widget_used = false;
+    }
+
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, btn, skin, r);
 
     return was_clicked;
 }
 
-void (gui_panel)(int id, vec4 r, const char *skin) {
-    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, skin?skin:"panel", r);
+bool gui_button_label_id(int id, const char *text, vec4 rect, const char *skin) {
+    gui_state_t *entry = gui_getstate(id);
+    bool state = gui_button_id(id, rect, skin);
+    vec2 buttonsize={0};
+    skin=skin?skin:"button";
+    char *btn = va("%s%s", skin, entry->held?"_press":entry->hover?"_hover":"");
+    buttonsize = gui_getskinsize(btn, skin);
+
+    vec2 textsize = font_rect(text);
+    vec4 pos;
+    pos.x = rect.x + max(buttonsize.x*.5f, rect.z*.5f) - textsize.x*.5f;
+    pos.y = rect.y + max(buttonsize.y*.5f, rect.w*.5f) - textsize.y*.5f;
+    gui_label(btn, text, pos);
+    return state;
+}
+
+static
+float slider2posx(float min, float max, float value, float step, float w) {
+    float norm = value - min;
+    float range = max - min;
+    float rel = norm / range;
+    float res = w * rel;
+    return step==0.0f?res:(round(res/step)*step);
+}
+
+static
+float posx2slider(vec4 rect, float min, float max, float xpos, float step) {
+    xpos = clampf(xpos, rect.x, rect.x+rect.z);
+    double rel = (xpos - rect.x) / rect.z;
+    float res = min + (rel * (max - min));
+    return step==0.0f?res:(round(res/step)*step);
+}
+
+bool gui_slider_id(int id, vec4 rect, const char *skin, float min, float max, float step, float *value) {
+    gui_state_t *entry = gui_getstate(id);
+
+    skin = skin?skin:"slider";
+    char *cursorskin = va("%s_cursor%s", skin, entry->held?"_press":entry->hover?"_hover":"");
+    char *fbcursor = va("%s_cursor", skin);
+    if (gui_ismouseinrect(skin, NULL, rect) && !any_widget_used) {
+        any_widget_used = entry->held = input_held(MOUSE_L);
+        entry->hover = true;
+    }
+    else if (input_up(MOUSE_L) && entry->held) {
+        entry->held = false;
+        any_widget_used = false;
+    }
+    else {
+        entry->hover = false;
+    }
+
+    float old_value = *value;
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, skin, NULL, rect);
+
+    vec2 slidersize={0}, cursorsize={0};
+    vec4 usablerect = gui_getscissorrect(skin, NULL, rect);
+    slidersize = gui_getskinsize(skin, NULL);
+    cursorsize = gui_getskinsize(cursorskin, fbcursor);
+    if (entry->held) {
+        *value = posx2slider(usablerect, min, max, input(MOUSE_X), step);
+    }
+    float sliderx = slider2posx(min, max, *value, step, usablerect.z);
+    vec2 cursorpos = vec2(sliderx+(usablerect.x-rect.x)-cursorsize.x*.5f, (slidersize.y*.5f - cursorsize.y*.5f));
+    vec4 cursorrect = rect;
+    cursorrect.x += cursorpos.x;
+    cursorrect.y += cursorpos.y;
+    cursorrect.z = cursorsize.x;
+    cursorrect.w = max(cursorsize.y, rect.w);
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, cursorskin, fbcursor, cursorrect);
+
+    return entry->held && (old_value!=*value);
+}
+
+bool gui_slider_label_id(int id, const char *text, vec4 rect, const char *skin, float min, float max, float step, float *value) {
+    bool state = gui_slider_id(id, rect, skin, min, max, step, value);
+    vec2 slidersize={0};
+    skin=skin?skin:"slider";
+    slidersize = gui_getskinsize(skin, NULL);
+
+    vec2 textsize = font_rect(text);
+    vec4 pos;
+    pos.x = rect.x + max(slidersize.x, rect.z) + 8 /*padding*/;
+    pos.y = rect.y + max(slidersize.y*.5f, rect.w*.5f) - textsize.y*.5f;
+    gui_label(skin, text, pos);
+    return state;
+}
+
+void gui_rect_id(int id, vec4 r, const char *skin) {
+    (void)id;
+    if (last_skin->drawrect) last_skin->drawrect(last_skin->userdata, skin, NULL, r);
+}
+
+void gui_label_id(int id, const char *skin, const char *text, vec4 rect) {
+    (void)id;
+    font_color(FONT_COLOR6, gui_getskincolor(skin, NULL));
+    font_goto(rect.x, rect.y);
+    font_print(va(FONT_COLOR6 "%s", text));
 }
 
 /* skinned */
@@ -11177,16 +11418,51 @@ void skinned_free(void* userdata) {
 
 static
 atlas_slice_frame_t *skinned_getsliceframe(atlas_t *a, const char *name) {
-    for (int i = 0; i < array_count(a->slices); i++) 
+    if (!name) return NULL;
+    for (int i = 0; i < array_count(a->slices); i++)
         if (!strcmp(quark_string(&a->db, a->slices[i].name), name))
             return &a->slice_frames[a->slices[i].frames[0]];
+    // PRINTF("slice name: '%s' is missing in atlas!\n", name);
     return NULL;
+}
+
+static
+void skinned_getskincolor(void *userdata, const char *skin, const char *fallback, unsigned *color) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+    atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f && fallback) f = skinned_getsliceframe(&a->atlas, fallback);
+    if (!f) return;
+
+    if (f->text && f->text[0] == '#') *color = atorgba(f->text);
 }
 
 static
 void skinned_draw_missing_rect(vec4 r) {
     vec4 size = vec4(0, 0, texture_checker().w, texture_checker().h);
     gui_drawrect(texture_checker(), v42v2(size), 0x800080FF, v42v2(r));
+}
+
+static
+bool skinned_ismouseinrect(void *userdata, const char *skin, const char *fallback, vec4 r) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+    atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f && fallback) f = skinned_getsliceframe(&a->atlas, fallback);
+    if (!f) return false;
+
+    vec4 outer = f->bounds;
+    r.x -= f->pivot.x*a->scale;
+    r.y -= f->pivot.y*a->scale;
+    r.z += r.x;
+    r.w += r.y;
+
+    if ((r.z-r.x) < (outer.z-outer.x) * a->scale) {
+        r.z = r.x + (outer.z-outer.x) * a->scale;
+    }
+    if ((r.w-r.y) < (outer.w-outer.y) * a->scale) {
+        r.w = r.y + (outer.w-outer.y) * a->scale;
+    }
+
+    return (input(MOUSE_X) > r.x && input(MOUSE_X) < r.z && input(MOUSE_Y) > r.y && input(MOUSE_Y) < r.w);
 }
 
 static
@@ -11253,32 +11529,59 @@ void skinned_draw_sprite(float scale, atlas_t *a, atlas_slice_frame_t *f, vec4 r
 }
 
 static
-void skinned_draw_rect(void* userdata, const char *skin, vec4 r) {
+void skinned_draw_rect(void* userdata, const char *skin, const char *fallback, vec4 r) {
     skinned_t *a = C_CAST(skinned_t*, userdata);
 
     atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f && fallback) f = skinned_getsliceframe(&a->atlas, fallback);
     if (!f) skinned_draw_missing_rect(r);
     else skinned_draw_sprite(a->scale, &a->atlas, f, r);
 }
 
-void skinned_getskinsize(void *userdata, const char *skin, vec2 *size) {
+void skinned_getskinsize(void *userdata, const char *skin, const char *fallback, vec2 *size) {
     skinned_t *a = C_CAST(skinned_t*, userdata);
 
     atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f && fallback) f = skinned_getsliceframe(&a->atlas, fallback);
     if (f) {
         size->x = (f->bounds.z-f->bounds.x)*a->scale;
         size->y = (f->bounds.w-f->bounds.y)*a->scale;
     }
 }
 
-guiskin_t gui_skinned(const char *inifile, float scale) {
+static
+void skinned_getscissorrect(void* userdata, const char *skin, const char *fallback, vec4 rect, vec4 *dims) {
+    skinned_t *a = C_CAST(skinned_t*, userdata);
+    atlas_slice_frame_t *f = skinned_getsliceframe(&a->atlas, skin);
+    if (!f && fallback) f = skinned_getsliceframe(&a->atlas, fallback);
+    if (!f) return;
+
+    *dims = rect;
+
+    if (!f->has_9slice) return;
+    vec2 skinsize, coresize;
+    skinsize.x = (f->bounds.z-f->bounds.x)*a->scale;
+    skinsize.y = (f->bounds.w-f->bounds.y)*a->scale;
+    coresize.x = (f->core.z-f->core.x)*a->scale;
+    coresize.y = (f->core.w-f->core.y)*a->scale;
+
+    dims->x += f->core.x*a->scale;
+    dims->y += f->core.y*a->scale;
+    dims->z -= (skinsize.x - coresize.x);
+    dims->w -= (skinsize.y - coresize.y);
+}
+
+guiskin_t gui_skinned(const char *asefile, float scale) {
     skinned_t *a = REALLOC(0, sizeof(skinned_t));
-    a->atlas = atlas_create(inifile, 0);
+    a->atlas = atlas_create(asefile, 0);
     a->scale = scale?scale:1.0f;
     guiskin_t skin={0};
     skin.userdata = a;
     skin.drawrect = skinned_draw_rect;
     skin.getskinsize = skinned_getskinsize;
+    skin.getskincolor = skinned_getskincolor;
+    skin.ismouseinrect = skinned_ismouseinrect;
+    skin.getscissorrect = skinned_getscissorrect;
     skin.free = skinned_free;
     return skin;
 }
@@ -17374,11 +17677,18 @@ texture_t texture_checker() {
                 pixels[i++] = (rgb>>8) & 255;
                 pixels[i++] = (rgb>>0) & 255;
                 pixels[i++] = 255;
-#else
+#elif 0
                 extern const uint32_t secret_palette[32];
                 uint32_t lum = (x^y) & 8 ? 128 : (x^y) & 128 ? 192 : 255;
                 uint32_t rgb = rgba(lum,lum,lum,255);
                 pixels[i++] = rgb;
+#else
+                int j = y, i = x;
+                unsigned char *p = (unsigned char *)&pixels[x + y * 256];
+                p[0] = (i / 16) % 2 == (j / 16) % 2 ? 255 : 0; // r
+                p[1] = ((i - j) / 16) % 2 == 0 ? 255 : 0; // g
+                p[2] = ((i + j) / 16) % 2 == 0 ? 255 : 0; // b
+                p[3] = 255; // a
 #endif
             }
         }
@@ -19358,6 +19668,7 @@ typedef struct iqm_vertex {
     GLubyte blendweights[4];
     GLfloat blendvertexindex;
     GLubyte color[4];
+    GLfloat texcoord2[2];
 } iqm_vertex;
 
 typedef struct iqm_t {
@@ -19467,6 +19778,13 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if( (loc = glGetUniformLocation(shader, "u_billboard")) >= 0 ) {
         glUniform1i( loc, m.billboard );
     }
+    if( (loc = glGetUniformLocation(shader, "texlit")) >= 0 ) {
+        glUniform1i( loc, (m.lightmap.w != 0) );
+    }
+    else
+    if( (loc = glGetUniformLocation(shader, "u_texlit")) >= 0 ) {
+        glUniform1i( loc, (m.lightmap.w != 0) );
+    }
 #if 0
     // @todo: mat44 projview (useful?)
 #endif
@@ -19522,6 +19840,10 @@ void model_set_state(model_t m) {
     // vertex color
     glVertexAttribPointer(11, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,color) );
     glEnableVertexAttribArray(11);
+
+    // lmap data
+    glVertexAttribPointer(12, 2, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, texcoord2) );
+    glEnableVertexAttribArray(12);
 
     // animation
     if(numframes > 0) {
@@ -19622,6 +19944,8 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     }
 
     struct iqmtriangle *tris = (struct iqmtriangle *)&buf[hdr->ofs_triangles];
+    m->num_tris = hdr->num_triangles;
+    m->tris = (void*)tris;
 
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -19637,7 +19961,10 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
         if(inposition) memcpy(v->position, &inposition[i*3], sizeof(v->position));
         if(innormal) memcpy(v->normal, &innormal[i*3], sizeof(v->normal));
         if(intangent) memcpy(v->tangent, &intangent[i*4], sizeof(v->tangent));
-        if(intexcoord) memcpy(v->texcoord, &intexcoord[i*2], sizeof(v->texcoord));
+        if(intexcoord) {
+            memcpy(v->texcoord, &intexcoord[i*2], sizeof(v->texcoord));
+            memcpy(v->texcoord2, &intexcoord[i*2], sizeof(v->texcoord2)); // populate UV1 with the same value, used by lightmapper
+        }
         if(inblendindex8) memcpy(v->blendindexes, &inblendindex8[i*4], sizeof(v->blendindexes));
         if(inblendweight8) memcpy(v->blendweights, &inblendweight8[i*4], sizeof(v->blendweights));
         if(inblendindexi) {
@@ -19660,22 +19987,22 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     glBufferData(GL_ARRAY_BUFFER, hdr->num_vertexes*sizeof(iqm_vertex), verts, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-m->stride = sizeof(iqm_vertex);
-#if 0
-m->stride = 0;
-if(inposition) m->stride += sizeof(verts[0].position);
-if(innormal) m->stride += sizeof(verts[0].normal);
-if(intangent) m->stride += sizeof(verts[0].tangent);
-if(intexcoord) m->stride += sizeof(verts[0].texcoord);
-if(inblendindex8) m->stride += sizeof(verts[0].blendindexes); // no index8? bug?
-if(inblendweight8) m->stride += sizeof(verts[0].blendweights); // no weight8? bug?
-if(inblendindexi) m->stride += sizeof(verts[0].blendindexes);
-if(inblendweightf) m->stride += sizeof(verts[0].blendweights);
-if(invertexcolor8) m->stride += sizeof(verts[0].color);
-#endif
-//for( int i = 0; i < 16; ++i ) printf("%.9g%s", ((float*)verts)[i], (i % 3) == 2 ? "\n" : ",");
-//m->verts = verts; //FREE(verts);
-m->verts = 0; FREE(verts);
+    m->stride = sizeof(iqm_vertex);
+    #if 0
+    m->stride = 0;
+    if(inposition) m->stride += sizeof(verts[0].position);
+    if(innormal) m->stride += sizeof(verts[0].normal);
+    if(intangent) m->stride += sizeof(verts[0].tangent);
+    if(intexcoord) m->stride += sizeof(verts[0].texcoord);
+    if(inblendindex8) m->stride += sizeof(verts[0].blendindexes); // no index8? bug?
+    if(inblendweight8) m->stride += sizeof(verts[0].blendweights); // no weight8? bug?
+    if(inblendindexi) m->stride += sizeof(verts[0].blendindexes);
+    if(inblendweightf) m->stride += sizeof(verts[0].blendweights);
+    if(invertexcolor8) m->stride += sizeof(verts[0].color);
+    #endif
+    //for( int i = 0; i < 16; ++i ) printf("%.9g%s", ((float*)verts)[i], (i % 3) == 2 ? "\n" : ",");
+    m->verts = verts;
+    /*m->verts = 0; FREE(verts);*/
 
     textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
     colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
@@ -19777,6 +20104,27 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
         struct iqmmesh *m = &meshes[i];
 
+        // reuse texture+material if already decoded
+        bool reused = 0;
+        for( int j = 0; !reused && j < model->num_textures; ++j ) {
+            if( !strcmpi(model->texture_names[j], &str[m->material])) {
+
+                *out++ = model->materials[j].layer[0].texture;
+
+                {
+                    model->num_textures++;
+                    array_push(model->texture_names, STRDUP(&str[m->material]));
+
+                    array_push(model->materials, model->materials[j]);
+                    array_back(model->materials)->name = STRDUP(&str[m->material]);
+                }
+
+                reused = true;
+            }
+        }
+        if( reused ) continue;
+
+        // decode texture+material
         int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT; // LINEAR, NEAREST
         int invalid = texture_checker().id;
 
@@ -19788,7 +20136,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
             array(char) embedded_texture = base64_decode(material_embedded_texture, strlen(material_embedded_texture));
             //printf("%s %d\n", material_embedded_texture, array_count(embedded_texture));
             //hexdump(embedded_texture, array_count(embedded_texture));
-            *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), 0 ).id;
+            *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), flags ).id;
             array_free(embedded_texture);
         }
 
@@ -19841,6 +20189,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
             *out = texture_checker().id; // placeholder
         }
 
+        inscribe_tex:;
         {
             model->num_textures++;
             array_push(model->texture_names, STRDUP(&str[m->material]));
@@ -19907,8 +20256,8 @@ model_t model_from_mem(const void *mem, int len, int flags) {
     // static int shaderprog = -1;
     // if( shaderprog < 0 ) {
         const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
-        int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_332_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
-            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent","fragColor",
+        int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
             va("SHADING_PHONG,%s", (flags&MODEL_RIMLIGHT)?"RIM":""));
     // }
     // ASSERT(shaderprog > 0);
@@ -20150,7 +20499,7 @@ float model_animate(model_t m, float curframe) {
 }
 
 static
-void model_draw_call(model_t m) {
+void model_draw_call(model_t m, int shader) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
@@ -20162,16 +20511,20 @@ void model_draw_call(model_t m) {
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(m.program, "fsDiffTex"), 0 /*<-- unit!*/ );
+        glUniform1i(glGetUniformLocation(shader, "u_texture2d"), 0 );
 
         int loc;
-        if ((loc = glGetUniformLocation(m.program, "u_textured")) >= 0) {
+        if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
             bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
             glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(m.program, "u_diffuse")) >= 0) {
+            if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
                 glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
             }
         }
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m.lightmap.id);
+        glUniform1i(glGetUniformLocation(shader, "u_lightmap"), 1 );
 
         glDrawElementsInstanced(GL_TRIANGLES, 3*im->num_triangles, GL_UNSIGNED_INT, &tris[im->first_triangle], m.num_instances);
         profile_incstat("Render.num_drawcalls", +1);
@@ -20194,7 +20547,7 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
     }
 
     model_set_uniforms(m, shader > 0 ? shader : m.program, mv, proj, view, models[0]);
-    model_draw_call(m);
+    model_draw_call(m, shader > 0 ? shader : m.program);
 }
 
 void model_render(model_t m, mat44 proj, mat44 view, mat44 model, int shader) {
@@ -20298,6 +20651,115 @@ anims_t animations(const char *pathfile, int flags) {
     }
     return a;
 }
+
+// -----------------------------------------------------------------------------
+// lightmapping utils
+// @fixme: support xatlas uv packing, add UV1 coords to vertex model specs
+lightmap_t lightmap(int hmsize, float cnear, float cfar, vec3 color, int passes, float threshold, float distmod) {
+    lightmap_t lm = {0};
+    lm.ctx = lmCreate(hmsize, cnear, cfar, color.x, color.y, color.z, passes, threshold, distmod);
+
+    if (!lm.ctx) {
+        PANIC("Error: Could not initialize lightmapper.\n");
+        return lm;
+    }
+
+    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
+    lm.shader = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
+        va("%s", "LIGHTMAP_BAKING"));
+
+    return lm;
+}
+
+void lightmap_destroy(lightmap_t *lm) {
+    lmDestroy(lm->ctx);
+    shader_destroy(lm->shader);
+    //
+}
+
+void lightmap_setup(lightmap_t *lm, int w, int h) {
+    lm->ready=1;
+    //@fixme: prep atlas for lightmaps
+    lm->w = w;
+    lm->h = h;
+}
+
+void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata) {
+    ASSERT(lm->ready);
+    // @fixme: use xatlas to UV pack all models, update their UV1 and upload them to GPU.
+
+    GLint cullface=0;
+    glGetIntegerv(GL_CULL_FACE, &cullface);
+    glDisable(GL_CULL_FACE);
+
+    int w = lm->w, h = lm->h;
+    for (int i = 0; i < array_count(lm->models); i++) {
+        model_t *m = lm->models[i];
+        if (m->lightmap.w != 0) {
+            texture_destroy(&m->lightmap);
+        }
+        m->lightmap = texture_create(w, h, 4, 0, TEXTURE_LINEAR|TEXTURE_FLOAT);
+        glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
+        unsigned char emissive[] = { 0, 0, 0, 255 };
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, emissive);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    for (int b = 0; b < bounces; b++) {
+        for (int i = 0; i < array_count(lm->models); i++) {
+            model_t *m = lm->models[i];
+            if (!m->lmdata) {
+                m->lmdata = CALLOC(w*h*4, sizeof(float));
+            }
+            memset(m->lmdata, 0, w*h*4);
+            lmSetTargetLightmap(lm->ctx, m->lmdata, w, h, 4);
+            lmSetGeometry(lm->ctx, m->pivot,
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, position), sizeof(iqm_vertex),
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, normal), sizeof(iqm_vertex),
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, texcoord), sizeof(iqm_vertex),
+                m->num_tris*3, LM_UNSIGNED_INT, m->tris);
+
+            glDisable(GL_BLEND);
+            int vp[4];
+            float view[16], projection[16];
+            while (lmBegin(lm->ctx, vp, view, projection))
+            {
+                // render to lightmapper framebuffer
+                glViewport(vp[0], vp[1], vp[2], vp[3]);
+                drawscene(lm, m, view, projection, userdata);
+                if (progressupdate) progressupdate(lmProgress(lm->ctx));
+                lmEnd(lm->ctx);
+            }
+        }
+
+        // postprocess texture
+        for (int i = 0; i < array_count(lm->models); i++) {
+            model_t *m = lm->models[i];
+            float *temp = CALLOC(w * h * 4, sizeof(float));
+            for (int i = 0; i < 16; i++)
+            {
+                lmImageDilate(m->lmdata, temp, w, h, 4);
+                lmImageDilate(temp, m->lmdata, w, h, 4);
+            }
+            lmImageSmooth(m->lmdata, temp, w, h, 4);
+            lmImageDilate(temp, m->lmdata, w, h, 4);
+            lmImagePower(m->lmdata, w, h, 4, 1.0f / 2.2f, 0x7); // gamma correct color channels
+            FREE(temp);
+
+            // save result to a file
+            // if (lmImageSaveTGAf("result.tga", m->lmdata, w, h, 4, 1.0f))
+            //     printf("Saved result.tga\n");
+            // upload result
+            glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_FLOAT, m->lmdata);
+            FREE(m->lmdata); m->lmdata = NULL;
+        }
+    }
+
+    if (cullface) glEnable(GL_CULL_FACE);
+}
+
 #line 0
 
 #line 1 "fwk_renderdd.c"
@@ -23059,7 +23521,7 @@ atlas_t atlas_create(const char *inifile, unsigned flags) {
     ini_t kv = ini(inifile);
     for each_map(kv, char*,k, char*,v ) {
         unsigned index = atoi(k);
-        // printf("aaa %s=%s\n", k, v);
+        // printf("entry %s=%s\n", k, v);
         /**/ if( strend(k, ".name") ) {
             array_reserve_(a.anims, index);
 
@@ -23108,6 +23570,18 @@ atlas_t atlas_create(const char *inifile, unsigned flags) {
             sscanf(v, "%f,%f", &x, &y);
 
             a.slice_frames[index].pivot = vec2(x,y);
+        }
+        else if ( strend(k, ".sl_color") ) {
+            array_reserve_(a.slice_frames, index);
+
+            unsigned color;
+            sscanf(v, "%u", &color);
+
+            a.slice_frames[index].color = color;
+        }
+        else if ( strend(k, ".sl_text") ) {
+            array_reserve_(a.slice_frames, index);
+            a.slice_frames[index].text = STRDUP(v);
         }
         else if( strend(k, ".frames") ) {
             array_reserve_(a.anims, index);
@@ -23335,6 +23809,198 @@ AUTORUN {
     STRUCT(sprite_t, unsigned, flipped);
     STRUCT(sprite_t, unsigned, play);
     EXTEND_T(sprite, ctor,edit,draw,tick);
+}
+#line 0
+
+#line 1 "fwk_steam.c"
+// ----------------------------------------------------------------------------
+// steam framework
+// - rlyeh, public domain
+//
+// hints:
+// - steam must be running in background
+// - steamworks dll must be close to executable (may be "steam_api64.dll", "libsteam_api.dylib" or "libsteam_api.so")
+// - family mode should be off (achievements not displayed otherwise)
+//
+// [src] https://steamdb.info/app/480/
+// [src] https://steamdb.info/app/480/stats/
+// [src] https://partner.steamgames.com/doc/
+// [src] dumpbin /exports steam_api64.dll
+
+#ifndef STEAM_APPID
+#define STEAM_APPID 480
+#endif
+
+#ifndef STEAM_DLL
+#define STEAM_DLL ifdef(win32, "steam_api64.dll", "libsteam_api" ifdef(osx, ".dylib", ".so"))
+#endif
+
+#define STEAM_API_DECL(ret,name,args) API ret (*name) args;
+#define STEAM_API_DEFN(ret,name,args) ret (*name) args;
+#define STEAM_API_LOAD(ret,name,args) name = dll(STEAM_DLL, #name); if(!name) PRINTF("Cannot load `" STEAM_DLL "@%s`\n", #name);
+
+STEAM_API(STEAM_API_DECL);
+STEAM_API(STEAM_API_DEFN);
+
+struct steam_t {
+    intptr_t iclient;
+    intptr_t iapps;
+    intptr_t ifriends;
+    intptr_t ihtmlsurface;
+    intptr_t imatchmaking;
+    intptr_t imatchmakingservers;
+    intptr_t inetworking;
+    intptr_t iremoteplay;
+    intptr_t iremotestorage;
+    intptr_t iscreenshots;
+    intptr_t iuser;
+    intptr_t iuserstats;
+    intptr_t iutils;
+    uint64_t steamid;
+
+    int num_friends;
+    bool running, overlay;
+    bool logged, behindnat;
+    char status[256], username[256], language[32];
+} steam = {0};
+
+static
+void steam_message_cb(int severity, const char *message) {
+    /**/ if( severity == 0 ) printf("%s", message);
+    else if( severity == 1 ) printf("Warning: %s", message);
+    else printf("Unknown severity %d: %s", severity, message);
+}
+
+bool steam_init(unsigned app_id) {
+    struct steam_t z = {0};
+    steam = z;
+
+    app_id = app_id ? app_id : STEAM_APPID;
+
+    // Steam installed?
+    HKEY hSteamProcess;
+    if( RegOpenKeyExA(HKEY_CURRENT_USER,"Software\\Valve\\Steam\\ActiveProcess", 0, KEY_READ, &hSteamProcess) ) {
+        return !strcpy(steam.status, "Err: steam not installed");
+    }
+    RegCloseKey(hSteamProcess);
+
+    // dll present?
+    if( !file_exist(STEAM_DLL) ) {
+        return !strcpy(steam.status, "Err: " STEAM_DLL " not found");
+    }
+
+    // Load symbols
+    STEAM_API(STEAM_API_LOAD);
+    if( !SteamAPI_Init ) SteamAPI_Init = SteamAPI_InitSafe;
+
+    // Initialize
+    char *app_id_str = va("%d", app_id);
+    //if( !file_exist("steam_appid.txt") ) file_write("steam_appid.txt", app_id_str, strlen(app_id_str));
+    if( !getenv("SteamAppId") ) SetEnvironmentVariableA("SteamAppId", app_id_str);
+
+    int started = SteamAPI_Init && SteamAPI_Init();
+    if( !started ) {
+        return !strcpy(steam.status, "Err: steam not running");
+    }
+
+    SteamAPI_RestartAppIfNecessary(app_id);
+
+    // Create interfaces
+    steam.iclient = (intptr_t)SteamInternal_CreateInterface("SteamClient020");
+    if( !steam.iclient ) {
+        return !strcpy(steam.status, "Err: incompatible dll");
+    }
+
+    HSteamPipe hpipe = SteamAPI_ISteamClient_CreateSteamPipe(steam.iclient);
+    HSteamUser huser = SteamAPI_ISteamClient_ConnectToGlobalUser(steam.iclient, hpipe);
+
+    steam.iapps = (intptr_t)SteamAPI_ISteamClient_GetISteamApps(steam.iclient, huser, hpipe, "STEAMAPPS_INTERFACE_VERSION008");
+    steam.ifriends = (intptr_t)SteamAPI_ISteamClient_GetISteamFriends(steam.iclient, huser, hpipe, "SteamFriends017"); // 015
+    steam.ihtmlsurface = (intptr_t)SteamAPI_ISteamClient_GetISteamHTMLSurface(steam.iclient, huser, hpipe, "STEAMHTMLSURFACE_INTERFACE_VERSION_005");
+    steam.imatchmaking = (intptr_t)SteamAPI_ISteamClient_GetISteamMatchmaking(steam.iclient, huser, hpipe, "SteamMatchMaking009");
+    steam.imatchmakingservers = (intptr_t)SteamAPI_ISteamClient_GetISteamMatchmakingServers(steam.iclient, huser, hpipe, "SteamMatchMakingServers002");
+    steam.inetworking = (intptr_t)SteamAPI_ISteamClient_GetISteamNetworking(steam.iclient, huser, hpipe, "SteamNetworking006");
+    //steam.iremoteplay = (intptr_t)SteamAPI_ISteamClient_GetISteamRemotePlay(steam.iclient, huser, hpipe, "STEAMREMOTEPLAY_INTERFACE_VERSION001");
+    steam.iremotestorage = (intptr_t)SteamAPI_ISteamClient_GetISteamRemoteStorage(steam.iclient, huser, hpipe, "STEAMREMOTESTORAGE_INTERFACE_VERSION014");
+    steam.iscreenshots = (intptr_t)SteamAPI_ISteamClient_GetISteamScreenshots(steam.iclient, huser, hpipe, "STEAMSCREENSHOTS_INTERFACE_VERSION003");
+    steam.iuser = (intptr_t)SteamAPI_ISteamClient_GetISteamUser(steam.iclient, huser, hpipe, "SteamUser021"); // 019
+    steam.iuserstats = (intptr_t)SteamAPI_ISteamClient_GetISteamUserStats(steam.iclient, huser, hpipe, "STEAMUSERSTATS_INTERFACE_VERSION012");
+    steam.iutils = (intptr_t)SteamAPI_ISteamClient_GetISteamUtils(steam.iclient, hpipe, "SteamUtils010");
+
+    SteamAPI_ISteamClient_SetWarningMessageHook(steam.iclient, steam_message_cb);
+
+    // Retrieve some vars
+    steam.running = SteamAPI_IsSteamRunning();
+    steam.steamid = SteamAPI_ISteamUser_GetSteamID(steam.iuser);
+    steam.logged = SteamAPI_ISteamUser_BLoggedOn(steam.iuser);
+    steam.behindnat = SteamAPI_ISteamUser_BIsBehindNAT(steam.iuser);
+    steam.num_friends = SteamAPI_ISteamFriends_GetFriendCount(steam.ifriends, k_EFriendFlagAll);
+    strncpy(steam.username, SteamAPI_ISteamFriends_GetPersonaName(steam.ifriends), sizeof(steam.username));
+    strncpy(steam.language, SteamAPI_ISteamUtils_GetSteamUILanguage(steam.iutils), sizeof(steam.language)); // SteamAPI_ISteamApps_GetCurrentGameLanguage(steam.iapps)
+
+    if(steam.logged)
+    SteamAPI_ISteamUserStats_RequestCurrentStats(steam.iuserstats);
+
+    ASSERT(steam.iapps);
+    ASSERT(steam.ifriends);
+    ASSERT(steam.ihtmlsurface);
+    ASSERT(steam.imatchmaking);
+    ASSERT(steam.imatchmakingservers);
+    ASSERT(steam.inetworking);
+    // ASSERT(steam.iremoteplay);
+    ASSERT(steam.iremotestorage);
+    ASSERT(steam.iscreenshots);
+    ASSERT(steam.iuser);
+    ASSERT(steam.iuserstats);
+    ASSERT(steam.iutils);
+
+    strcpy(steam.status, "Ok");
+    return true;
+}
+
+void steam_tick() {
+    if( steam.iclient ) {
+        SteamAPI_RunCallbacks();
+        steam.overlay = SteamAPI_ISteamUtils_IsOverlayEnabled(steam.iutils);
+   }
+}
+
+void steam_trophy(const char *trophy_id, bool redeem) {
+    if( steam.iclient && steam.logged ) {
+        if( redeem )
+        SteamAPI_ISteamUserStats_SetAchievement(steam.iuserstats, trophy_id);
+        else
+        SteamAPI_ISteamUserStats_ClearAchievement(steam.iuserstats, trophy_id);
+        SteamAPI_ISteamUserStats_StoreStats(steam.iuserstats);
+    }
+}
+
+void steam_screenshot() {
+    if( steam.iclient ) {
+        SteamAPI_ISteamScreenshots_TriggerScreenshot(steam.iscreenshots);
+    }
+}
+
+void steam_destroy() {
+    if( steam.iclient ) {
+        steam.iclient = 0;
+        SteamAPI_Shutdown();
+    }
+}
+
+int ui_steam() {
+    ui_disable();
+
+    ui_label2("Status", steam.status);
+    ui_label2("Username", steam.username);
+    ui_label2("Language", steam.language);
+    ui_label2("Friends", va("%d", steam.num_friends));
+    ui_label2("SteamID", va("%llu", steam.steamid));
+    ui_bool("Overlay?", &steam.overlay);
+
+    ui_enable();
+
+    return 0;
 }
 #line 0
 
@@ -24573,7 +25239,8 @@ guid guid_create() {
 // ----------------------------------------------------------------------------
 // ease
 
-float ease_nop(float t) { return 0; }
+float ease_zero(float t) { return 0; }
+float ease_one(float t) { return 1; }
 float ease_linear(float t) { return t; }
 
 float ease_out_sine(float t) { return sinf(t*(C_PI*0.5f)); }
@@ -24647,7 +25314,8 @@ float ease(float t01, unsigned mode) {
         ease_inout_elastic,
         ease_inout_bounce,
 
-        ease_nop,
+        ease_zero,
+        ease_one,
         ease_linear,
         ease_inout_perlin,
     };
@@ -24694,7 +25362,8 @@ const char **ease_enums() {
         "ease_inout_elastic",
         "ease_inout_bounce",
 
-        "ease_nop",
+        "ease_zero",
+        "ease_one",
         "ease_linear",
         "ease_inout_perlin",
 
@@ -24742,7 +25411,8 @@ const char *ease_enum(unsigned mode) {
     ENUM(EASE_ELASTIC|EASE_INOUT);
     ENUM(EASE_BOUNCE|EASE_INOUT);
 
-    ENUM(EASE_NOP);
+    ENUM(EASE_ZERO);
+    ENUM(EASE_ONE);
     ENUM(EASE_LINEAR);
     ENUM(EASE_INOUT_PERLIN);
 };*/
@@ -27977,7 +28647,7 @@ int pathfind_astar(int width, int height, const unsigned* map, vec2i src, vec2i 
 // [ ]     CompareKeys(keyVar1, operator < <= > >= == !=, keyVar2)
 // [ ]     SetTags(names=blank,cooldownTime=inf,bIsCooldownAdditive=false)
 // [ ]     HasTags(names=blank,bAllRequired=true)
-// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesn’t exist, and stores it in the passed variable name, and then pushes ‘item’ object onto it.
+// [ ]     PushToStack(keyVar,itemObj): creates a new stack if one doesnt exist, and stores it in the passed variable name, and then pushes item object onto it.
 // [ ]     PopFromStack(keyVar,itemVar): pop pops an item off the stack, and stores it in the itemVar variable, failing if the stack is already empty.
 // [ ]     IsEmptyStack(keyVar): checks if the stack passed is empty and returns success if it is, and failure if its not.
 // [ ] Communication Node: This is a type of action node that allows an AI agent to communicate with other agents or entities in the game world. The node takes an input specifying the message to be communicated and the recipient(s) of the message (wildmask,l/p/f/g prefixes). The node then sends the message to the designated recipient(s) and returns success when the communication is completed. This node can be useful for implementing behaviors that require the AI agent to coordinate with other agents or to convey information to the player. It could use a radius argument to specify the maximum allowed distance for the recipients.
@@ -28276,42 +28946,6 @@ vec3 editor_pick(float mouse_x, float mouse_y) {
 #endif
 }
 
-#if 0
-int editor_ui_bits8(const char *label, uint8_t *enabled) { // @to deprecate
-    int clicked = 0;
-    uint8_t copy = *enabled;
-
-    // @fixme: better way to retrieve widget width? nk_layout_row_dynamic() seems excessive
-    nk_layout_row_dynamic(ui_ctx, 1, 1);
-    struct nk_rect bounds = nk_widget_bounds(ui_ctx);
-
-    // actual widget: label + 8 checkboxes
-    enum { HEIGHT = 18, BITS = 8, SPAN = 118 }; // bits widget below needs at least 118px wide
-    nk_layout_row_begin(ui_ctx, NK_STATIC, HEIGHT, 1+BITS);
-
-        int offset = bounds.w > SPAN ? bounds.w - SPAN : 0;
-        nk_layout_row_push(ui_ctx, offset);
-        if( ui_label_(label, NK_TEXT_LEFT) ) clicked = 1<<31;
-
-        for( int i = 0; i < BITS; ++i ) {
-            nk_layout_row_push(ui_ctx, 10);
-            // bit
-            int val = (*enabled >> i) & 1;
-            int chg = nk_checkbox_label(ui_ctx, "", &val);
-            *enabled = (*enabled & ~(1 << i)) | ((!!val) << i);
-            // tooltip
-            struct nk_rect bb = { offset + 10 + i * 14, bounds.y, 14, HEIGHT }; // 10:padding,14:width
-            if (nk_input_is_mouse_hovering_rect(&ui_ctx->input, bb) && !ui_popups()) {
-                const char *tips[BITS] = {"Init","Tick","Draw","Quit","","","",""};
-                if(tips[i][0]) nk_tooltipf(ui_ctx, "%s", tips[i]);
-            }
-        }
-
-    nk_layout_row_end(ui_ctx);
-    return clicked | (copy ^ *enabled);
-}
-#endif
-
 
 typedef union engine_var {
     int i;
@@ -28540,6 +29174,10 @@ int ui_engine() {
                 ui_gamepad(q);
             }
         }
+    }
+
+    EDITOR_UI_COLLAPSE(ICON_MD_TEXT_FIELDS " Fonts", "Debug.Fonts") {
+        ui_font();
     }
 
 
@@ -29220,10 +29858,11 @@ void editor_setmouse(int x, int y) {
 
 vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint) {
     do_once {
-    // style: atlas size, unicode ranges and 6 font faces max
-    font_face(FONT_FACE2, "MaterialIconsSharp-Regular.otf", 24.f, FONT_EM|FONT_2048);
-    font_face(FONT_FACE3, "materialdesignicons-webfont.ttf", 24.f, FONT_EM|FONT_2048); //  {0xF68C /*ICON_MDI_MIN*/, 0xF1CC7/*ICON_MDI_MAX*/, 0}},
-    // style: 10 colors max
+    // style: atlas size, unicode ranges and 3 font faces max
+    font_face(FONT_FACE10, "B612-Regular.ttf", 12.f, 0);
+    font_face(FONT_FACE9, "MaterialIconsSharp-Regular.otf", 24.f, FONT_EM|FONT_2048);
+    font_face(FONT_FACE8, "materialdesignicons-webfont.ttf", 24.f, FONT_EM|FONT_2048); //  {0xF68C /*ICON_MDI_MIN*/, 0xF1CC7/*ICON_MDI_MAX*/, 0}},
+    // style: 5 colors max
     font_color(FONT_COLOR1,  WHITE);
     font_color(FONT_COLOR2, RGBX(0xE8F1FF,128)); //  GRAY);
     font_color(FONT_COLOR3, YELLOW);
@@ -29234,7 +29873,7 @@ vec2 editor_glyph(int x, int y, const char *style, unsigned codepoint) {
     font_goto(x,y);
     vec2 pos = {x,y};
     const char *sym = codepoint_to_utf8(codepoint);
-    return add2(pos, font_print(va("%s%s%s", style ? style : "", codepoint >= ICON_MDI_MIN ? FONT_FACE3 : FONT_FACE2, sym)));
+    return add2(pos, font_print(va("%s%s%s", style ? style : "", codepoint >= ICON_MDI_MIN ? FONT_FACE8 : codepoint >= ICON_MD_MIN ? FONT_FACE9 : FONT_FACE10, sym)));
 }
 
 vec2 editor_glyphs(int x, int y, const char *style, const char *utf8) {
@@ -29798,7 +30437,7 @@ int ui_tween(const char *label, tween_t *t) {
         ui_hue = (hash & 0x3F) / (float)0x3F; ui_hue += !ui_hue;
 
         struct nk_color c = nk_hsva_f(ui_hue, 0.75f, 0.8f, ui_alpha);
-        nk_fill_rect(canvas, pos, ROUNDING, k->ease == EASE_NOP ? AS_NKCOLOR(0) : c); // AS_NKCOLOR(track_color));
+        nk_fill_rect(canvas, pos, ROUNDING, k->ease == EASE_ZERO ? AS_NKCOLOR(0) : c); // AS_NKCOLOR(track_color));
     }
 
     // horizontal line

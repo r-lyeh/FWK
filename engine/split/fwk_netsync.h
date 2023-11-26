@@ -38,7 +38,7 @@ enum {
 };
 
 /* errcode and errstr are optional arguments, pass NULL to ignore them,
-	errstr is filled by va() */
+    errstr is filled by va() */
 API int network_event(const char *msg, int *errcode, char **errstr);
 
 enum { NETWORK_RANK = 0 }; // [0..N] where 0 is server

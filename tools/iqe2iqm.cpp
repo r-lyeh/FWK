@@ -17,6 +17,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 // - So, I increased the vector growsize & removed all deallocations to "fix" random crashes
 // - Not quite sure still, so I also removed custom allocators
 // - Also, switched string hashing to fnv1a, hoping to distribute hashmap buckets more uniformly
+// - Note: crashes behaves worse on x64. x86 seems to be more predictable.
 
 #include <math.h>
 #include <string.h>
@@ -29,10 +30,107 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <vector>
 #include <stdint.h>
 #define _CRT_SECURE_NO_WARNINGS 1
-//#define ASSERT assert
-#define ASSERT(x) do{}while(0)
-#define delete_array (0),(void) // hac
+#define ASSERT(x) do{ if(!(x)) exit(-fprintf(stderr, "assertion failed: `" #x "` %s:%d\n%s\n", __FILE__, __LINE__, callstack(+16))); } while(0) // assert(x)
+//#define ASSERT(x) do{}while(0) // hack
+#define delete_array (0),(void) // hack to minimize crashes
 //#define delete_array delete[]
+
+#ifdef _WIN32 // && !defined __TINYC__
+#define SYS_MEM_REALLOC realloc
+#define __thread __declspec(thread)
+#define concat(a,b)      conc4t(a,b)
+#define conc4t(a,b)      a##b ///-
+#define macro(name)      concat(name, __LINE__)
+#define do_once static int macro(init) = 1; for(;macro(init);macro(init) = 0)
+#include <winsock2.h>  // windows.h alternative
+#include <dbghelp.h>
+#pragma comment(lib, "DbgHelp")
+#pragma comment(lib, "Kernel32")
+static int backtrace( void **addr, int maxtraces ) {
+    static bool init = 0;
+    do_once SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_INCLUDE_32BIT_MODULES);
+    do_once init = SymInitialize(GetCurrentProcess(), NULL, TRUE);
+    if(!init) return 0; // error: cannot initialize DbgHelp.lib
+
+    typedef USHORT (WINAPI *pFN)(__in ULONG, __in ULONG, __out PVOID*, __out_opt PULONG); // _MSC_VER
+    static pFN rtlCaptureStackBackTrace = 0;
+    if( !rtlCaptureStackBackTrace ) {
+        rtlCaptureStackBackTrace = (pFN)GetProcAddress(LoadLibraryA("kernel32.dll"), "RtlCaptureStackBackTrace");
+    }
+    if( !rtlCaptureStackBackTrace ) {
+        return 0;
+    }
+    return rtlCaptureStackBackTrace(1, maxtraces, (PVOID *)addr, (DWORD *) 0);
+}
+static char **backtrace_symbols(void *const *list,int size) {
+    HANDLE process = GetCurrentProcess();
+
+    struct symbol_t {
+        SYMBOL_INFO info;
+        TCHAR symbolname[256], terminator;
+    } si = { {0} };
+    si.info.SizeOfStruct = sizeof(SYMBOL_INFO);
+    si.info.MaxNameLen = sizeof(si.symbolname) / sizeof(TCHAR); // number of chars, not bytes
+
+    IMAGEHLP_LINE l64 = { 0 };
+    l64.SizeOfStruct = sizeof(IMAGEHLP_LINE);
+
+    static __thread char **symbols = 0; //[32][64] = {0};
+    if( !symbols ) {
+        symbols = (char**)SYS_MEM_REALLOC(0, 128 * sizeof(char*));
+        for( int i = 0; i < 128; ++i) symbols[i] = (char*)SYS_MEM_REALLOC(0, 128 * sizeof(char));
+    }
+
+    if(size > 128) size = 128;
+    for( int i = 0; i < size; ++i ) {
+
+        char *ptr = symbols[i];
+        *ptr = '\0';
+
+        if (SymFromAddr(process, (DWORD64)(uintptr_t)list[i], 0, &si.info)) {
+            //char undecorated[1024];
+            //UnDecorateSymbolName(si.info.Name, undecorated, sizeof(undecorated)-1, UNDNAME_COMPLETE);
+            char* undecorated = (char*)si.info.Name;
+            ptr += snprintf(ptr, 128, "%s", undecorated);
+        } else {
+            ptr += snprintf(ptr, 128, "%s", "(?""?)");
+        }
+
+        DWORD dw = 0;
+        if (SymGetLineFromAddr(process, (DWORD64)(uintptr_t)list[i], &dw, &l64)) {
+            ptr += snprintf(ptr, 128 - (ptr - symbols[i]), " (%s:%u)", l64.FileName, (unsigned)l64.LineNumber);
+        }
+    }
+
+    return symbols;
+}
+char *callstack( int traces ) {
+    static __thread char *output = 0;
+    if(!output ) output = (char*)SYS_MEM_REALLOC( 0, 128 * (64+2) );
+    if( output ) output[0] = '\0';
+    char *ptr = output;
+
+    enum { skip = 1 }; /* exclude 1 trace from stack (this function) */
+    enum { maxtraces = 128 };
+
+    int inc = 1;
+    if( traces < 0 ) traces = -traces, inc = -1;
+    if( traces == 0 ) return "";
+    if( traces > maxtraces ) traces = maxtraces;
+
+    void* stacks[maxtraces/* + 1*/]; // = { 0 };
+    traces = backtrace( stacks, traces );
+    char **symbols = backtrace_symbols( stacks, traces ); // @todo: optimization: map(void*,char*) cache; and retrieve only symbols not in cache
+
+    char demangled[1024] = "??";
+    int L = 0, B = inc>0 ? skip - 1 : traces, E = inc>0 ? traces : skip - 1;
+    for( int i = B; ( i += inc ) != E; ) {
+        ptr += sprintf(ptr, "%03d: %#016llx %s\n", ++L, (unsigned long long)(uintptr_t)stacks[i], symbols[i]); // format gymnastics because %p is not standard when printing pointers
+    }
+
+     return output ? output : "";
+}
+#endif
 
 
 #ifndef __IQM_H__
@@ -308,7 +406,9 @@ template <class T> struct vector : public std::vector<T>
 {
     static const int MINSIZE = 8;
 
+mutable //< @r-lyeh
     T *buf;
+mutable //< @r-lyeh
     int alen, ulen;
 
     vector() : buf(NULL), alen(0), ulen(0)
@@ -327,6 +427,9 @@ template <class T> struct vector : public std::vector<T>
         setsize(0);
         if(v.length() > alen) growbuf(v.length());
         loopv(v) add(v[i]);
+
+        if(ulen==alen) growbuf(ulen+1); //< @r-lyeh
+
         return *this;
     }
 
@@ -361,8 +464,14 @@ template <class T> struct vector : public std::vector<T>
     bool empty() const { return ulen==0; }
     int capacity() const { return alen; }
     int length() const { return ulen; }
-    T &operator[](int i) { ASSERT(i>=0 && i<ulen); return buf[i]; }
-    const T &operator[](int i) const { ASSERT(i >= 0 && i<ulen); return buf[i]; }
+    T &operator[](int i) {
+        if(i<ulen) reserve(i+1); //< @r-lyeh
+        //ASSERT(i>=0 && i<ulen);
+        return buf[i]; }
+    const T &operator[](int i) const {
+        if(i<ulen) reserve(i+1); //< @r-lyeh
+        //ASSERT(i >= 0 && i<ulen);
+        return buf[i]; }
 
     void setsize(int i) { ASSERT(i <= ulen); ulen = i; }
 
@@ -378,6 +487,7 @@ template <class T> struct vector : public std::vector<T>
     bool inbuf(const T *e) const { return e >= buf && e < &buf[ulen]; }
 
     void growbuf(int sz)
+const //< @r-lyeh
     {
         int olen = alen;
         if(!alen) alen = max(MINSIZE, sz);
@@ -393,6 +503,7 @@ template <class T> struct vector : public std::vector<T>
     }
 
     T *reserve(int sz)
+const //< @r-lyeh
     {
         if(ulen+sz > alen) growbuf(ulen+sz);
         return &buf[ulen];
@@ -487,7 +598,7 @@ template <class K, class T> struct hashtable
     typedef T value;
     typedef const T const_value;
 
-    enum { CHUNKSIZE = 64, MAXLOADFACTOR = 75, RESIZEFACTOR = 4, MAXSIZE = 64<<20 };
+    enum { CHUNKSIZE = 64, MAXLOADFACTOR = 75, RESIZERATIO = 4, MAXSIZE = 128<<20 };
 
     struct chain      { T data; K key; chain *next; };
     struct chainchunk { chain chains[CHUNKSIZE]; chainchunk *next; };
@@ -517,7 +628,12 @@ template <class K, class T> struct hashtable
 
     chain *insert(const K &key, uint h)
     {
-        if(size <= MAXSIZE / RESIZEFACTOR && numelems * 100 > size * MAXLOADFACTOR) { rehash(); h = hthash(key)&(size-1); }
+        if(size*RESIZERATIO < MAXSIZE && float(++numelems) / size * 100.0 > MAXLOADFACTOR) { rehash(); h = hthash(key)&(size-1); }
+        return insert(unused, chunks, table, key, h);
+    }
+
+    static chain *insert(chain *&unused, chainchunk *&chunks, chain **&table, const K& key, uint h)
+    {
         if(!unused)
         {
             chainchunk *chunk = new chainchunk;
@@ -532,7 +648,6 @@ template <class K, class T> struct hashtable
         c->key = key;
         c->next = table[h];
         table[h] = c;
-        numelems++;
         return c;
     }
 
@@ -612,23 +727,27 @@ template <class K, class T> struct hashtable
 
     void rehash()
     {
-        int oldsize = size;
-        chain **oldtable = table;
+        int newsize = size*RESIZERATIO;
+        chain **newtable = new chain* [newsize];
+        loopi(newsize) newtable[i] = NULL;
 
-        size *= RESIZEFACTOR;
-        table = new chain*[size];
-        loopi(size) table[i] = NULL;
-
-        loopi(oldsize) for (chain *c = oldtable[i]; c;)
+        chainchunk *newchunks = NULL;
+        chain *newunused = NULL;
+        loopi(size) for (chain *c = table[i]; c;)
         {
-            chain *p = c;
+            const K& k = c->key;
+            uint h = hthash(k)&(newsize-1);
+            insert(newunused, newchunks, newtable, k, h)->data = c->data;
             c = c->next;
-            uint h = hthash(p->key)&(size-1);
-            p->next = table[h];
-            table[h] = p;
         }
 
-        delete_array oldtable;
+        delete[] table;
+        deletechunks();
+
+        size = newsize;
+        table = newtable;
+        chunks = newchunks;
+        unused = newunused;
     }
 };
 
@@ -2552,13 +2671,16 @@ struct filespec
 
 bool parseiqe(stream *f)
 {
+    enum { sizeof_tex = (8*1024) * (8*1024) * (4) }; // max cap: 8K texture, RGBA8888,
+    const unsigned sizeof_buf = ceil(sizeof_tex / 3) * 4; // then, max capacity encoded as base64
+    static char *buf = new char [sizeof_buf];
+
     const char *curmesh = getnamekey(""), *curmaterial = getnamekey("");
     bool needmesh = true;
     int fmoffset = 0;
-    char buf[512];
-    if(!f->getline(buf, sizeof(buf))) return false;
+    if(!f->getline(buf, sizeof_buf)) return false;
     if(!strchr(buf, '#') || strstr(buf, "# Inter-Quake Export") != strchr(buf, '#')) return false;
-    while(f->getline(buf, sizeof(buf)))
+    while(f->getline(buf, sizeof_buf))
     {
         char *c = buf;
         while(isspace(*c)) ++c;
@@ -3339,3 +3461,6 @@ int main(int argc, char **argv)
 
     return EXIT_SUCCESS;
 }
+
+// cl iqe2iqm.cpp /DDEBUG /MT /Zi /fsanitize=address
+// cl iqe2iqm.cpp /O2 /Oy /MT /DNDEBUG

@@ -4,7 +4,8 @@ struct {
     float (*ease)(float);
     const char *name;
 } easings[] = {
-    {ease_nop, "ease_nop"},
+    {ease_zero, "ease_zero"},
+    {ease_one, "ease_one"},
     {ease_linear, "ease_linear"},
     {ease_out_sine, "ease_out_sine"},
     {ease_out_quad, "ease_out_quad"},

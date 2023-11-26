@@ -70,6 +70,7 @@ typedef struct {
     float               dataf[4096*2];
     };
     bool rewind;
+    bool loop;
 } mystream_t;
 
 static void downsample_to_mono_flt( int channels, float *buffer, int samples ) {
@@ -94,7 +95,7 @@ static void downsample_to_mono_s16( int channels, short *buffer, int samples ) {
 }
 
 // the callback to refill the (stereo) stream data
-static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
+static bool refill_stream(sts_mixer_sample_t* sample, void* userdata) {
     mystream_t* stream = (mystream_t*)userdata;
     switch( stream->type ) {
         default:
@@ -103,6 +104,7 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
             if (ma_dr_wav_read_pcm_frames_s16(&stream->wav, sl, (short*)stream->data) < sl) {
                 ma_dr_wav_seek_to_pcm_frame(&stream->wav, 0);
+                if (!stream->loop) return false;
             }
         }
         break; case MP3: {
@@ -110,6 +112,7 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
             if (ma_dr_mp3_read_pcm_frames_f32(&stream->mp3_, sl, stream->dataf) < sl) {
                 ma_dr_mp3_seek_to_pcm_frame(&stream->mp3_, 0);
+                if (!stream->loop) return false;
             }
         }
         break; case OGG: {
@@ -117,9 +120,12 @@ static void refill_stream(sts_mixer_sample_t* sample, void* userdata) {
             if( stream->rewind ) stream->rewind = 0, stb_vorbis_seek(stream->ogg, 0);
             if( stb_vorbis_get_samples_short_interleaved(ogg, 2, (short*)stream->data, sample->length) == 0 )  {
                 stb_vorbis_seek(stream->ogg, 0);
+                if (!stream->loop) return false;
             }
         }
     }
+
+    return true;
 }
 static void reset_stream(mystream_t* stream) {
     if( stream ) memset( stream->data, 0, sizeof(stream->data) ), stream->rewind = 1;
@@ -133,6 +139,7 @@ static bool load_stream(mystream_t* stream, const char *filename) {
     int error;
     int HZ = 44100;
     stream->type = UNK;
+    stream->loop = true;
     if( stream->type == UNK && (stream->ogg = stb_vorbis_open_memory((const unsigned char *)data, datalen, &error, NULL)) ) {
         stb_vorbis_info info = stb_vorbis_get_info(stream->ogg);
         if( info.channels != 2 ) { puts("cannot stream ogg file. stereo required."); goto end; } // @fixme: upsample
@@ -444,6 +451,22 @@ int audio_stop( audio_t a ) {
     return 1;
 }
 
+void audio_loop( audio_t a, bool loop ) {
+    if ( a->is_stream ) {
+        a->stream.loop = loop;
+    }
+}
+
+bool audio_playing( audio_t a ) {
+    if( a->is_clip ) {
+        return !sts_mixer_sample_stopped(&mixer, &a->clip);
+    }
+    if( a->is_stream ) {
+        return !sts_mixer_stream_stopped(&mixer, &a->stream.stream);
+    }
+    return false;
+}
+
 // -----------------------------------------------------------------------------
 // audio queue
 
@@ -471,7 +494,7 @@ static void audio_queue_init() {
     do_once thread_queue_init(&queue_mutex, countof(audio_queues), audio_queues, 0);
 }
 
-static void audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
+static bool audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
     (void)userdata;
 
     int sl = sample->length / 2; // 2 ch
@@ -495,6 +518,8 @@ static void audio_queue_callback(sts_mixer_sample_t* sample, void* userdata) {
             aq = 0;
         }
     } while( bytes > 0 );
+
+    return 1;
 }
 
 static int audio_queue_voice = -1;

@@ -217,4 +217,10 @@ static char *ui_filter = 0;
 {{FILE:3rd_lite_sys.h}}
 {{FILE:3rd_lite.h}}
 
+#define LIGHTMAPPER_IMPLEMENTATION
+//#define LM_DEBUG_INTERPOLATION
+{{FILE:3rd_lightmapper.h}}
+
+{{FILE:3rd_sdk_steam.h}}
+
 #endif // FWK_3RD

@@ -1,47 +1,3 @@
-#if 1
-#elif 0
-#define ICON_EVENT        ICON_MDI_CALENDAR
-
-//#define ICON_CIRCLE     ICON_MDI_CIRCLE_OUTLINE
-//#define ICON_CIRCLE_ALT ICON_MDI_CIRCLE
-
-#define ICON_WARNING      ICON_MD_WARNING
-#define ICON_BUILD        ICON_MD_BUILD
-#define ICON_CAMERA_ON    ICON_MD_VIDEOCAM
-#define ICON_CAMERA_OFF   ICON_MD_VIDEOCAM_OFF
-#define ICON_GAMEPAD_ON   ICON_MD_VIDEOGAME_ASSET
-#define ICON_GAMEPAD_OFF  ICON_MD_VIDEOGAME_ASSET_OFF
-#define ICON_AUDIO_ON     ICON_MD_VOLUME_UP
-#define ICON_AUDIO_OFF    ICON_MD_VOLUME_OFF
-#define ICON_RENDER_BASIC ICON_MD_IMAGE_SEARCH
-#define ICON_RENDER_FULL  ICON_MD_INSERT_PHOTO
-
-#define ICON_SIGNAL       ICON_MD_SIGNAL_CELLULAR_ALT
-#define ICON_DISK         ICON_MD_STORAGE
-#define ICON_RATE         ICON_MD_SPEED
-
-#define ICON_CLOCK        ICON_MD_TODAY
-#define ICON_CHRONO       ICON_MD_TIMELAPSE
-
-#define ICON_LANGUAGE     ICON_MD_G_TRANSLATE
-#define ICON_PERSONA      ICON_MD_FACE
-#define ICON_SOCIAL       ICON_MD_MESSAGE
-#define ICON_GAME         ICON_MD_ROCKET_LAUNCH
-#define ICON_WIFI         ICON_MD_WIFI
-#define ICON_NEW_FOLDER   ICON_MD_CREATE_NEW_FOLDER
-#define ICON_RESTART      ICON_MD_REPLAY
-
-#define ICON_POWER            ICON_MD_BOLT // ICON_MD_POWER
-#define ICON_BATTERY_CHARGING ICON_MD_BATTERY_CHARGING_FULL
-#define ICON_BATTERY_LEVELS \
-        ICON_MD_BATTERY_ALERT, \
-        ICON_MD_BATTERY_0_BAR,ICON_MD_BATTERY_1_BAR, \
-        ICON_MD_BATTERY_2_BAR,ICON_MD_BATTERY_3_BAR, \
-        ICON_MD_BATTERY_4_BAR,ICON_MD_BATTERY_5_BAR, \
-        ICON_MD_BATTERY_6_BAR,ICON_MD_BATTERY_FULL
-
-#endif
-
 #if 0
     key_screenshot, // @todo: add meta-info in exif or invisibile pixels (cam details, player details, map level, map location, level state, etc)
 
@@ -388,7 +344,5 @@ profile("Editor.Draw outline") {
     }
 
     if(!set_count(editor_selection)) continue;
-
-
 
 #endif

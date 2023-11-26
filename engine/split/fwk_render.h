@@ -394,25 +394,25 @@ typedef struct mesh_t {
     unsigned index_count;
     unsigned flags;
 
-	array(int) lod_collapse_map; // to which neighbor each vertex collapses. ie, [10] -> 7 (used by LODs) @leak
+    array(int) lod_collapse_map; // to which neighbor each vertex collapses. ie, [10] -> 7 (used by LODs) @leak
 
     // @leaks: following members are totally unused. convenient for end-users to keep their custom datas somewhere while processing.
     union {
-	array(unsigned) in_index;
-	array(vec3i)    in_index3;
+    array(unsigned) in_index;
+    array(vec3i)    in_index3;
     };
     union {
-	array(unsigned) out_index;
-	array(vec3i)    out_index3;
+    array(unsigned) out_index;
+    array(vec3i)    out_index3;
     };
-	union {
+    union {
     array(float) in_vertex;
     array(vec3) in_vertex3;
-	};
-	union {
+    };
+    union {
     array(float) out_vertex;
     array(vec3) out_vertex3;
-	};
+    };
 } mesh_t;
 
 API mesh_t mesh();
@@ -521,6 +521,9 @@ typedef struct model_t {
     char **texture_names;
     array(material_t) materials;
 
+    texture_t lightmap;
+    float *lmdata;
+
     unsigned num_meshes;
     unsigned num_triangles;
     unsigned num_joints; // num_poses;
@@ -530,9 +533,11 @@ typedef struct model_t {
     float curframe;
     mat44 pivot;
 
-    int stride; // usually 60 bytes (12*4+4*3) for a p3 u2 n3 t4 i4B w4B c4B vertex stream
+    int stride; // usually 68 bytes for a p3 u2 u2 n3 t4 i4B w4B c4B vertex stream
     void *verts;
     int num_verts;
+    void *tris;
+    int num_tris;
     handle vao, ibo, vbo, vao_instanced;
 
     unsigned flags;
@@ -576,6 +581,25 @@ typedef struct anims_t {
 } anims_t;
 
 API anims_t animations(const char *pathfile, int flags);
+
+// -----------------------------------------------------------------------------
+// lightmapping utils
+// @fixme: support xatlas uv packing
+
+typedef struct lightmap_t {
+    struct lm_context *ctx; // private
+    bool ready;
+    int w, h;
+    int atlas_w, atlas_h; //@fixme: implement
+    texture_t atlas; //@fixme: implement this
+    array(model_t*) models;
+    unsigned shader;
+} lightmap_t;
+
+API lightmap_t lightmap(int hmsize /*64*/, float near, float far, vec3 color /*1,1,1 for AO*/, int passes /*2*/, float threshold /*0.01f*/, float distmod /*0.0f*/);
+API void       lightmap_setup(lightmap_t *lm, int w, int h);
+API void          lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata);
+API void       lightmap_destroy(lightmap_t *lm);
 
 // -----------------------------------------------------------------------------
 // skyboxes

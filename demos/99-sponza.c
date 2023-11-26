@@ -15,7 +15,7 @@ int main() {
 
     // load static scene
     model_t sponza;
-    sponza = model("sponza.obj", 0); // MODEL_NO_TEXTURES);
+    sponza = model(option("--model","sponza.obj"), 0); // MODEL_NO_TEXTURES);
     translation44(sponza.pivot, 0,-1,0);
     rotate44(sponza.pivot, -90,1,0,0);
     scale44(sponza.pivot, 10,10,10);

@@ -1235,7 +1235,7 @@ atlas_t atlas_create(const char *inifile, unsigned flags) {
     ini_t kv = ini(inifile);
     for each_map(kv, char*,k, char*,v ) {
         unsigned index = atoi(k);
-        // printf("aaa %s=%s\n", k, v);
+        // printf("entry %s=%s\n", k, v);
         /**/ if( strend(k, ".name") ) {
             array_reserve_(a.anims, index);
 
@@ -1284,6 +1284,18 @@ atlas_t atlas_create(const char *inifile, unsigned flags) {
             sscanf(v, "%f,%f", &x, &y);
 
             a.slice_frames[index].pivot = vec2(x,y);
+        }
+        else if ( strend(k, ".sl_color") ) {
+            array_reserve_(a.slice_frames, index);
+
+            unsigned color;
+            sscanf(v, "%u", &color);
+
+            a.slice_frames[index].color = color;
+        }
+        else if ( strend(k, ".sl_text") ) {
+            array_reserve_(a.slice_frames, index);
+            a.slice_frames[index].text = STRDUP(v);
         }
         else if( strend(k, ".frames") ) {
             array_reserve_(a.anims, index);

@@ -69,23 +69,23 @@ TODO("obj: free obj_children()/payload");
 TODO("obj: free obj_components()/payload2");
 
 TODO("pack: mp2json, json2mp");
-TODO("pack: simplify msgpack API, make it growth similar to va()")
+TODO("pack: simplify msgpack API, make it growth similar to va()");
 
-TODO("serialize array(types)")
-TODO("serialize map(char*,types)")
-TODO("serialize map(int,types)")
-TODO("sprite: solid platforms, one-way platforms")
-TODO("sprite: shake left-right, up-down")
-TODO("sprite: coyote time")
-TODO("sprite: jump buffering before grounded")
-TODO("sprite: double jump, wall sliding, wall climbing")
-TODO("sprite: hitbox for enemies -> wall detection")
+TODO("serialize array(types)");
+TODO("serialize map(char*,types)");
+TODO("serialize map(int,types)");
+TODO("sprite: solid platforms, one-way platforms");
+TODO("sprite: shake left-right, up-down");
+TODO("sprite: coyote time");
+TODO("sprite: jump buffering before grounded");
+TODO("sprite: double jump, wall sliding, wall climbing");
+TODO("sprite: hitbox for enemies -> wall detection");
 
-TODO("new: integrate with Art/ browser")
-TODO("bug: lite key bindings are being sent to editor")
-TODO("bug: not sending quit signal to lite neither at window close nor editor close (see: temporary files)")
-TODO("bug: missing search results window")
-TODO("bug: missing code completions popup")
+TODO("new: integrate with Art/ browser");
+TODO("bug: lite key bindings are being sent to editor");
+TODO("bug: not sending quit signal to lite neither at window close nor editor close (see: temporary files)");
+TODO("bug: missing search results window");
+TODO("bug: missing code completions popup");
 
 // TODO("eval:  https://github.com/drmargarido/linters")
 // TODO("eval:  https://github.com/monolifed/theme16")
@@ -153,7 +153,8 @@ int editor_toolbar(int x, int y, int incw, int inch, const char *sym) {
     int my = input(MOUSE_Y);
     int inc = maxi(incw, inch);
 
-    static int ox = 0, oy = 0, dragging = 0; // drag origin
+    static int ox = 0, oy = 0; // drag origin
+    static uint64_t dragging = 0;
 
     editor_toolbar_rect = vec4(x,y,x + (incw ? incw * array_count(codepoints) : inch), y + (inch ? inch * array_count(codepoints) : incw) );
     int oo = is_hovering(editor_toolbar_rect, vec2(ox,oy));
@@ -167,20 +168,24 @@ int editor_toolbar(int x, int y, int incw, int inch, const char *sym) {
         ix += incw;
         iy += inch;
     }
-//  debug:
-//  ddraw_push_2d();
-//  ddraw_aabb(vec3(editor_toolbar_rect.x,editor_toolbar_rect.y,0),vec3(editor_toolbar_rect.z,editor_toolbar_rect.w,0));
-//  ddraw_pop_2d();
+    if( 0 && editor_toolbar_hovered() ) { // debug:
+        ddraw_push_2d();
+        ddraw_aabb(vec3(editor_toolbar_rect.x,editor_toolbar_rect.y,0),vec3(editor_toolbar_rect.z,editor_toolbar_rect.w,0));
+        ddraw_pop_2d();
+    }
+
     if( 1 ) // is_hovering(editor_toolbar_rect, vec2(mx,my)) )
     {
-        if( input_down(MOUSE_L) && editor_toolbar_hovered() ) {
+        uint64_t id = hash_bin(&editor_toolbar_rect, sizeof(vec4));
+
+        if( input_down(MOUSE_L) && editor_toolbar_hovered() && !dragging ) {
             window_cursor_shape(0);
             editor_toolbar_drag = vec4(0,0, mx,my);
-            ox = mx, oy = my, dragging = 1;
+            ox = mx, oy = my, dragging = id;
             int mcx = ((ox - x) / inc) + 1, mcy = ((oy - y) / inc) + 1; // mouse cells
             return incw ? -mcx : -mcy;
         }
-        if( input(MOUSE_L) && dragging ) {
+        if( input(MOUSE_L) && dragging == id ) {
             int mcx = ((ox - x) / inc) + 1, mcy = ((oy - y) / inc) + 1; // mouse cells
             editor_toolbar_drag.x  = mx - editor_toolbar_drag.z;
             editor_toolbar_drag.y  = my - editor_toolbar_drag.w;
@@ -190,14 +195,13 @@ int editor_toolbar(int x, int y, int incw, int inch, const char *sym) {
             editor_toolbar_drag.w  = oy;
             return incw ? -mcx : -mcy;
         }
-        if( input_up(MOUSE_L) && dragging ) {
+        if( input_up(MOUSE_L) && dragging == id ) {
             int mcx = ((ox - x) / inc) + 1, mcy = ((oy - y) / inc) + 1; // mouse cells
             window_cursor_shape(CURSOR_SW_AUTO);
             ox = oy = 0, dragging = 0;
             return incw ? mcx : mcy;
         }
     }
-    editor_toolbar_drag = vec4(0,0,0,0);
     return 0;
 }
 
@@ -472,26 +476,52 @@ int main(){
 
         camera_t *cam = camera_get_active();
 
-        int choice1 = editor_toolbar(window_width()-32, ui_has_menubar() ? 34 : 0, 0, 32,
-        ICON_MD_VISIBILITY
-        ICON_MD_360 // ICON_MDI_ORBIT
-        ICON_MD_LOUPE // ZOOM_OUT_MAP // ICON_MD_ZOOM_IN
-        ICON_MD_GRID_ON ); // ICON_MDI_GRID );
-        int choice2 = editor_toolbar(window_width()-32*2, ui_has_menubar() ? 34 : 0, -32, 0, ICON_MD_SQUARE_FOOT );
+        int font_ascent_diff = 4; // ascent(mdi) - ascent(md) // @todo: move this into font api
 
-        if( choice1 > 0 ) { // clicked[>0]
+
+
+        int choiceV = editor_toolbar(window_width()-32, ui_has_menubar() ? 34 + font_ascent_diff : 0, 0, 32,
+            va(
+            ICON_MD_VISIBILITY
+            ICON_MD_360 // ICON_MDI_ORBIT
+            ICON_MDI_ARROW_ALL
+            ICON_MD_LOUPE // ZOOM_OUT_MAP // ICON_MD_ZOOM_IN
+            "%s", camera_get_active()->orthographic ? ICON_MDI_AXIS_ARROW_INFO : ICON_MDI_AXIS_ARROW // ICON_MDI_GRID_OFF : ICON_MDI_GRID // ICON_MD_GRID_ON
+            )
+        );
+        static int rot_snapping = 0;
+        static int pos_snapping = 1;
+        int choiceH = editor_toolbar(window_width()-32*2, ui_has_menubar() ? 34 : 0, -32, 0,
+            va(
+            ICON_MDI_ANGLE_ACUTE
+            "15º"
+            //ICON_MDI_ARROW_COLLAPSE
+            //ICON_MDI_ARTBOARD
+            "%s", pos_snapping ? ICON_MDI_DOTS_SQUARE : ICON_MDI_DOTS_CIRCLE
+            )
+        );
+
+        if( choiceV ) { // clicked[>0] dragged[<0]
             camera_t *cam = camera_get_active();
-            if( choice1 == 4 ) cam->orthographic ^= 1, camera_fps(cam, 0, 0);
-        }
-        if( choice1 < 0 ) { // dragged[<0]
             vec2 mouse_sensitivity = vec2(0.1, -0.1); // sensitivity + polarity
             vec2 drag = mul2( editor_toolbar_dragged(), mouse_sensitivity );
-            if( choice1 == -1 ) camera_fps(cam, drag.x, drag.y );
-            if( choice1 == -2 ) camera_orbit(cam, drag.x, drag.y, 0); //len3(cam->position) );
-            if( choice1 == -3 ) camera_fov(cam, cam->fov += drag.y - drag.x);
+            if( choiceV == -1 ) camera_fps(cam, drag.x, drag.y );
+            if( choiceV == -2 ) camera_orbit(cam, drag.x, drag.y, 0); //len3(cam->position) );
+            if( choiceV == -3 ) camera_moveby(cam, scale3(vec3(drag.x, drag.y, 0), 10)) ;
+            if( choiceV == -4 ) camera_fov(cam, cam->fov += drag.y - drag.x);
+            if( choiceV ==  5 ) cam->orthographic ^= 1, camera_fps(cam, 0, 0);
+        }
+        if( choiceH ) {
+            if( choiceH ==  2 ) pos_snapping ^= 1;
         }
 
-        // font demo
-        font_print(va(FONT_BOTTOM FONT_RIGHT FONT_H6 "(CAM: %5.2f,%5.2f,%5.2f)", cam->position.x, cam->position.y, cam->position.z));
+        //
+        char *cam_info = NULL, *cam_info_fmt = FONT_BOTTOM FONT_RIGHT FONT_H5;
+        if( choiceV == -1 ) cam_info = va("%s(CAM POS: %5.2f,%5.2f,%5.2f)", cam_info_fmt, cam->position.x, cam->position.y, cam->position.z, cam->fov);
+        if( choiceV == -2 ) cam_info = va("%s(CAM YAW: %5.2f PITCH: %5.2f)", cam_info_fmt, cam->yaw, cam->pitch);
+        if( choiceV == -4 ) cam_info = va("%s(CAM FOV: %5.2f)", cam_info_fmt, cam->fov);
+        if( choiceV == -5 ) cam_info = va("%s(CAM ORTHOGRAPHIC: %d)", cam_info_fmt, cam->orthographic);
+        if( choiceH == -2 ) cam_info = va("%s(OBJ SNAPPING: %d)", cam_info_fmt, pos_snapping);
+        if( cam_info ) font_print(cam_info);
     }
 }

@@ -53,6 +53,7 @@
 - [x] Render: 3D Debugdraw, batching and vectorial font.
 - [x] Render: 3D Sprites, spritesheets, AA zooming and batching: ASE.
 - [x] Render: 3D Tilemaps and tilesets: TMX, TSX.
+- [x] Social: Steam/Steamworks.
 - [x] Time: Hires timers, tweens, easings, constant-time spline/catmulls.
 - [x] AI: Swarm/Boids, pathfinding, behavior trees (wip).
 - [x] Compression: DEFLATE, LZMA, LZ4, ULZ, BALZ, BCM, CRUSH, LZW3, LZSS and PPP.
@@ -332,6 +333,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 
 ## Credits
 **Artwork and demos**
+[Butch](https://opengameart.org/users/buch "for golden ui (CC-BY-SA 3.0)"),
 [David Lam](https://en.wikipedia.org/wiki/Tokamak_(software) "for tokamak physics engine (ZLIB)"),
 [Dean Evans, Raijin](https://youtu.be/RRvYkrrpMKo?t=147 "for their Map song (c)"),
 [FMS_Cat](https://gist.github.com/FMS-Cat/a1ccea3ce866c34706084e3526204f4f "for nicest VHS/VCR shader around (MIT)"),
@@ -362,13 +364,13 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Randy Gaul](https://github.com/RandyGaul/cute_headers "for cute_asesprite (PD)"),
 [Rxi, Adam Harrison](https://github.com/rxi/lite "for the exquisite lite editor (MIT)"),
 [Sean Barrett et al.](https://github.com/nothings/stb "for stbiresize, stbrectpack (PD)"),
-[Sepehr Taghdisian](https://github.com/septag/atlasc/ "for atlasc (BSD2)"),
+[Sepehr Taghdisian](https://github.com/septag/atlasc/ "for glslcc+atlasc (BSD2)"),
 [Tildearrow](https://github.com/tildearrow/furnace/ "for Furnace (GPL2)"),
 [Tomas Pettersson](http://www.drpetter.se/ "for sfxr (PD)"),
 [Tor Andersson](https://github.com/ccxvii/asstools "for assiqe.c (BSD)"),
 [Wael El Oraiby](https://github.com/eloraiby/delaunay "for delaunay.c (AGPL3)"),
 **Runtime**
-[Andreas Mantler](https://github.com/ands "for their math library (PD)"), 
+[Andreas Mantler](https://github.com/ands "for lightmapper and math library (PD)"),
 [Barerose](https://github.com/barerose "for swrap (CC0) and math library (CC0)"),
 [Camilla Löwy](https://github.com/elmindreda "for glfw3 and gleq (Zlib)"),
 [Dave Rand](https://tools.ietf.org/html/rfc1978 "for ppp (PD)"),

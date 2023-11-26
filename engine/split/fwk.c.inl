@@ -150,6 +150,8 @@
 
 {{FILE:fwk_sprite.c}}
 
+{{FILE:fwk_steam.c}}
+
 {{FILE:fwk_system.c}}
 
 {{FILE:fwk_time.c}}

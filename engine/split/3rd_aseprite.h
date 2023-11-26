@@ -1149,6 +1149,7 @@ ase_t* cute_aseprite_load_from_memory(const void* memory, int size, void* mem_ct
 					last_udata->text = s_read_string(s);
 				}
 				if (flags & 2) { //< @zpl-zak: removed else
+					last_udata->has_color = 1;
 					last_udata->color.r = s_read_uint8(s);
 					last_udata->color.g = s_read_uint8(s);
 					last_udata->color.b = s_read_uint8(s);

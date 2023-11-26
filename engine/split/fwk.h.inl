@@ -145,6 +145,8 @@ extern "C" {
 {{FILE:fwk_sprite.h}}
 {{FILE:fwk_gui.h}}
 
+{{FILE:fwk_steam.h}}
+
 {{FILE:fwk_system.h}}
 
 {{FILE:fwk_time.h}}

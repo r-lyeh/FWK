@@ -68,6 +68,7 @@ API char *       vfs_read(const char *pathfile);
 API char *       vfs_load(const char *pathfile, int *size);
 API int          vfs_size(const char *pathfile);
 
+API void         vfs_reload();
 API const char * vfs_resolve(const char *fuzzyname); // guess best match. @todo: fuzzy path
 //API const char*vfs_extract(const char *pathfile); // extracts vfs file into local filesystem (temporary file), so it can be read by foreign/3rd party libs
 API FILE*        vfs_handle(const char *pathfile); // same as above, but returns file handle instead. preferred way, will clean descriptors at exit

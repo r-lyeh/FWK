@@ -110,5 +110,46 @@ int main() {
         font_print(FONT_MIDDLE   FONT_RIGHT  "middle\n");
         font_print(FONT_BASELINE FONT_RIGHT  "baseline\n");
         font_print(FONT_BOTTOM   FONT_CENTER "bottom\n");
+
+        {
+            vec2 pos = vec2(1290,120);
+            ddraw_push_2d();
+            char *txt = "This is the first line.\nAnd now the second line.\nYou can do a third great line, too!\n";
+            font_goto(pos.x, pos.y);
+            vec2 size=font_rect(txt);
+            font_metrics_t m=font_metrics(txt);
+            ddraw_aabb(vec3(pos.x,pos.y,0), vec3(pos.x+size.x,pos.y+size.y-m.descent+m.linegap,0));
+            font_print(txt);
+            ddraw_pop_2d();
+        }
+
+        {
+            vec2 pos = vec2(830,80);
+            ddraw_push_2d();
+            char *txt =  "Very iffy global text.";
+            font_goto(pos.x, pos.y);
+            vec2 size=font_rect(txt);
+
+            ddraw_aabb(vec3(pos.x,pos.y,0), vec3(pos.x+size.x,pos.y+size.y,0));
+            font_print(txt);
+            ddraw_pop_2d();
+        }
+
+        {
+            vec2 pos = vec2(830,160);
+            ddraw_push_2d();
+            char *txt =  FONT_H1 "Very iffy global text.";
+            font_goto(pos.x, pos.y);
+            vec2 size=font_rect(txt);
+
+            ddraw_aabb(vec3(pos.x,pos.y,0), vec3(pos.x+size.x,pos.y+size.y,0));
+            font_print(txt);
+            ddraw_pop_2d();
+        }
+
+        if (ui_panel("Fonts", 0)) {
+            ui_font();
+            ui_panel_end();
+        }
     }
 }

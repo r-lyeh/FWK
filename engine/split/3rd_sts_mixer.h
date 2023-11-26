@@ -18,6 +18,7 @@
 //    See the example at the end of the file.
 //
 //  VERSION HISTORY
+//    0.03 (2022-12-12) add an ability to stop audio stream via callback, add a method to check if voice is already stopped
 //    0.02 (2022-05-10) allow voice queueing in same channel. ie, chain another sample on same voice channel after current sample playback is done (@r-lyeh)
 //    0.01 (2016-05-01) initial version
 //
@@ -66,7 +67,7 @@ typedef struct {
 //
 
 // The callback which will be called when the stream needs more data.
-typedef void (*sts_mixer_stream_callback)(sts_mixer_sample_t* sample, void* userdata);
+typedef bool (*sts_mixer_stream_callback)(sts_mixer_sample_t* sample, void* userdata);
 
 typedef struct {
   void*                     userdata;         // a userdata pointer which will passed to the callback
@@ -133,6 +134,12 @@ int sts_mixer_play_stream(sts_mixer_t* mixer, sts_mixer_stream_t* stream, float 
 
 // Stops voice with the given voice no. You can pass the returned number of sts_mixer_play_sample / sts_mixer_play_stream here.
 void sts_mixer_stop_voice(sts_mixer_t* mixer, int voice);
+
+// Returns whether the given sample has already stopped playing.
+bool sts_mixer_sample_stopped(sts_mixer_t* mixer, sts_mixer_sample_t* sample);
+
+// Returns whether the given stream has already stopped playing.
+bool sts_mixer_stream_stopped(sts_mixer_t* mixer, sts_mixer_stream_t* stream);
 
 // Stops all voices playing the given sample. Useful when you want to delete the sample and make sure it is not used anymore.
 void sts_mixer_stop_sample(sts_mixer_t* mixer, sts_mixer_sample_t* sample);
@@ -276,6 +283,19 @@ void sts_mixer_stop_voice(sts_mixer_t* mixer, int voice) {
   if (voice >= 0 && voice < STS_MIXER_VOICES) sts_mixer__reset_voice(mixer, voice);
 }
 
+bool sts_mixer_sample_stopped(sts_mixer_t* mixer, sts_mixer_sample_t* sample) {
+  for (int i = 0; i < STS_MIXER_VOICES; ++i) {
+    if (mixer->voices[i].sample == sample && mixer->voices[i].state != STS_MIXER_VOICE_STOPPED) return false;
+  }
+  return true;
+}
+
+bool sts_mixer_stream_stopped(sts_mixer_t* mixer, sts_mixer_stream_t* stream) {
+  for (int i = 0; i < STS_MIXER_VOICES; ++i) {
+    if (mixer->voices[i].stream == stream && mixer->voices[i].state != STS_MIXER_VOICE_STOPPED) return false;
+  }
+  return true;
+}
 
 void sts_mixer_stop_sample(sts_mixer_t* mixer, sts_mixer_sample_t* sample) {
   int i;
@@ -325,9 +345,13 @@ void sts_mixer_mix_audio(sts_mixer_t* mixer, void* output, unsigned int samples)
         position = ((int)voice->position) * 2;
         if (position >= voice->stream->sample.length) {
           // buffer empty...refill
-          voice->stream->callback(&voice->stream->sample, voice->stream->userdata);
-          voice->position = 0.0f;
-          position = 0;
+          if (voice->stream->callback(&voice->stream->sample, voice->stream->userdata)) {
+            voice->position = 0.0f;
+            position = 0;
+          } else {
+            sts_mixer__reset_voice(mixer, i);
+            continue;
+          }
         }
         left += sts_mixer__clamp_sample(sts_mixer__get_sample(&voice->stream->sample, position) * voice->gain);
         right += sts_mixer__clamp_sample(sts_mixer__get_sample(&voice->stream->sample, position + 1) * voice->gain);

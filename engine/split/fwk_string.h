@@ -86,8 +86,8 @@ API unsigned    intern( const char *string );
 API const char *quark( unsigned key );
 
 typedef struct quarks_db {
-	array(char) blob;
-	array(vec2i) entries;
+    array(char) blob;
+    array(vec2i) entries;
 } quarks_db;
 
 API unsigned    quark_intern( quarks_db*, const char *string );

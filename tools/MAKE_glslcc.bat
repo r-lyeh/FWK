@@ -17,8 +17,20 @@ exit
 @echo off
 cd "%~dp0"
 
-git clone https://github.com/septag/glslcc && md glslcc\.build && pushd glslcc\.build
-cmake .. -B . -DCMAKE_BUILD_TYPE=Release && (make || msbuild glslcc.sln -m -p:Configuration=Release)
-popd
+if not exist glslcc (
+git clone https://github.com/septag/glslcc
+)
 
-xcopy /y glslcc\.build\src\Release\glslcc.exe 
+if "%1"=="debug" (
+	if not exist glslcc\.debug md glslcc\.debug
+	pushd glslcc\.debug
+	cmake .. -B . && (make || msbuild glslcc.sln)
+	popd
+	xcopy /y glslcc\.debug\src\Debug\glslcc.exe
+) else (
+	if not exist glslcc\.build md glslcc\.build
+	pushd glslcc\.build
+	cmake .. -B . -DCMAKE_BUILD_TYPE=Release && (make || msbuild glslcc.sln -m -p:Configuration=Release)
+	popd
+	xcopy /y glslcc\.build\src\Release\glslcc.exe
+)

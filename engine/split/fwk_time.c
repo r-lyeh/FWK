@@ -250,7 +250,8 @@ guid guid_create() {
 // ----------------------------------------------------------------------------
 // ease
 
-float ease_nop(float t) { return 0; }
+float ease_zero(float t) { return 0; }
+float ease_one(float t) { return 1; }
 float ease_linear(float t) { return t; }
 
 float ease_out_sine(float t) { return sinf(t*(C_PI*0.5f)); }
@@ -324,7 +325,8 @@ float ease(float t01, unsigned mode) {
         ease_inout_elastic,
         ease_inout_bounce,
 
-        ease_nop,
+        ease_zero,
+        ease_one,
         ease_linear,
         ease_inout_perlin,
     };
@@ -371,7 +373,8 @@ const char **ease_enums() {
         "ease_inout_elastic",
         "ease_inout_bounce",
 
-        "ease_nop",
+        "ease_zero",
+        "ease_one",
         "ease_linear",
         "ease_inout_perlin",
 
@@ -419,7 +422,8 @@ const char *ease_enum(unsigned mode) {
     ENUM(EASE_ELASTIC|EASE_INOUT);
     ENUM(EASE_BOUNCE|EASE_INOUT);
 
-    ENUM(EASE_NOP);
+    ENUM(EASE_ZERO);
+    ENUM(EASE_ONE);
     ENUM(EASE_LINEAR);
     ENUM(EASE_INOUT_PERLIN);
 };*/

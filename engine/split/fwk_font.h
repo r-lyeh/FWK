@@ -11,24 +11,24 @@
 #define FONT_H6 "\6" // smallest
 
 // font color tags
-#define FONT_COLOR1  "\x10"
-#define FONT_COLOR2  "\x11"
-#define FONT_COLOR3  "\x12"
-#define FONT_COLOR4  "\x13"
-#define FONT_COLOR5  "\x14"
-#define FONT_COLOR6  "\x15"
-#define FONT_COLOR7  "\x16"
-#define FONT_COLOR8  "\x17"
-#define FONT_COLOR9  "\x18"
-#define FONT_COLOR10 "\x19"
+#define FONT_COLOR1   "\x1a"
+#define FONT_COLOR2   "\x1b"
+#define FONT_COLOR3   "\x1c"
+#define FONT_COLOR4   "\x1d"
+#define FONT_COLOR5   "\x1e"
+#define FONT_COLOR6   "\x1f"
 
 // font face tags
-#define FONT_FACE1   "\x1a"
-#define FONT_FACE2   "\x1b"
-#define FONT_FACE3   "\x1c"
-#define FONT_FACE4   "\x1d"
-#define FONT_FACE5   "\x1e"
-#define FONT_FACE6   "\x1f"
+#define FONT_FACE1    "\x10"
+#define FONT_FACE2    "\x11"
+#define FONT_FACE3    "\x12"
+#define FONT_FACE4    "\x13"
+#define FONT_FACE5    "\x14"
+#define FONT_FACE6    "\x15"
+#define FONT_FACE7    "\x16"
+#define FONT_FACE8    "\x17" // editor may override this one
+#define FONT_FACE9    "\x18" // editor may override this one
+#define FONT_FACE10   "\x19" // editor may override this one
 
 // font align tags
 #define FONT_LEFT     "\\<"
@@ -70,6 +70,13 @@ enum FONT_FLAGS {
     // FONT_DEFAULTS = FONT_512 | FONT_NO_OVERSAMPLE | FONT_ASCII,
 };
 
+typedef struct font_metrics_t {
+    float ascent;   // max distance above baseline for all glyphs
+    float descent;  // max distance below baseline for all glyphs
+    float linegap;  // distance betwen ascent of next line and descent of current line
+    float linedist; // distance between the baseline of two lines (ascent - descent + linegap)
+} font_metrics_t;
+
 // configures
 API void  font_face(const char *face_tag, const char *filename_ttf, float font_size, unsigned flags);
 API void  font_face_from_mem(const char *tag, const void *ttf_buffer, unsigned ttf_len, float font_size, unsigned flags);
@@ -77,13 +84,17 @@ API void  font_scales(const char *face_tag, float h1, float h2, float h3, float 
 API void  font_color(const char *color_tag, uint32_t color);
 
 // commands
-API vec2  font_xy();
-API void  font_goto(float x, float y);
-API vec2  font_print(const char *text);
-API vec2  font_rect(const char *text);
+API vec2           font_xy();
+API void           font_goto(float x, float y);
+API vec2           font_print(const char *text);
+API vec2           font_rect(const char *text);
+API font_metrics_t font_metrics(const char *text);
 //  void  font_clip(vec2 topleft, vec2 bottomright);
 //  void  font_wrap(vec2 topleft, vec2 bottomright);
 
 // syntax highlighting
 API void* font_colorize(const char *text, const char *comma_types, const char *comma_keywords); // comma separated tokens. expensive, please cache result.
 API vec2  font_highlight(const char *text, const void *colors);
+
+// ui
+API void  ui_font();

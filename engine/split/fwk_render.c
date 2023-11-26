@@ -788,11 +788,18 @@ texture_t texture_checker() {
                 pixels[i++] = (rgb>>8) & 255;
                 pixels[i++] = (rgb>>0) & 255;
                 pixels[i++] = 255;
-#else
+#elif 0
                 extern const uint32_t secret_palette[32];
                 uint32_t lum = (x^y) & 8 ? 128 : (x^y) & 128 ? 192 : 255;
                 uint32_t rgb = rgba(lum,lum,lum,255);
                 pixels[i++] = rgb;
+#else
+                int j = y, i = x;
+                unsigned char *p = (unsigned char *)&pixels[x + y * 256];
+                p[0] = (i / 16) % 2 == (j / 16) % 2 ? 255 : 0; // r
+                p[1] = ((i - j) / 16) % 2 == 0 ? 255 : 0; // g
+                p[2] = ((i + j) / 16) % 2 == 0 ? 255 : 0; // b
+                p[3] = 255; // a
 #endif
             }
         }
@@ -2772,6 +2779,7 @@ typedef struct iqm_vertex {
     GLubyte blendweights[4];
     GLfloat blendvertexindex;
     GLubyte color[4];
+    GLfloat texcoord2[2];
 } iqm_vertex;
 
 typedef struct iqm_t {
@@ -2881,6 +2889,13 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if( (loc = glGetUniformLocation(shader, "u_billboard")) >= 0 ) {
         glUniform1i( loc, m.billboard );
     }
+    if( (loc = glGetUniformLocation(shader, "texlit")) >= 0 ) {
+        glUniform1i( loc, (m.lightmap.w != 0) );
+    }
+    else
+    if( (loc = glGetUniformLocation(shader, "u_texlit")) >= 0 ) {
+        glUniform1i( loc, (m.lightmap.w != 0) );
+    }
 #if 0
     // @todo: mat44 projview (useful?)
 #endif
@@ -2936,6 +2951,10 @@ void model_set_state(model_t m) {
     // vertex color
     glVertexAttribPointer(11, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,color) );
     glEnableVertexAttribArray(11);
+
+    // lmap data
+    glVertexAttribPointer(12, 2, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, texcoord2) );
+    glEnableVertexAttribArray(12);
 
     // animation
     if(numframes > 0) {
@@ -3036,6 +3055,8 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     }
 
     struct iqmtriangle *tris = (struct iqmtriangle *)&buf[hdr->ofs_triangles];
+    m->num_tris = hdr->num_triangles;
+    m->tris = (void*)tris;
 
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -3051,7 +3072,10 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
         if(inposition) memcpy(v->position, &inposition[i*3], sizeof(v->position));
         if(innormal) memcpy(v->normal, &innormal[i*3], sizeof(v->normal));
         if(intangent) memcpy(v->tangent, &intangent[i*4], sizeof(v->tangent));
-        if(intexcoord) memcpy(v->texcoord, &intexcoord[i*2], sizeof(v->texcoord));
+        if(intexcoord) {
+            memcpy(v->texcoord, &intexcoord[i*2], sizeof(v->texcoord));
+            memcpy(v->texcoord2, &intexcoord[i*2], sizeof(v->texcoord2)); // populate UV1 with the same value, used by lightmapper
+        }
         if(inblendindex8) memcpy(v->blendindexes, &inblendindex8[i*4], sizeof(v->blendindexes));
         if(inblendweight8) memcpy(v->blendweights, &inblendweight8[i*4], sizeof(v->blendweights));
         if(inblendindexi) {
@@ -3074,22 +3098,22 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     glBufferData(GL_ARRAY_BUFFER, hdr->num_vertexes*sizeof(iqm_vertex), verts, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-m->stride = sizeof(iqm_vertex);
-#if 0
-m->stride = 0;
-if(inposition) m->stride += sizeof(verts[0].position);
-if(innormal) m->stride += sizeof(verts[0].normal);
-if(intangent) m->stride += sizeof(verts[0].tangent);
-if(intexcoord) m->stride += sizeof(verts[0].texcoord);
-if(inblendindex8) m->stride += sizeof(verts[0].blendindexes); // no index8? bug?
-if(inblendweight8) m->stride += sizeof(verts[0].blendweights); // no weight8? bug?
-if(inblendindexi) m->stride += sizeof(verts[0].blendindexes);
-if(inblendweightf) m->stride += sizeof(verts[0].blendweights);
-if(invertexcolor8) m->stride += sizeof(verts[0].color);
-#endif
-//for( int i = 0; i < 16; ++i ) printf("%.9g%s", ((float*)verts)[i], (i % 3) == 2 ? "\n" : ",");
-//m->verts = verts; //FREE(verts);
-m->verts = 0; FREE(verts);
+    m->stride = sizeof(iqm_vertex);
+    #if 0
+    m->stride = 0;
+    if(inposition) m->stride += sizeof(verts[0].position);
+    if(innormal) m->stride += sizeof(verts[0].normal);
+    if(intangent) m->stride += sizeof(verts[0].tangent);
+    if(intexcoord) m->stride += sizeof(verts[0].texcoord);
+    if(inblendindex8) m->stride += sizeof(verts[0].blendindexes); // no index8? bug?
+    if(inblendweight8) m->stride += sizeof(verts[0].blendweights); // no weight8? bug?
+    if(inblendindexi) m->stride += sizeof(verts[0].blendindexes);
+    if(inblendweightf) m->stride += sizeof(verts[0].blendweights);
+    if(invertexcolor8) m->stride += sizeof(verts[0].color);
+    #endif
+    //for( int i = 0; i < 16; ++i ) printf("%.9g%s", ((float*)verts)[i], (i % 3) == 2 ? "\n" : ",");
+    m->verts = verts;
+    /*m->verts = 0; FREE(verts);*/
 
     textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
     colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
@@ -3191,6 +3215,27 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
         struct iqmmesh *m = &meshes[i];
 
+        // reuse texture+material if already decoded
+        bool reused = 0;
+        for( int j = 0; !reused && j < model->num_textures; ++j ) {
+            if( !strcmpi(model->texture_names[j], &str[m->material])) {
+
+                *out++ = model->materials[j].layer[0].texture;
+
+                {
+                    model->num_textures++;
+                    array_push(model->texture_names, STRDUP(&str[m->material]));
+
+                    array_push(model->materials, model->materials[j]);
+                    array_back(model->materials)->name = STRDUP(&str[m->material]);
+                }
+
+                reused = true;
+            }
+        }
+        if( reused ) continue;
+
+        // decode texture+material
         int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT; // LINEAR, NEAREST
         int invalid = texture_checker().id;
 
@@ -3202,7 +3247,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
             array(char) embedded_texture = base64_decode(material_embedded_texture, strlen(material_embedded_texture));
             //printf("%s %d\n", material_embedded_texture, array_count(embedded_texture));
             //hexdump(embedded_texture, array_count(embedded_texture));
-            *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), 0 ).id;
+            *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), flags ).id;
             array_free(embedded_texture);
         }
 
@@ -3255,6 +3300,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
             *out = texture_checker().id; // placeholder
         }
 
+        inscribe_tex:;
         {
             model->num_textures++;
             array_push(model->texture_names, STRDUP(&str[m->material]));
@@ -3321,8 +3367,8 @@ model_t model_from_mem(const void *mem, int len, int flags) {
     // static int shaderprog = -1;
     // if( shaderprog < 0 ) {
         const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
-        int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_332_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
-            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent","fragColor",
+        int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
             va("SHADING_PHONG,%s", (flags&MODEL_RIMLIGHT)?"RIM":""));
     // }
     // ASSERT(shaderprog > 0);
@@ -3564,7 +3610,7 @@ float model_animate(model_t m, float curframe) {
 }
 
 static
-void model_draw_call(model_t m) {
+void model_draw_call(model_t m, int shader) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
@@ -3576,16 +3622,20 @@ void model_draw_call(model_t m) {
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(m.program, "fsDiffTex"), 0 /*<-- unit!*/ );
+        glUniform1i(glGetUniformLocation(shader, "u_texture2d"), 0 );
 
         int loc;
-        if ((loc = glGetUniformLocation(m.program, "u_textured")) >= 0) {
+        if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
             bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
             glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(m.program, "u_diffuse")) >= 0) {
+            if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
                 glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
             }
         }
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m.lightmap.id);
+        glUniform1i(glGetUniformLocation(shader, "u_lightmap"), 1 );
 
         glDrawElementsInstanced(GL_TRIANGLES, 3*im->num_triangles, GL_UNSIGNED_INT, &tris[im->first_triangle], m.num_instances);
         profile_incstat("Render.num_drawcalls", +1);
@@ -3608,7 +3658,7 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
     }
 
     model_set_uniforms(m, shader > 0 ? shader : m.program, mv, proj, view, models[0]);
-    model_draw_call(m);
+    model_draw_call(m, shader > 0 ? shader : m.program);
 }
 
 void model_render(model_t m, mat44 proj, mat44 view, mat44 model, int shader) {
@@ -3712,3 +3762,112 @@ anims_t animations(const char *pathfile, int flags) {
     }
     return a;
 }
+
+// -----------------------------------------------------------------------------
+// lightmapping utils
+// @fixme: support xatlas uv packing, add UV1 coords to vertex model specs
+lightmap_t lightmap(int hmsize, float cnear, float cfar, vec3 color, int passes, float threshold, float distmod) {
+    lightmap_t lm = {0};
+    lm.ctx = lmCreate(hmsize, cnear, cfar, color.x, color.y, color.z, passes, threshold, distmod);
+
+    if (!lm.ctx) {
+        PANIC("Error: Could not initialize lightmapper.\n");
+        return lm;
+    }
+
+    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
+    lm.shader = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
+        va("%s", "LIGHTMAP_BAKING"));
+
+    return lm;
+}
+
+void lightmap_destroy(lightmap_t *lm) {
+    lmDestroy(lm->ctx);
+    shader_destroy(lm->shader);
+    //
+}
+
+void lightmap_setup(lightmap_t *lm, int w, int h) {
+    lm->ready=1;
+    //@fixme: prep atlas for lightmaps
+    lm->w = w;
+    lm->h = h;
+}
+
+void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata) {
+    ASSERT(lm->ready);
+    // @fixme: use xatlas to UV pack all models, update their UV1 and upload them to GPU.
+
+    GLint cullface=0;
+    glGetIntegerv(GL_CULL_FACE, &cullface);
+    glDisable(GL_CULL_FACE);
+
+    int w = lm->w, h = lm->h;
+    for (int i = 0; i < array_count(lm->models); i++) {
+        model_t *m = lm->models[i];
+        if (m->lightmap.w != 0) {
+            texture_destroy(&m->lightmap);
+        }
+        m->lightmap = texture_create(w, h, 4, 0, TEXTURE_LINEAR|TEXTURE_FLOAT);
+        glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
+        unsigned char emissive[] = { 0, 0, 0, 255 };
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, emissive);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    for (int b = 0; b < bounces; b++) {
+        for (int i = 0; i < array_count(lm->models); i++) {
+            model_t *m = lm->models[i];
+            if (!m->lmdata) {
+                m->lmdata = CALLOC(w*h*4, sizeof(float));
+            }
+            memset(m->lmdata, 0, w*h*4);
+            lmSetTargetLightmap(lm->ctx, m->lmdata, w, h, 4);
+            lmSetGeometry(lm->ctx, m->pivot,
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, position), sizeof(iqm_vertex),
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, normal), sizeof(iqm_vertex),
+                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, texcoord), sizeof(iqm_vertex),
+                m->num_tris*3, LM_UNSIGNED_INT, m->tris);
+
+            glDisable(GL_BLEND);
+            int vp[4];
+            float view[16], projection[16];
+            while (lmBegin(lm->ctx, vp, view, projection))
+            {
+                // render to lightmapper framebuffer
+                glViewport(vp[0], vp[1], vp[2], vp[3]);
+                drawscene(lm, m, view, projection, userdata);
+                if (progressupdate) progressupdate(lmProgress(lm->ctx));
+                lmEnd(lm->ctx);
+            }
+        }
+
+        // postprocess texture
+        for (int i = 0; i < array_count(lm->models); i++) {
+            model_t *m = lm->models[i];
+            float *temp = CALLOC(w * h * 4, sizeof(float));
+            for (int i = 0; i < 16; i++)
+            {
+                lmImageDilate(m->lmdata, temp, w, h, 4);
+                lmImageDilate(temp, m->lmdata, w, h, 4);
+            }
+            lmImageSmooth(m->lmdata, temp, w, h, 4);
+            lmImageDilate(temp, m->lmdata, w, h, 4);
+            lmImagePower(m->lmdata, w, h, 4, 1.0f / 2.2f, 0x7); // gamma correct color channels
+            FREE(temp);
+
+            // save result to a file
+            // if (lmImageSaveTGAf("result.tga", m->lmdata, w, h, 4, 1.0f))
+            //     printf("Saved result.tga\n");
+            // upload result
+            glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_FLOAT, m->lmdata);
+            FREE(m->lmdata); m->lmdata = NULL;
+        }
+    }
+
+    if (cullface) glEnable(GL_CULL_FACE);
+}
+
