@@ -26,7 +26,7 @@ int main()
     camera_t cam = camera();
     skybox_t sky = skybox(0, 0); skybox_mie_calc_sh(&sky, 2.0f);
     model_t mdl = model(option("--model","gazebo.obj"), 0);
-    litm = model("cube.obj", MODEL_MATCAPS);
+    litm = model("cube.obj", 0);
     {
         mat44 lp; scaling44(lp, 0.3, 0.3, 0.3); translate44(lp, 8,4,0);
         copy44(litm.pivot, lp);

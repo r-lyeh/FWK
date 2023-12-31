@@ -9,7 +9,6 @@ uniform float uRayleighScaleHeight;
 uniform float uMieScaleHeight;
 uniform float uMiePreferredDirection;
 
-
 in vec3 v_direction;
 out vec4 fragcolor;
 

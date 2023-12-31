@@ -51,7 +51,7 @@ int main() {
 
     // manual spawn & loading
     model_t m1 = model("kgirl/kgirls01.fbx", 0); //MODEL_NO_ANIMS);
-    texture_t t1 = texture("kgirl/g01_texture.png", TEXTURE_RGB);
+    texture_t t1 = texture("kgirl/g01_texture.png", 0);
     object_t* obj3 = scene_spawn();
     object_model(obj3, m1);
     object_diffuse(obj3, t1);

@@ -5,21 +5,47 @@
 
 #include "fwk.h"
 
+
+const char *skyboxes[][2] = { // reflection, env, metadata
+    {"hdr/Tokyo_BigSight_1k.hdr","hdr/Tokyo_BigSight_Env.hdr"},
+    {"hdr/GCanyon_C_YumaPoint_1k.hdr","hdr/GCanyon_C_YumaPoint_Env.hdr"},
+    {"hdr/Factory_Catwalk_1k.hdr","hdr/Factory_Catwalk_Env.hdr"},
+    {"hdr/MonValley_G_DirtRoad_1k.hdr","hdr/MonValley_G_DirtRoad_Env.hdr"},
+    {"hdr/Shiodome_Stairs_1k.hdr","hdr/Shiodome_Stairs_Env.hdr"},
+};
+
 int main() {
     // create the window
-    window_create( 0.75f, WINDOW_MSAA8 );
+    window_create( 0.75f, 0 );
     window_color( GRAY );
 
     // create camera
     camera_t cam = camera();
+
+    // fx: load all post fx files in all subdirs.
+    fx_load("fx**.fs");
+    fx_enable(fx_find("fxTonemapACES.fs"), 1);
+
     // load video, RGB texture, no audio
-    video_t *v = video( "pexels-pachon-in-motion-17486489.mp4", VIDEO_RGB | VIDEO_NO_AUDIO | VIDEO_LOOP ); video_seek(v, 30);
+    video_t *v = video( "pexels-pachon-in-motion-17486489.mp4", VIDEO_RGB | VIDEO_NO_AUDIO | VIDEO_LOOP ); // video_seek(v, 30);
     // load texture
-    texture_t t1 = texture("kgirl/g01_texture.png", TEXTURE_RGB);
+    texture_t t1 = texture("kgirl/g01_texture.png", 0);
     texture_t t2 = texture("matcaps/material3", 0);
     // load model
     model_t m1 = model("suzanne.obj", MODEL_NO_ANIMATIONS);
     model_t m2 = model("suzanne.obj", MODEL_NO_ANIMATIONS|MODEL_MATCAPS);
+    model_t m3 = model("damagedhelmet.gltf", MODEL_NO_ANIMATIONS|MODEL_PBR);
+    model_t m4 = model("cube.obj", MODEL_NO_ANIMATIONS);
+
+    array(char*) list = 0;
+    for each_array( vfs_list("demos/art/shadertoys/**.fs"), char*, dir ) {
+        array_push(list, STRDUP(file_name(dir)));
+    }
+
+    shadertoy_t sh = shadertoy(*list, SHADERTOY_IGNORE_MOUSE|SHADERTOY_FLIP_Y); // 0:no flags
+    sh.dims.x = 512;
+    sh.dims.y = 512;
+    shadertoy_render(&sh, 0);
 
     // spawn object1 (diffuse)
     object_t* obj1 = scene_spawn();
@@ -37,7 +63,7 @@ int main() {
     object_move(obj2, vec3(-10+5*2,0,-10));
     object_pivot(obj2, vec3(0,90,0));
 
-    // spawn object2 (video)
+    // spawn object3 (video)
     object_t* obj3 = scene_spawn();
     object_model(obj3, m1);
     object_diffuse(obj3, video_textures(v)[0]);
@@ -45,13 +71,34 @@ int main() {
     object_move(obj3, vec3(-10+5*1,0,-10));
     object_pivot(obj3, vec3(0,90,0));
 
+    // spawn object4 (pbr)
+    object_t* obj4 = scene_spawn();
+    object_model(obj4, m3);
+    object_scale(obj4, vec3(3,3,3));
+    object_move(obj4, vec3(-10+6*3,0,-10));
+    object_pivot(obj4, vec3(0,90,0));
+
+    // spawn object5 (pbr)
+    object_t* obj5 = scene_spawn();
+    object_model(obj5, m4);
+    object_diffuse(obj5, sh.tx);
+    object_scale(obj5, vec3(3,3,3));
+    object_move(obj5, vec3(-10+8*3,0,-10));
+    object_pivot(obj5, vec3(0,90,0));
+
     // create point light
+    // scene_spawn_light(); // sun
     light_t* l = scene_spawn_light();
     light_type(l, LIGHT_POINT);
+    // l->diffuse = vec3(0,0,0);
+
+    // load skybox
+    scene_get_active()->skybox = skybox_pbr(skyboxes[0][0], skyboxes[0][0], skyboxes[0][1]);
+
 
     while(window_swap() && !input(KEY_ESC)) {
         // draw environment
-        ddraw_grid(0);
+        // ddraw_grid(0);
 
         // update video
         video_decode( v );
@@ -59,8 +106,13 @@ int main() {
         // update light position
         light_teleport(l, cam.position);
 
+        // update shadertoy
+        shadertoy_render(&sh, window_delta());
+
         // draw scene
+        fx_begin();
         scene_render(SCENE_FOREGROUND|SCENE_BACKGROUND|SCENE_UPDATE_SH_COEF);
+        fx_end();
 
         // fps camera
         bool active = ui_active() || ui_hover() || gizmo_active() ? false : input(MOUSE_L) || input(MOUSE_M) || input(MOUSE_R);
@@ -70,5 +122,37 @@ int main() {
         camera_moveby(&cam, wasdec);
         camera_fps(&cam, mouselook.x,mouselook.y);
         window_cursor( !active );
+
+        if (ui_panel("FXs", 0)) {
+            ui_fxs();
+            ui_panel_end();
+        }
+
+        if( ui_panel( "Viewer", 0 ) ) {
+            for( int i = 0; i < countof(skyboxes); i++ ) {
+                const char *filename = skyboxes[i][0];
+                // bool selected = !strcmp(g_skybox.reflection->filename, file_name(filename));
+                bool selected = false;
+                if( ui_bool( filename, &selected ) ) {
+                    scene_get_active()->skybox = skybox_pbr(skyboxes[i][0], skyboxes[i][0], skyboxes[i][1]);
+                }
+            }
+            ui_panel_end();
+        }
+
+        static int selected = 0;
+        if( ui_panel("Shadertoy", 1)) {
+            for( int i = 0; i < array_count(list); ++i ) {
+                bool in_use = i == selected;
+                if( ui_bool(list[i], &in_use) ) {
+                    sh = shadertoy( list[selected = i], SHADERTOY_IGNORE_MOUSE|SHADERTOY_FLIP_Y );
+                    sh.dims.x = 512;
+                    sh.dims.y = 512;
+                    shadertoy_render(&sh, 0);
+                    object_diffuse(obj5, sh.tx);
+                }
+            }
+            ui_panel_end();
+        }
     }
 }

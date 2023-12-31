@@ -48,6 +48,9 @@ static void fwk_post_init(float refresh_rate) {
 
     hz = refresh_rate;
     // t = glfwGetTime();
+
+    // preload brdf LUT early
+    (void)brdf_lut();
 }
 
 // ----------------------------------------------------------------------------

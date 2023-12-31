@@ -67,6 +67,8 @@ API void     window_transparent(int enabled);
 API int      window_has_transparent();
 API void     window_icon(const char *file_icon);
 API int      window_has_icon();
+API void     window_debug(int visible);
+API int      window_has_debug();
 
 API double   window_aspect();
 API void     window_aspect_lock(unsigned numer, unsigned denom);

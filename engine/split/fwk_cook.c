@@ -9,10 +9,14 @@
 // @fixme: leaks (worth?)
 // -----------------------------------------------------------------------------
 
+#ifndef COOK_INI_PATHFILE
+#define COOK_INI_PATHFILE "tools/cook.ini"
+#endif
+
 const char *ART = "art/";
 const char *TOOLS = "tools/bin/";
 const char *EDITOR = "tools/";
-const char *COOK_INI = "tools/cook.ini";
+const char *COOK_INI = COOK_INI_PATHFILE;
 
 static unsigned ART_SKIP_ROOT; // number of chars to skip the base root in ART folder
 static unsigned ART_LEN;       // dupe
@@ -455,7 +459,7 @@ static cook_worker jobs[JOBS_MAX] = {0};
 static volatile bool cook_cancelable = false, cook_cancelling = false, cook_debug = false;
 
 #ifndef COOK_ON_DEMAND
-#define COOK_ON_DEMAND flag("--cook-on-demand")
+#define COOK_ON_DEMAND ifdef(cook, optioni("--cook-on-demand", 1), false)
 #endif
 
 static
@@ -844,6 +848,7 @@ int cook_jobs() {
     int num_jobs = optioni("--cook-jobs", maxf(1.15,app_cores()) * 1.75), max_jobs = countof(jobs);
     ifdef(ems, num_jobs = 0);
     ifdef(retail, num_jobs = 0);
+    ifdef(nocook, num_jobs = 0);
     return clampi(num_jobs, 0, max_jobs);
 }
 

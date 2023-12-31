@@ -90,6 +90,18 @@ float pmodf    (float  a, float  b) { return (a < 0.0f ? 1.0f : 0.0f) + (float)f
 float signf    (float  a)           { return (a < 0) ? -1.f : 1.f; }
 float clampf(float v,float a,float b){return maxf(minf(b,v),a); }
 float mixf(float a,float b,float t) { return a*(1-t)+b*t; }
+float slerpf(float a,float b,float t) {
+    a = fmod(a, 360); if (a < 0) a += 360;
+    b = fmod(b, 360); if (b < 0) b += 360;
+    float diff = b - a;
+    if (diff < 0.0)
+        diff += 360.0;
+
+    float r = a + t*diff;
+    if (r >= 360.0)
+        r -= 360.0;
+    return r;
+}
 float fractf   (float a)            { return a - (int)a; }
 
 // ----------------------------------------------------------------------------

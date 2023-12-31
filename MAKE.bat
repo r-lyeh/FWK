@@ -411,7 +411,7 @@ rem move /y fwk_*.? engine\split\
 rem move /y 3rd_*.? engine\split\
 
 rem pushd tools
-rem cl  cook.c      -I..\engine /openmp /Os /Ox /O2 /Oy /MT /DNDEBUG /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
+rem cl  cook.c      -I..\engine /Os /Ox /O2 /Oy /MT /DNDEBUG /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
 rem del cook.exp
 rem del cook.lib
 rem del cook.obj
@@ -684,7 +684,7 @@ if "!cc!"=="cl" (
 
     if "!build!"=="ret" (
         set args=-DENABLE_RETAIL -Dmain=WinMain !args!
-        set args=/nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
+        set args=/nologo /Zi /MT         /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
     )
     if "!build!"=="rel" (
         set args=/nologo /Zi /MT /openmp /DNDEBUG=2 !args!        /Os /Ox /O2 /Oy /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
@@ -716,7 +716,7 @@ if "!cc!"=="cl" (
 
     if "!build!"=="ret" (
         set args=-DENABLE_RETAIL -Dmain=WinMain !args!
-        set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
+        set args=!warnings! /nologo /Zi /MT         /DNDEBUG=3 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2
     )
     if "!build!"=="rel" (
         set args=!warnings! /nologo /Zi /MT /openmp /DNDEBUG=2 !args!        /Os /Ox /O2 /Oy /GF /Gw /arch:AVX2

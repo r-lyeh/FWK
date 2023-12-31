@@ -86,6 +86,12 @@ int main() {
     fx_enable(fx_find("fxContrast.fs"), 1);
     fx_enable(fx_find("fxVignette.fs"), 1);
 
+    // sort them
+    fx_order(fx_find("fxCRT2.fs"), 0);
+    fx_order(fx_find("fxGrain.fs"), 1);
+    fx_order(fx_find("fxContrast.fs"), 2);
+    fx_order(fx_find("fxVignette.fs"), 3);
+
     // demo loop
     while (window_swap() && !input_down(KEY_ESC)) {
 

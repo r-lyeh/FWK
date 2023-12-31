@@ -64,6 +64,7 @@ API float pmodf    (float  a, float  b);
 API float signf    (float  a)           ;
 API float clampf   (float v,float a,float b);
 API float mixf     (float a,float b,float t);
+API float slerpf   (float a,float b,float t);
 API float fractf   (float a);
 
 // ----------------------------------------------------------------------------

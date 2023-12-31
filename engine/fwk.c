@@ -2239,6 +2239,8 @@ void ui_hue_cycle( unsigned num_cycles ) {
     }
 }
 
+static bool win_debug_visible = true;
+
 static
 void ui_render() {
 
@@ -2253,11 +2255,15 @@ void ui_render() {
      * rendering the UI. */
     //nk_sdl_render(NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
 
-    GLfloat bkColor[4]; glGetFloatv(GL_COLOR_CLEAR_VALUE, bkColor); // @transparent
-    glClearColor(0,0,0,1); // @transparent
-    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,!bkColor[3] ? GL_TRUE : GL_FALSE);  // @transparent
-    nk_glfw3_render(&nk_glfw, NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
-    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);  // @transparent
+    if (win_debug_visible) {
+        GLfloat bkColor[4]; glGetFloatv(GL_COLOR_CLEAR_VALUE, bkColor); // @transparent
+        glClearColor(0,0,0,1); // @transparent
+        glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,!bkColor[3] ? GL_TRUE : GL_FALSE);  // @transparent
+        nk_glfw3_render(&nk_glfw, NK_ANTI_ALIASING_ON, MAX_VERTEX_MEMORY, MAX_ELEMENT_MEMORY);
+        glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);  // @transparent
+    } else {
+        nk_clear(&nk_glfw.ctx);
+    }
 
 #if is(ems)
     glFinish();
@@ -6150,10 +6156,14 @@ void collide_demo() { // debug draw collisions // @fixme: fix leaks: poly_free()
 // @fixme: leaks (worth?)
 // -----------------------------------------------------------------------------
 
+#ifndef COOK_INI_PATHFILE
+#define COOK_INI_PATHFILE "tools/cook.ini"
+#endif
+
 const char *ART = "art/";
 const char *TOOLS = "tools/bin/";
 const char *EDITOR = "tools/";
-const char *COOK_INI = "tools/cook.ini";
+const char *COOK_INI = COOK_INI_PATHFILE;
 
 static unsigned ART_SKIP_ROOT; // number of chars to skip the base root in ART folder
 static unsigned ART_LEN;       // dupe
@@ -6596,7 +6606,7 @@ static cook_worker jobs[JOBS_MAX] = {0};
 static volatile bool cook_cancelable = false, cook_cancelling = false, cook_debug = false;
 
 #ifndef COOK_ON_DEMAND
-#define COOK_ON_DEMAND flag("--cook-on-demand")
+#define COOK_ON_DEMAND ifdef(cook, optioni("--cook-on-demand", 1), false)
 #endif
 
 static
@@ -6985,6 +6995,7 @@ int cook_jobs() {
     int num_jobs = optioni("--cook-jobs", maxf(1.15,app_cores()) * 1.75), max_jobs = countof(jobs);
     ifdef(ems, num_jobs = 0);
     ifdef(retail, num_jobs = 0);
+    ifdef(nocook, num_jobs = 0);
     return clampi(num_jobs, 0, max_jobs);
 }
 
@@ -7272,7 +7283,10 @@ int main() { int (*adder)() = dll("demo.dll", "add2"); printf("%d\n", adder(2,3)
 
 typedef lua_State lua;
 
-// the Lua interpreter
+// the Lua interpreter(s)
+static array(lua*) Ls;
+
+// the **current** Lua interpreter
 static lua *L;
 
 #if is(linux)
@@ -7516,6 +7530,16 @@ void *script_init_env(unsigned flags) {
     }
 
     return 0;
+}
+
+bool script_push(void *env) {
+    array_push(Ls, L = env);
+    return true;
+}
+
+bool script_pop() {
+    L = array_count(Ls) && (array_pop(Ls), array_count(Ls)) ? *array_back(Ls) : NULL;
+    return !!array_count(Ls);
 }
 #line 0
 
@@ -10171,64 +10195,6 @@ static const unsigned short packed_table_japanese[] = { // starts with 0x4E00
 
 // -----------------------------------------------------------------------------
 
-static const char mv_vs_source[] = "//" FILELINE /*#version 330 core\n\*/"\
-\n\
-in vec2 vertexPosition;\n\
-in vec4 instanceGlyph;\n\
-\n\
-uniform sampler2D sampler_font;\n\
-uniform sampler2D sampler_meta;\n\
-\n\
-uniform float offset_firstline; // ascent - descent - linegap/2\n\
-uniform float scale_factor;     // scaling factor proportional to font size\n\
-uniform vec2 string_offset;     // offset of upper-left corner\n\
-\n\
-uniform vec2 res_meta;   // 96x2 \n\
-uniform vec2 res_bitmap; // 512x256\n\
-uniform vec2 resolution; // screen resolution\n\
-\n\
-out vec2 uv;\n\
-out float color_index; // for syntax highlighting\n\
-\n\
-void main() { \
-    // (xoff, yoff, xoff2, yoff2), from second row of texture\n\
-    vec4 q2 = texture(sampler_meta, vec2((instanceGlyph.z + 0.5)/res_meta.x, 0.75))*vec4(res_bitmap, res_bitmap);\n\
-\n\
-    vec2 p = vertexPosition*(q2.zw - q2.xy) + q2.xy; // offset and scale it properly relative to baseline\n\
-    p *= vec2(1.0, -1.0);                            // flip y, since texture is upside-down\n\
-    p.y -= offset_firstline;                         // make sure the upper-left corner of the string is in the upper-left corner of the screen\n\
-    p *= scale_factor;                               // scale relative to font size\n\
-    p += instanceGlyph.xy + string_offset;           // move glyph into the right position\n\
-    p *= 2.0/resolution;                             // to NDC\n\
-    p += vec2(-1.0, 1.0);                            // move to upper-left corner instead of center\n\
-\n\
-    gl_Position = vec4(p, 0.0, 1.0);\n\
-\n\
-    // (x0, y0, x1-x0, y1-y0), from first row of texture\n\
-    vec4 q = texture(sampler_meta, vec2((instanceGlyph.z + 0.5)/res_meta.x, 0.25));\n\
-\n\
-    // send the correct uv's in the font atlas to the fragment shader\n\
-    uv = q.xy + vertexPosition*q.zw;\n\
-    color_index = instanceGlyph.w;\n\
-}\n";
-
-static const char mv_fs_source[] = "//" FILELINE /*#version 330 core\n\*/"\
-\n\
-in vec2 uv;\n\
-in float color_index;\n\
-\n\
-uniform sampler2D sampler_font;\n\
-uniform sampler1D sampler_colors;\n\
-uniform float num_colors;\n\
-\n\
-out vec4 outColor;\n\
-\n\
-void main() {\
-    vec4 col = texture(sampler_colors, (color_index+0.5)/num_colors);\n\
-    float s = texture(sampler_font, uv).r;\n\
-    outColor = vec4(col.rgb, s*col.a);\n\
-}\n";
-
 enum { FONT_MAX_COLORS = 256};
 enum { FONT_MAX_STRING_LEN = 40000 }; // more glyphs than any reasonable person would show on the screen at once. you can only fit 20736 10x10 rects in a 1920x1080 window
 
@@ -10344,6 +10310,20 @@ void ui_font() {
     }
 }
 
+void font_scale(const char *tag, int s, float v) {
+    font_init();
+
+    if (s < 0 || s >= 10) return;
+
+    unsigned index = *tag - FONT_FACE1[0];
+    if( index > FONTS_MAX ) return;
+
+    font_t *f = &fonts[index];
+    if (!f->initialized) return;
+
+    f->scale[s] = v / f->font_size;
+}
+
 void font_scales(const char *tag, float h1, float h2, float h3, float h4, float h5, float h6) {
     font_init();
 
@@ -10393,9 +10373,8 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     f->scale[5] = 0.3750f; // H5
     f->scale[6] = 0.2500f; // H6
 
-    const char *vs_filename = 0, *fs_filename = 0;
-    const char *vs = vs_filename ? vfs_read(vs_filename) : mv_vs_source;
-    const char *fs = fs_filename ? vfs_read(fs_filename) : mv_fs_source;
+    const char *vs = vfs_read("vs_font.glsl");
+    const char *fs = vfs_read("fs_font.glsl");
     f->program = shader(vs, fs, "vertexPosition,instanceGlyph", "outColor", NULL);
 
     // figure out what ranges we're about to bake
@@ -10539,7 +10518,7 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,0,(void*)0);
     glVertexAttribDivisor(1, 1);
-    //glEnable(GL_FRAMEBUFFER_SRGB);
+    // glEnable(GL_FRAMEBUFFER_SRGB);
 
     // setup and upload font bitmap texture
     glGenTextures(1, &f->texture_fontdata);
@@ -10628,7 +10607,7 @@ void font_face(const char *tag, const char *filename_ttf, float font_size, unsig
 }
 
 static
-void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float factor, vec2 offset) {
+void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float factor, vec2 offset, vec4 rect) {
     // Backup GL state
     GLint last_program, last_vertex_array;
     GLint last_texture0, last_texture1, last_texture2;
@@ -10652,11 +10631,16 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
 
     GLboolean last_enable_blend      = glIsEnabled(GL_BLEND);
     GLboolean last_enable_depth_test = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean last_scissor_test = glIsEnabled(GL_SCISSOR_TEST);
 
-    // Setup render state: alpha-blending enabled, no depth testing and bind textures
+    // Setup render state: alpha-blending enabled, no depth testing, enable clipping and bind textures
     glEnable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // @fixme: store existing scissor test setup
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(rect.x, window_height() - (rect.y+rect.w), rect.z, rect.w);
 
     glDisable(GL_DEPTH_TEST);
 
@@ -10703,13 +10687,14 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
 
     (last_enable_depth_test ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST));
     (last_enable_blend ? glEnable(GL_BLEND) : glDisable(GL_BLEND));
+    (last_scissor_test ? glEnable(GL_SCISSOR_TEST) : glDisable(GL_SCISSOR_TEST));
 }
 
 // 1. call font_face() if it's the first time it's called.
 // 1. parse the string and update the instance vbo, then upload it
 // 1. draw the string
 static
-vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2)) {
+vec2 font_draw_ex(const char *text, vec2 offset, vec4 rect, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2,vec4)) {
     font_init();
 
     // sanity checks
@@ -10726,7 +10711,7 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
     font_t *f = &fonts[0];
     int S = 3;
     uint32_t color = 0;
-    float X = 0, Y = 0, W = 0, L = f->ascent*f->factor*f->scale[S], LL = L; // LL=largest linedist
+    float X = 0, Y = 0, W = 0, L = f->ascent*f->factor*f->scale[S], LL = 0; // LL=largest linedist
     offset.y = -offset.y; // invert y polarity
 
     // utf8 to utf32
@@ -10742,14 +10727,14 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
             if( X > W ) W = X;
             X = 0.0;
             Y -= f->linedist*f->factor*f->scale[S];
-            if (i+1==end) { //@hack: ensures we terminate the height at the correct position
-                Y -= (f->descent+f->linegap)*f->factor*f->scale[S];
-            }
+            // if (i+1==end) { //@hack: ensures we terminate the height at the correct position
+            //     Y -= (f->descent+f->linegap)*f->factor*f->scale[S];
+            // }
             continue;
         }
         if( ch >= 1 && ch <= 6 ) {
             // flush previous state
-            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
             t = text_glyph_data;
 
             // reposition offset to align new baseline
@@ -10758,6 +10743,7 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
 
             // change size
             S = ch;
+            //@hack: use descent when we use >H4
             L = f->ascent*f->factor*f->scale[S];
             if(L > LL) LL = L;
             continue;
@@ -10769,14 +10755,19 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         if( ch >= 0x10 && ch <= 0x19 ) {
             if( fonts[ ch - 0x10 ].initialized) {
             // flush previous state
-            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
             t = text_glyph_data;
 
             // change face
             f = &fonts[ ch - 0x10 ];
+            L = f->ascent*f->factor*f->scale[S];
+            if(L > LL) LL = L;
             }
             continue;
         }
+
+        if (!LL)
+            LL = L;
 
         // convert to vbo data
         int cp = ch - f->begin; // f->cp2iter[ch - f->begin];
@@ -10791,10 +10782,237 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         X += f->cdata[cp].xadvance*f->scale[S];
     }
 
-    if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+    if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
 
     //if(strstr(text, "fps")) printf("(%f,%f) (%f) L:%f LINEDIST:%f\n", X, Y, W, L, f->linedist);
     return abs2(vec2(W*W > X*X ? W : X, Y*Y > LL*LL ? Y : LL));
+}
+
+static vec2 gotoxy = {0};
+
+// Return cursor
+vec2 font_xy() {
+    return gotoxy;
+}
+
+// Relocate cursor
+void font_goto(float x, float y) {
+    gotoxy = vec2(x, y);
+}
+
+// Print and linefeed. Text may include markup code
+vec2 font_clip(const char *text, vec4 rect) {
+    int l=0,c=0,r=0,j=0,t=0,b=0,m=0,B=0;
+
+    while ( text[0] == FONT_LEFT[0] ) {
+        int has_set=0;
+        if (text[1] == FONT_LEFT[1]) l = 1, has_set=1;
+        if (text[1] == FONT_CENTER[1]) c = 1, has_set=1;
+        if (text[1] == FONT_RIGHT[1]) r = 1, has_set=1;
+        if (text[1] == FONT_JUSTIFY[1]) j = 1, has_set=1;
+        if (text[1] == FONT_TOP[1]) t = 1, has_set=1;
+        if (text[1] == FONT_BOTTOM[1]) b = 1, has_set=1;
+        if (text[1] == FONT_MIDDLE[1]) m = 1, has_set=1;
+        if (text[1] == FONT_BASELINE[1]) B = 1, has_set=1;
+        if (!has_set) break;
+        else text += 2;
+    }
+    
+    int num_newlines = 0;
+    for (int i = 0, end = strlen(text); i < end; ++i) {
+        if (text[i] == '\n') ++num_newlines; 
+    }
+
+    if (num_newlines > 1) {
+        vec2 text_dims = font_rect(text);
+        char tags[4] = {0};
+        int t=0;
+        while (*text) {
+            char ch = *text;
+
+            if( (ch >= 1 && ch <= 6) ||
+                (ch >= 0x1a && ch <= 0x1f) ||
+                (ch >= 0x10 && ch <= 0x19)) {
+                if (t < sizeof(tags)) tags[t++] = ch;
+            }
+            else break;
+            ++text;
+        }
+        array(char *) lines = strsplit(text, "\n");
+        if (b) {
+            gotoxy.y += (rect.w - text_dims.y);
+        }
+        if (m) {
+            gotoxy.y += (rect.w/2. - text_dims.y/2.);
+        }
+        if (B) {
+            gotoxy.y += (rect.w/2. - text_dims.y/1.);
+        }
+        for (int i = 0; i < array_count(lines); i++) {
+            char *line = va("%s%s\n", tags, lines[i]);
+            vec2 text_rect = font_rect(line);
+            if( l || c || r ) {
+                gotoxy.x = l ? rect.x : r ? ((rect.x+rect.z) - text_rect.x) : rect.x+rect.z/2. - text_rect.x/2.;
+            } else if (j) {
+                float words_space = 0.0f;
+                array(char *) words = strsplit(lines[i], " ");
+                for (int k = 0; k < array_count(words); ++k) {
+                    words_space += font_rect(words[k]).x;
+                }
+                if (array_count(words) == 0) {
+                    gotoxy.y += text_rect.y;    
+                    continue;
+                }
+                float extra_space = rect.z - words_space;
+                int gaps = array_count(words) - 1;
+                float space_offset = gaps > 0 ? extra_space / (float)gaps : 0;
+                for (int k = 0; k < array_count(words); ++k) {
+                    vec2 dims = font_draw_ex(va("%s%s", tags, words[k]), gotoxy, rect, NULL, font_draw_cmd);
+                    gotoxy.x += dims.x + space_offset;
+                }
+                gotoxy.x = rect.x;
+            } 
+
+            if (!j) {
+                font_draw_ex(line, gotoxy, rect, NULL, font_draw_cmd);
+            }
+
+            gotoxy.y += text_rect.y;
+        }
+        return text_dims;
+    } else {
+        if( l || c || r ) {
+            vec2 text_rect = font_rect(text);
+            gotoxy.x = l ? rect.x : r ? ((rect.x+rect.z) - text_rect.x) : rect.x+rect.z/2. - text_rect.x/2.;
+        }
+        if( t || b || m || B ) {
+            vec2 text_rect = font_rect(text);
+            gotoxy.y = t ? rect.y : b ? ((rect.y+rect.w) - text_rect.y) : m ? rect.y+rect.w/2.-text_rect.y/2. : rect.y+rect.w/2.-text_rect.y/1;
+        }
+        vec2 dims = font_draw_ex(text, gotoxy, rect, NULL, font_draw_cmd);
+        gotoxy.y += strchr(text, '\n') ? dims.y : 0;
+        gotoxy.x += !strchr(text, '\n') ? dims.x : 0;
+        return dims;
+    }
+}
+
+vec2 font_print(const char *text) {
+    vec4 dims = {0, 0, window_width(), window_height()};
+    return font_clip(text, dims);
+}
+
+const char *font_wrap(const char *text, float max_width) {
+    // return early if the text fits the max_width already
+    if (font_rect(text).x <= max_width) {
+        return text;
+    }
+
+    // skip alignment flags and collect tags
+    while ( text[0] == FONT_LEFT[0] ) {
+        int has_set=0;
+        if (text[1] == FONT_LEFT[1]) has_set=1;
+        if (text[1] == FONT_CENTER[1]) has_set=1;
+        if (text[1] == FONT_RIGHT[1]) has_set=1;
+        if (text[1] == FONT_JUSTIFY[1]) has_set=1;
+        if (text[1] == FONT_TOP[1]) has_set=1;
+        if (text[1] == FONT_BOTTOM[1]) has_set=1;
+        if (text[1] == FONT_MIDDLE[1]) has_set=1;
+        if (text[1] == FONT_BASELINE[1]) has_set=1;
+        if (!has_set) break;
+        else text += 2;
+    }
+
+    char tags[4] = {0};
+    int t=0;
+    while (*text) {
+        char ch = *text;
+
+        if( (ch >= 1 && ch <= 6) ||
+            (ch >= 0x1a && ch <= 0x1f) ||
+            (ch >= 0x10 && ch <= 0x19)) {
+            if (t < sizeof(tags)) tags[t++] = ch;
+        }
+        else break;
+        ++text;
+    }
+
+    array(char*) words = strsplit(text, " ");
+    static __thread int slot = 0;
+    static __thread char buf[16][FONT_MAX_STRING_LEN] = {0};
+
+    int len = strlen(text) + array_count(words);
+    slot = (slot+1) % 16;
+    memset(buf[slot], 0, len+1);
+
+    char *out = buf[slot];
+
+    float width = 0.0f;
+    for (int i = 0; i < array_count(words); ++i) {
+        char *word = words[i];
+        float word_width = font_rect(va("%s%s ", tags, word)).x;
+        if (strstr(word, "\n")) {
+            width = word_width;
+            strcat(out, va("%s ", word));
+        } else {
+            if (width+word_width > max_width) {
+                width = 0.0f;
+                strcat(out, "\n");
+            }
+            width += word_width;
+            strcat(out, va("%s ", word));
+        }
+    }
+
+    // get rid of the space added at the end
+    out[strlen(out)] = 0;
+
+    return out;
+}
+
+// Print a code snippet with syntax highlighting
+vec2 font_highlight(const char *text, const void *colors) {
+    vec4 screen_dim = {0, 0, window_width(), window_height()};
+    vec2 dims = font_draw_ex(text, gotoxy, screen_dim, (const char *)colors, font_draw_cmd);
+    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
+    gotoxy.x += !strchr(text, '\n') ? dims.x : 0;
+    return dims;
+}
+
+// Calculate the size of a string, in the pixel size specified. Count stray newlines too.
+vec2 font_rect(const char *str) {
+    vec4 dims = {0, 0, window_width(), window_height()};
+    return font_draw_ex(str, gotoxy, dims, NULL, NULL);
+}
+
+font_metrics_t font_metrics(const char *text) {
+    font_metrics_t m={0};
+    int S = 3;
+    font_t *f = &fonts[0];
+
+    // utf8 to utf32
+    array(uint32_t) unicode = string32(text);
+
+    // parse string
+    for( int i = 0, end = array_count(unicode); i < end; ++i ) {
+        uint32_t ch = unicode[i];
+        if( ch >= 1 && ch <= 6 ) {
+            S = ch;
+            continue;
+        }
+        if( ch >= 0x1a && ch <= 0x1f ) {
+            if( fonts[ ch - 0x1a ].initialized) {
+                // change face
+                f = &fonts[ ch - 0x1a ];
+            }
+            continue;
+        }
+    }
+
+    m.ascent = f->ascent*f->factor*f->scale[S];
+    m.descent = f->descent*f->factor*f->scale[S];
+    m.linegap = f->linegap*f->factor*f->scale[S];
+    m.linedist = f->linedist*f->factor*f->scale[S];
+    return m;
 }
 
 void *font_colorize(const char *text, const char *comma_types, const char *comma_keywords) {
@@ -11019,90 +11237,6 @@ void *font_colorize(const char *text, const char *comma_types, const char *comma
     return col;
 }
 
-static vec2 gotoxy = {0};
-
-// Return cursor
-vec2 font_xy() {
-    return gotoxy;
-}
-
-// Relocate cursor
-void font_goto(float x, float y) {
-    gotoxy = vec2(x, y);
-}
-
-// Print and linefeed. Text may include markup code
-vec2 font_print(const char *text) {
-    // @fixme: remove this hack
-    if( text[0] == FONT_LEFT[0] ) {
-        int l = text[1] == FONT_LEFT[1];
-        int c = text[1] == FONT_CENTER[1];
-        int r = text[1] == FONT_RIGHT[1];
-        if( l || c || r ) {
-            vec2 rect = font_rect(text + 2);
-            gotoxy.x = l ? 0 : r ? (window_width() - rect.x) : window_width()/2 - rect.x/2;
-            return font_print(text + 2);
-        }
-        int t = text[1] == FONT_TOP[1];
-        int b = text[1] == FONT_BOTTOM[1];
-        int m = text[1] == FONT_MIDDLE[1];
-        int B = text[1] == FONT_BASELINE[1];
-        if( t || b || m || B ) {
-            vec2 rect = font_rect(text + 2);
-            gotoxy.y = t ? 0 : b ? (window_height() - rect.y) : m ? window_height()/2-rect.y/2 : window_height()/2-rect.y/1;
-            return font_print(text + 2);
-        }
-    }
-
-    vec2 dims = font_draw_ex(text, gotoxy, NULL, font_draw_cmd);
-    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
-    gotoxy.x =  strchr(text, '\n') ? 0 : gotoxy.x + dims.x;
-    return dims;
-}
-
-// Print a code snippet with syntax highlighting
-vec2 font_highlight(const char *text, const void *colors) {
-    vec2 dims = font_draw_ex(text, gotoxy, (const char *)colors, font_draw_cmd);
-    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
-    gotoxy.x =  strchr(text, '\n') ? 0 : gotoxy.x + dims.x;
-    return dims;
-}
-
-// Calculate the size of a string, in the pixel size specified. Count stray newlines too.
-vec2 font_rect(const char *str) {
-    return font_draw_ex(str, gotoxy, NULL, NULL);
-}
-
-font_metrics_t font_metrics(const char *text) {
-    font_metrics_t m={0};
-    int S = 3;
-    font_t *f = &fonts[0];
-
-    // utf8 to utf32
-    array(uint32_t) unicode = string32(text);
-
-    // parse string
-    for( int i = 0, end = array_count(unicode); i < end; ++i ) {
-        uint32_t ch = unicode[i];
-        if( ch >= 1 && ch <= 6 ) {
-            S = ch;
-            continue;
-        }
-        if( ch >= 0x1a && ch <= 0x1f ) {
-            if( fonts[ ch - 0x1a ].initialized) {
-                // change face
-                f = &fonts[ ch - 0x1a ];
-            }
-            continue;
-        }
-    }
-
-    m.ascent = f->ascent*f->factor*f->scale[S];
-    m.descent = f->descent*f->factor*f->scale[S];
-    m.linegap = f->linegap*f->factor*f->scale[S];
-    m.linedist = f->linedist*f->factor*f->scale[S];
-    return m;
-}
 #line 0
 
 #line 1 "fwk_gui.c"
@@ -11114,8 +11248,8 @@ API void gui_drawrect( texture_t spritesheet, vec2 tex_start, vec2 tex_end, int 
 #define v42v2(rect) vec2(rect.x,rect.y), vec2(rect.z,rect.w)
 
 void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end ) {
+    static int program = -1, vbo = -1, vao = -1, u_tint = -1, u_has_tex = -1, u_window_width = -1, u_window_height = -1;
     float gamma = 1;
-    static int program = -1, vbo = -1, vao = -1, u_inv_gamma = -1, u_tint = -1, u_has_tex = -1, u_window_width = -1, u_window_height = -1;
     vec2 dpi = ifdef(osx, window_dpi(), vec2(1,1));
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/rect_2d.vs");
@@ -11123,7 +11257,6 @@ void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, ve
 
         program = shader(vs, fs, "", "fragcolor" , NULL);
         ASSERT(program > 0);
-        u_inv_gamma = glGetUniformLocation(program, "u_inv_gamma");
         u_tint = glGetUniformLocation(program, "u_tint");
         u_has_tex = glGetUniformLocation(program, "u_has_tex");
         u_window_width = glGetUniformLocation(program, "u_window_width");
@@ -11142,7 +11275,6 @@ void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, ve
 
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
     glUseProgram( program );
-    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
 
     glBindVertexArray( vao );
 
@@ -12445,6 +12577,18 @@ float pmodf    (float  a, float  b) { return (a < 0.0f ? 1.0f : 0.0f) + (float)f
 float signf    (float  a)           { return (a < 0) ? -1.f : 1.f; }
 float clampf(float v,float a,float b){return maxf(minf(b,v),a); }
 float mixf(float a,float b,float t) { return a*(1-t)+b*t; }
+float slerpf(float a,float b,float t) {
+    a = fmod(a, 360); if (a < 0) a += 360;
+    b = fmod(b, 360); if (b < 0) b += 360;
+    float diff = b - a;
+    if (diff < 0.0)
+        diff += 360.0;
+
+    float r = a + t*diff;
+    if (r >= 360.0)
+        r -= 360.0;
+    return r;
+}
 float fractf   (float a)            { return a - (int)a; }
 
 // ----------------------------------------------------------------------------
@@ -13647,6 +13791,7 @@ typedef struct rpc_call {
 #define RPC_SIGNATURE_i_s      UINT64_C(0xf7b73162829ed667)
 #define RPC_SIGNATURE_s_s      UINT64_C(0x97deedd17d9afb12)
 #define RPC_SIGNATURE_s_v      UINT64_C(0x09c16a1242049b80)
+#define RPC_SIGNATURE_v_v      UINT64_C(0xc210c270b6f06552)
 #define RPC_SIGNATURE_v_s      UINT64_C(0xc1746990ab73ed24)
 
 static
@@ -13699,6 +13844,7 @@ char *rpc_full(unsigned id, const char* method, unsigned num_args, char *args[])
             case RPC_SIGNATURE_i_s:   return va("%d %d", id, (int)(intptr_t)found->function(args[0]) );
             case RPC_SIGNATURE_s_s:   return va("%d %s", id, (char*)found->function(args[0]) );
             case RPC_SIGNATURE_s_v:   return va("%d %s", id, (char*)found->function() );
+            case RPC_SIGNATURE_v_v:   return found->function(), va("%d", id);
             case RPC_SIGNATURE_v_s:   return found->function(args[0]), va("%d", id);
             default: break;
         }
@@ -16934,7 +17080,7 @@ void glDebugEnable() {
 
 static
 void glCopyBackbufferToTexture( texture_t *tex ) { // unused
-    glActiveTexture( GL_TEXTURE0 + tex->unit );
+    glActiveTexture( GL_TEXTURE0 + texture_unit() );
     glBindTexture( GL_TEXTURE_2D, tex->id );
     glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 0, 0, window_width(), window_height(), 0 );
 }
@@ -16970,7 +17116,7 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
         // dump log with line numbers
         shader_print( source );
-        PRINTF("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
+        PANIC("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
         return 0;
     }
 
@@ -16979,6 +17125,22 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
 unsigned shader(const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines){
     return shader_geom(NULL, vs, fs, attribs, fragcolor, defines);
+}
+
+static inline
+char *shader_preprocess(const char *src, const char *defines) {
+    if (!src) return NULL;
+
+    const char *glsl_version = va("#version %s", ifdef(ems, "300 es", "150"));
+
+    // detect GLSL version if set
+    if (src[0] == '#' && src[1] == 'v') {
+        const char *end = strstri(src, "\n");
+        glsl_version = va("%.*s", (int)(end-src), src);
+        src = end+1;
+    }
+
+    return va("%s\n%s\n%s", glsl_version, defines ? defines : "", src);
 }
 
 unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines) {
@@ -16991,12 +17153,10 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
         }
     }
 
-    const char *glsl_version = ifdef(ems, "300 es", "150");
-
     if(gs)
-    gs = gs && gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
-    vs = vs && vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
-    fs = fs && fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
+    gs = shader_preprocess(gs, glsl_defines);
+    vs = shader_preprocess(vs, glsl_defines);
+    fs = shader_preprocess(fs, glsl_defines);
 
 #if is(ems)
     {
@@ -17027,7 +17187,7 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
             while( attribs[0] && attribs[0] == ',' ) { attribs++; break; }
             if(!attrib[0]) continue;
             glBindAttribLocation(program, i, attrib);
-            PRINTF("Shader.attribute[%d]=%s\n", i, attrib);
+            // PRINTF("Shader.attribute[%d]=%s\n", i, attrib);
         }
 
 #if !is(ems) // @fixme
@@ -17395,12 +17555,28 @@ void ssbo_unbind(){
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
+typedef map(unsigned,int) uniform_binding;
 static __thread unsigned last_shader = -1;
+static __thread quarks_db uniform_names;
+static __thread map(handle, uniform_binding) uniforms;
 static
 int shader_uniform(const char *name) {
-    int ret = glGetUniformLocation(last_shader, name);
+    do_once map_init(uniforms, less_int, hash_int);
+    if (!map_find(uniforms, last_shader)) {
+        uniform_binding names_map = 0;
+        map_init(names_map, less_int, hash_int);
+        map_insert(uniforms, last_shader, names_map);
+    }
+    
+    uniform_binding names = *map_find(uniforms, last_shader);
+    unsigned name_hash = quark_intern(&uniform_names, name);
+    if (!map_find(names, name_hash)) {
+        map_insert(names, name_hash, glGetUniformLocation(last_shader, name));
+    }
+
+    // int ret = glGetUniformLocation(last_shader, name);
     // if( ret < 0 ) PRINTF("!cannot find uniform '%s' in shader program %d\n", name, (int)last_shader );
-    return ret;
+    return *map_find(names, name_hash);
 }
 unsigned shader_get_active() { return last_shader; }
 unsigned shader_bind(unsigned program) { unsigned ret = last_shader; return glUseProgram(last_shader = program), ret; }
@@ -17411,10 +17587,15 @@ void shader_vec3(const char *uniform, vec3 v)   { glUniform3fv(shader_uniform(un
 void shader_vec3v(const char *uniform, int count, vec3 *v) { glUniform3fv(shader_uniform(uniform), count, &v[0].x); }
 void shader_vec4(const char *uniform, vec4 v)   { glUniform4fv(shader_uniform(uniform), 1, &v.x); }
 void shader_mat44(const char *uniform, mat44 m) { glUniformMatrix4fv(shader_uniform(uniform), 1, GL_FALSE/*GL_TRUE*/, m); }
-void shader_cubemap(const char *sampler, unsigned texture) { glUniform1i(shader_uniform(sampler), 0); glBindTexture(GL_TEXTURE_CUBE_MAP, texture); }
+void shader_cubemap(const char *sampler, unsigned texture) { 
+    int id = texture_unit();
+    glUniform1i(shader_uniform(sampler), id); 
+    glActiveTexture(GL_TEXTURE0 + id); 
+    glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
+}
 void shader_bool(const char *uniform, bool x) { glUniform1i(shader_uniform(uniform), x); }
 void shader_uint(const char *uniform, unsigned x ) { glUniform1ui(shader_uniform(uniform), x); }
-void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, t.unit); }
+void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, texture_unit()); }
 void shader_texture_unit(const char *sampler, unsigned id, unsigned unit) {
     // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(shader_uniform(sampler), unit);
@@ -17555,13 +17736,11 @@ vec3 bilinear(image_t in, vec2 uv) { // image_bilinear_pixel() ?
 // -----------------------------------------------------------------------------
 // textures
 
-static
-int allocate_texture_unit() {
+int texture_unit() {
     static int textureUnit = 0, totalTextureUnits = 0;
     do_once glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &totalTextureUnits);
-
-    ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
-    return textureUnit++;
+    // ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
+    return textureUnit++ % totalTextureUnits;
 }
 
 unsigned texture_update(texture_t *t, unsigned w, unsigned h, unsigned n, const void *pixels, int flags) {
@@ -17619,6 +17798,15 @@ GLenum texture_type = t->flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTUR
     glTexParameteri(texture_type, GL_TEXTURE_WRAP_T, wrap);
     glTexParameteri(texture_type, GL_TEXTURE_MIN_FILTER, min_filter);
     glTexParameteri(texture_type, GL_TEXTURE_MAG_FILTER, mag_filter);
+
+    if (flags & TEXTURE_ANISOTROPY) {
+        GLfloat value, max_anisotropy = 16.0f;
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &value);
+
+        value = (value > max_anisotropy) ? max_anisotropy : value;
+        glTexParameterf(texture_type, GL_TEXTURE_MAX_ANISOTROPY, value);
+    }
+
 #if 0 // only for sampler2DShadow
     if( flags & TEXTURE_DEPTH )   glTexParameteri(texture_type, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
     if( flags & TEXTURE_DEPTH )   glTexParameteri(texture_type, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
@@ -17648,7 +17836,6 @@ texture_t texture_create(unsigned w, unsigned h, unsigned n, const void *pixels,
     texture_t texture = {0};
     glGenTextures( 1, &texture.id );
     texture_update( &texture, w, h, n, pixels, flags );
-    texture.unit = allocate_texture_unit();
     texture.transparent = texture.n > 3; // @fixme: should be true only if any pixel.a == 0
     return texture;
 }
@@ -18028,6 +18215,9 @@ texture_t texture_compressed_from_mem(const void *data, int len, unsigned flags)
     if( dimensions > 0 ) glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_REPEAT);
     if( dimensions > 1 ) glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_REPEAT);
     if( dimensions > 2 ) glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_REPEAT);
+    if( flags&TEXTURE_CLAMP && dimensions > 0 ) glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    if( flags&TEXTURE_CLAMP && dimensions > 1 ) glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if( flags&TEXTURE_CLAMP && dimensions > 2 ) glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     if( target == GL_TEXTURE_CUBE_MAP ) target = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
 
@@ -18175,7 +18365,7 @@ void shadowmatrix_ortho(mat44 shm_proj, float left, float right, float bottom, f
 // usage: bind empty vao & commit call for 6 (quad) or 3 vertices (tri).
 // ie, glBindVertexArray(empty_vao); glDrawArrays(GL_TRIANGLES, 0, 3);
 
-void fullscreen_quad_rgb( texture_t texture, float gamma ) {
+void fullscreen_quad_rgb( texture_t texture ) {
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
@@ -18189,7 +18379,8 @@ void fullscreen_quad_rgb( texture_t texture, float gamma ) {
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
 //    glEnable( GL_BLEND );
     glUseProgram( program );
-    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
+    float gamma = 1;
+    glUniform1f( u_inv_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -18206,7 +18397,7 @@ void fullscreen_quad_rgb( texture_t texture, float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
+void fullscreen_quad_rgb_flipped( texture_t texture ) {
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
@@ -18220,7 +18411,8 @@ void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
 //    glEnable( GL_BLEND );
     glUseProgram( program );
-    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
+    float gamma = 1;
+    glUniform1f( u_inv_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -18237,7 +18429,7 @@ void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
+void fullscreen_quad_ycbcr( texture_t textureYCbCr[3] ) {
     static int program = -1, vao = -1, u_gamma = -1, uy = -1, ucb = -1, ucr = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
@@ -18255,7 +18447,7 @@ void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
 
 //    glEnable( GL_BLEND );
     glUseProgram( program );
-    glUniform1f( u_gamma, gamma );
+    // glUniform1f( u_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -18281,7 +18473,7 @@ void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3], float gamma ) {
+void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3] ) {
     static int program = -1, vao = -1, u_gamma = -1, uy = -1, ucb = -1, ucr = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
@@ -18299,7 +18491,7 @@ void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3], float gamma ) {
 
 //    glEnable( GL_BLEND );
     glUseProgram( program );
-    glUniform1f( u_gamma, gamma );
+    // glUniform1f( u_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -18441,6 +18633,7 @@ cubemap_t cubemap6( const image_t images[6], int flags ) {
         }
     }
 
+
     for (int s = 0; s < 9; s++) {
         c.sh[s] = scale3(c.sh[s], 32.f / samples);
     }
@@ -18491,7 +18684,7 @@ skybox_t skybox(const char *asset, int flags) {
     mesh_update(&sky.geometry, "p3", 0,countof(vertices),vertices, countof(indices),indices, MESH_TRIANGLE_STRIP);
 
     // sky program
-    sky.flags = flags ? flags : !!asset; // either cubemap or rayleigh
+    sky.flags = flags && flags != SKYBOX_PBR ? flags : !!asset ? SKYBOX_CUBEMAP : SKYBOX_RAYLEIGH; // either cubemap or rayleigh
     sky.program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
         sky.flags ? vfs_read("fs_3_4_skybox.glsl") : vfs_read("shaders/fs_3_4_skybox_rayleigh.glsl"),
         "att_position", "fragcolor", NULL);
@@ -18500,7 +18693,7 @@ skybox_t skybox(const char *asset, int flags) {
     if( asset ) {
         int is_panorama = vfs_size( asset );
         if( is_panorama ) { // is file
-            stbi_hdr_to_ldr_gamma(1.2f);
+            stbi_hdr_to_ldr_gamma(1.0f);
             image_t panorama = image( asset, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
             image_destroy(&panorama);
@@ -18529,6 +18722,60 @@ skybox_t skybox(const char *asset, int flags) {
         shader_float("uMieScaleHeight", 1200.0);
         shader_float("uMiePreferredDirection", 0.758);
         skybox_mie_calc_sh(&sky, 1.2);
+    }
+
+    return sky;
+}
+
+static inline
+texture_t load_env_tex( const char *pathfile, unsigned flags ) {
+    int flags_hdr = strendi(pathfile, ".hdr") ? TEXTURE_FLOAT | TEXTURE_RGBA : 0;
+    texture_t t = texture(pathfile, flags | TEXTURE_LINEAR | TEXTURE_MIPMAPS | TEXTURE_REPEAT | flags_hdr);
+    glBindTexture( GL_TEXTURE_2D, t.id );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return t;
+}
+
+skybox_t skybox_pbr(const char *sky_map, const char *refl_map, const char *env_map) {
+    skybox_t sky = {0};
+
+    // sky mesh
+    vec3 vertices[] = {{+1,-1,+1},{+1,+1,+1},{+1,+1,-1},{-1,+1,-1},{+1,-1,-1},{-1,-1,-1},{-1,-1,+1},{-1,+1,+1}};
+    unsigned indices[] = { 0, 1, 2, 3, 4, 5, 6, 3, 7, 1, 6, 0, 4, 2 };
+    mesh_update(&sky.geometry, "p3", 0,countof(vertices),vertices, countof(indices),indices, MESH_TRIANGLE_STRIP);
+
+    // sky program
+    sky.flags = SKYBOX_PBR;
+    sky.program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
+        vfs_read("fs_3_4_skybox.glsl"),
+        "att_position", "fragcolor", NULL);
+
+    // sky cubemap & SH
+    if( sky_map ) {
+        int is_panorama = vfs_size( sky_map );
+        if( is_panorama ) { // is file
+            stbi_hdr_to_ldr_gamma(1.0f);
+            image_t panorama = image( sky_map, IMAGE_RGBA );
+            sky.cubemap = cubemap( panorama, 0 ); // RGBA required
+            image_destroy(&panorama);
+        } else { // is folder
+            image_t images[6] = {0};
+            images[0] = image( va("%s/posx", sky_map), IMAGE_RGB ); // cubepx
+            images[1] = image( va("%s/negx", sky_map), IMAGE_RGB ); // cubenx
+            images[2] = image( va("%s/posy", sky_map), IMAGE_RGB ); // cubepy
+            images[3] = image( va("%s/negy", sky_map), IMAGE_RGB ); // cubeny
+            images[4] = image( va("%s/posz", sky_map), IMAGE_RGB ); // cubepz
+            images[5] = image( va("%s/negz", sky_map), IMAGE_RGB ); // cubenz
+            sky.cubemap = cubemap6( images, 0 );
+            for( int i = 0; i < countof(images); ++i ) image_destroy(&images[i]);
+        }
+    }
+    if( refl_map ) {
+        sky.refl = load_env_tex(refl_map, 0);
+    }
+    if( env_map ) {
+        sky.env = load_env_tex(env_map, 0);
     }
 
     return sky;
@@ -18823,7 +19070,9 @@ void mesh_render_prim(mesh_t *sm, unsigned prim) {
 
 void mesh_destroy(mesh_t *m) {
     // @todo
-    (void)m;
+    glDeleteBuffers(1, &m->vbo);
+    glDeleteBuffers(1, &m->ibo);
+    glDeleteVertexArrays(1, &m->vao);
 }
 
 // -----------------------------------------------------------------------------
@@ -18890,6 +19139,14 @@ void* screenshot_async( int n ) { // 3 RGB, 4 RGBA, -3 BGR, -4 BGRA
 // -----------------------------------------------------------------------------
 // viewports
 
+void viewport_color(unsigned color) {
+    unsigned r = (color >>  0) & 255;
+    unsigned g = (color >>  8) & 255;
+    unsigned b = (color >> 16) & 255;
+    unsigned a = (color >> 24) & 255;
+    glClearColor(r, g, b, a);
+}
+
 void viewport_clear(bool color, bool depth) {
     glClearDepthf(1);
     glClearStencil(0);
@@ -18908,6 +19165,9 @@ void viewport_clip(vec2 from, vec2 to) {
 // fbos
 
 unsigned fbo(unsigned color_texture_id, unsigned depth_texture_id, int flags) {
+    int last_fb;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &last_fb);
+
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -18956,14 +19216,21 @@ unsigned fbo(unsigned color_texture_id, unsigned depth_texture_id, int flags) {
     }
 #endif
 
-    glBindFramebuffer (GL_FRAMEBUFFER, 0);
+    glBindFramebuffer (GL_FRAMEBUFFER, last_fb);
     return fbo;
 }
+static __thread array(handle) fbos;
 void fbo_bind(unsigned id) {
     glBindFramebuffer(GL_FRAMEBUFFER, id);
+    array_push(fbos, id);
 }
 void fbo_unbind() {
-    fbo_bind(0);
+    handle id = 0;
+    if (array_count(fbos)) {
+        array_pop(fbos);
+        id = *array_back(fbos);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, id);
 }
 void fbo_destroy(unsigned id) {
     // glDeleteRenderbuffers(1, &renderbuffer);
@@ -18987,6 +19254,7 @@ bool postfx_enabled(postfx *fx, int pass_number);
 bool postfx_enable(postfx *fx, int pass_number, bool enabled);
 // bool postfx_toggle(postfx *fx, int pass_number);
 void postfx_clear(postfx *fx);
+void postfx_order(postfx *fx, int pass, unsigned priority);
 
 char* postfx_name(postfx *fx, int slot);
 
@@ -18997,6 +19265,8 @@ struct passfx {
     char *name;
     unsigned program;
     int uniforms[16];
+    unsigned priority;
+    bool enabled;
 };
 
 struct postfx {
@@ -19004,12 +19274,9 @@ struct postfx {
     unsigned fb[2];
     texture_t diffuse[2], depth[2];
     // shader passes
-    passfx pass[64];
-    uint64_t mask;
+    array(passfx) pass;
     // global enable flag
     bool enabled;
-    //
-    int num_loaded;
 };
 
 enum {
@@ -19031,9 +19298,10 @@ void postfx_create(postfx *fx, int flags) {
 }
 
 void postfx_destroy( postfx *fx ) {
-    for( int i = 0; i < 64; ++i ) {
+    for( int i = 0; i < array_count(fx->pass); ++i ) {
         FREE(fx->pass[i].name);
     }
+    array_free(fx->pass);
     texture_destroy(&fx->diffuse[0]);
     texture_destroy(&fx->diffuse[1]);
     texture_destroy(&fx->depth[0]);
@@ -19045,22 +19313,37 @@ void postfx_destroy( postfx *fx ) {
 }
 
 char* postfx_name(postfx *fx, int slot) {
-    return slot < 0 ? "" : fx->pass[ slot & 63 ].name;
+    return slot < 0 || slot >= array_count(fx->pass) ? "" : fx->pass[ slot ].name;
 }
 int postfx_find(postfx *fx, const char *name) {
     name = file_name(name);
-    for( int i = 0; i < 64; ++i) if(!strcmpi(fx->pass[i].name, name)) return i;
+    for( int i = 0; i < array_count(fx->pass); ++i) if(!strcmpi(fx->pass[i].name, name)) return i;
     return -1;
+}
+
+static
+int postfx_sort_fn(const void *a, const void *b) {
+    unsigned p1 = ((passfx*)a)->priority;
+    unsigned p2 = ((passfx*)b)->priority;
+    return (p1 > p2) - (p1 < p2);
+}
+void postfx_order(postfx *fx, int pass, unsigned priority) {
+    if (pass < 0 || pass >= array_count(fx->pass)) return;
+    if (priority >= array_count(fx->pass)) return;
+    fx->pass[priority].priority = pass;
+    fx->pass[pass].priority = priority;
+    array_sort(fx->pass, postfx_sort_fn);
 }
 
 int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
     PRINTF("%s\n", name);
     if(!fs || !fs[0]) return -1; // PANIC("!invalid fragment shader");
 
-    int slot = fx->num_loaded++;
-
-    passfx *p = &fx->pass[ slot & 63 ];
+    passfx pass={0};
+    array_push(fx->pass, pass);
+    passfx *p = array_back(fx->pass);
     p->name = STRDUP(name);
+    p->priority = array_count(fx->pass)-1;
 
     // preload stuff
     static const char *vs = 0;
@@ -19107,42 +19390,61 @@ int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
 
     if( p->uniforms[u_channelres1x] == -1 ) p->uniforms[u_channelres1x] = glGetUniformLocation(p->program, "iChannelRes1x");
     if( p->uniforms[u_channelres1y] == -1 ) p->uniforms[u_channelres1y] = glGetUniformLocation(p->program, "iChannelRes1y");
-
+    
     // set quad
     glGenVertexArrays(1, &p->m.vao);
-    return slot;
+    return array_count(fx->pass)-1;
 }
 
 bool postfx_enable(postfx *fx, int pass, bool enabled) {
-    if( pass < 0 ) return false;
-    fx->mask = enabled ? fx->mask | (1ull << pass) : fx->mask & ~(1ull << pass);
-    fx->enabled = !!popcnt64(fx->mask);
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
+    fx->pass[pass].enabled = enabled;
+    fx->enabled = !!array_count(fx->pass);
     return fx->enabled;
 }
 
 bool postfx_enabled(postfx *fx, int pass) {
-    if( pass < 0 ) return false;
-    return (!!(fx->mask & (1ull << pass)));
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
+    return fx->pass[pass].enabled;
 }
 
 bool postfx_toggle(postfx *fx, int pass) {
-    if( pass < 0 ) return false;
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
     return postfx_enable(fx, pass, 1 ^ postfx_enabled(fx, pass));
 }
 
 void postfx_clear(postfx *fx) {
-    fx->mask = fx->enabled = 0;
+    for (int i = 0; i < array_count(fx->pass); i++) {
+        fx->pass[i].enabled = 0;
+    }
+    fx->enabled = 0;
 }
 
 int ui_postfx(postfx *fx, int pass) {
+    if (pass < 0 || pass >= array_count(fx->pass)) return 0;
     int on = ui_enabled();
     ( postfx_enabled(fx,pass) ? ui_enable : ui_disable )();
     int rc = ui_shader(fx->pass[pass].program);
+    ui_separator();
+    int btn = ui_buttons(2, "Move up", "Move down");
+    if (btn == 1) {
+        postfx_order(fx, pass, fx->pass[pass].priority-1);
+    } 
+    else if (btn == 2) {
+        postfx_order(fx, pass, fx->pass[pass].priority+1);
+    }
     ( on ? ui_enable : ui_disable )();
     return rc;
 }
 
-static __thread array(handle) last_fb;
+static
+int postfx_active_passes(postfx *fx) {
+    int num_passes = 0;
+    for (int i = 0; i < array_count(fx->pass); i++)
+        if (fx->pass[i].enabled)
+            ++num_passes;
+    return num_passes;
+}
 
 bool postfx_begin(postfx *fx, int width, int height) {
     // reset clear color: needed in case transparent window is being used (alpha != 0)
@@ -19150,10 +19452,6 @@ bool postfx_begin(postfx *fx, int width, int height) {
 
     width += !width;
     height += !height;
-
-    int fb;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
-    array_push(last_fb, fb);
 
     // resize if needed
     if( fx->diffuse[0].w != width || fx->diffuse[0].h != height ) {
@@ -19165,47 +19463,44 @@ bool postfx_begin(postfx *fx, int width, int height) {
         fbo_destroy(fx->fb[1]);
 
         // create texture, set texture parameters and content
-        fx->diffuse[0] = texture_create(width, height, 4, NULL, TEXTURE_RGBA);
+        fx->diffuse[0] = texture_create(width, height, 4, NULL, TEXTURE_RGBA|TEXTURE_FLOAT);
         fx->depth[0] = texture_create(width, height, 1,  NULL, TEXTURE_DEPTH|TEXTURE_FLOAT);
         fx->fb[0] = fbo(fx->diffuse[0].id, fx->depth[0].id, 0);
 
         // create texture, set texture parameters and content
-        fx->diffuse[1] = texture_create(width, height, 4, NULL, TEXTURE_RGBA);
+        fx->diffuse[1] = texture_create(width, height, 4, NULL, TEXTURE_RGBA|TEXTURE_FLOAT);
         fx->depth[1] = texture_create(width, height, 1, NULL, TEXTURE_DEPTH|TEXTURE_FLOAT);
         fx->fb[1] = fbo(fx->diffuse[1].id, fx->depth[1].id, 0);
     }
 
-    uint64_t num_active_passes = popcnt64(fx->mask);
+    uint64_t num_active_passes = postfx_active_passes(fx);
     bool active = fx->enabled && num_active_passes;
     if( !active ) {
-        array_pop(last_fb);
-        fbo_bind(fb);
         return false;
     }
 
     fbo_bind(fx->fb[1]);
-
     viewport_clear(true, true);
     viewport_clip(vec2(0,0), vec2(width, height));
+    fbo_unbind();
 
     fbo_bind(fx->fb[0]);
-
     viewport_clear(true, true);
     viewport_clip(vec2(0,0), vec2(width, height));
+    // we keep fbo_0 bound so that user can render into it.
 
     return true;
 }
 
 bool postfx_end(postfx *fx) {
-    uint64_t num_active_passes = popcnt64(fx->mask);
+    uint64_t num_active_passes = postfx_active_passes(fx);
     bool active = fx->enabled && num_active_passes;
     if( !active ) {
         return false;
     }
 
-    handle fb = *array_back(last_fb);
-    array_pop(last_fb);
-    fbo_bind(fb);
+    // unbind postfx fbo
+    fbo_unbind();
 
     // disable depth test in 2d rendering
     bool is_depth_test_enabled = glIsEnabled(GL_DEPTH_TEST);
@@ -19218,10 +19513,9 @@ bool postfx_end(postfx *fx) {
     float mx = input(MOUSE_X);
     float my = input(MOUSE_Y);
 
-    for(int i = 0, e = countof(fx->pass); i < e; ++i) {
-        if( fx->mask & (1ull << i) ) {
-            passfx *pass = &fx->pass[i];
-
+    for(int i = 0, e = array_count(fx->pass); i < e; ++i) {
+        passfx *pass = &fx->pass[i];
+        if( pass->enabled ) {
             if( !pass->program ) { --num_active_passes; continue; }
             glUseProgram(pass->program);
 
@@ -19232,7 +19526,7 @@ bool postfx_end(postfx *fx) {
 
             glUniform1f(pass->uniforms[u_channelres0x], fx->diffuse[frame].w);
             glUniform1f(pass->uniforms[u_channelres0y], fx->diffuse[frame].h);
-
+            
             // bind depth to texture unit 1
             // shader_texture_unit(fx->depth[frame], 1);
  glActiveTexture(GL_TEXTURE0 + 1);            glBindTexture(GL_TEXTURE_2D, fx->depth[frame].id);
@@ -19250,7 +19544,7 @@ bool postfx_end(postfx *fx) {
 
             // bind the vao
             int bound = --num_active_passes;
-            if( bound ) fbo_bind(fx->fb[frame ^= 1]);
+            if (bound) fbo_bind(fx->fb[frame ^= 1]);
 
                 // fullscreen quad
                 glBindVertexArray(pass->m.vao);
@@ -19259,10 +19553,10 @@ bool postfx_end(postfx *fx) {
                 profile_incstat("Render.num_triangles", +2);
                 glBindVertexArray(0);
 
-            if( bound ) fbo_bind(fb);
-            else glUseProgram(0);
+            if (bound) fbo_unbind();
         }
     }
+    glUseProgram(0);
 
     if(is_depth_test_enabled);
     glEnable(GL_DEPTH_TEST);
@@ -19311,7 +19605,7 @@ void fx_enable(int pass, int enabled) {
     postfx_enable(&fx, pass, enabled);
 }
 void fx_enable_all(int enabled) {
-    for( int i = 0; i < fx.num_loaded; ++i ) fx_enable(i, enabled);
+    for( int i = 0; i < array_count(fx.pass); ++i ) fx_enable(i, enabled);
 }
 char *fx_name(int pass) {
     return postfx_name(&fx, pass);
@@ -19319,14 +19613,17 @@ char *fx_name(int pass) {
 int fx_find(const char *name) {
     return postfx_find(&fx, name);
 }
+void fx_order(int pass, unsigned priority) {
+    postfx_order(&fx, pass, priority);
+}
 int ui_fx(int pass) {
     return ui_postfx(&fx, pass);
 }
 int ui_fxs() {
-    if(!fx.num_loaded) return ui_label(ICON_MD_WARNING " No Post FXs with annotations loaded."), 0;
+    if(!array_count(fx.pass)) return ui_label(ICON_MD_WARNING " No Post FXs with annotations loaded."), 0;
 
     int changed = 0;
-    for( int i = 0; i < 64; ++i ) {
+    for( int i = 0; i < array_count(fx.pass); ++i ) {
         char *name = fx_name(i); if( !name ) break;
         bool b = fx_enabled(i);
         if( ui_bool(name, &b) ) fx_enable(i, fx_enabled(i) ^ 1);
@@ -19342,15 +19639,55 @@ int ui_fxs() {
 static texture_t brdf = {0};
 
 static void brdf_load() {
-    const char *filename;
-    filename = "Skyboxes/brdf_lut1k_256x256_32F.ktx";
-    filename = "Skyboxes/brdf_lut2k_512x512_32F.ktx";
+    // generate texture
+    unsigned tex;
+    glGenTextures(1, &tex);
 
-    brdf = texture_compressed( filename,
-        TEXTURE_CLAMP | TEXTURE_NEAREST | TEXTURE_RG | TEXTURE_FLOAT | TEXTURE_SRGB
-    );
-    unsigned texchecker = texture_checker().id;
-    ASSERT(brdf.id != texchecker, "!Couldn't load BRDF lookup table '%s'!", filename );
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, 512, 512, 0, GL_RG, GL_FLOAT, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); 
+
+    brdf.id = tex;
+    brdf.w = 512;
+    brdf.h = 512;
+
+    // create program and generate BRDF LUT
+    unsigned lut_fbo = fbo(tex, 0, 0), rbo=0;
+    fbo_bind(lut_fbo);
+
+    static int program = -1, vao = -1;
+    if( program < 0 ) {
+        const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
+        const char* fs = vfs_read("shaders/brdf.glsl");
+
+        program = shader(vs, fs, "", "fragcolor", NULL);
+        glGenVertexArrays( 1, (GLuint*)&vao );
+    }
+
+    glDisable(GL_BLEND);
+
+    handle old_shader = last_shader;
+    glUseProgram( program );
+
+    glViewport(0, 0, 512, 512);
+
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+
+    glBindVertexArray( vao );
+
+    glDrawArrays( GL_TRIANGLES, 0, 6 );
+    profile_incstat("Render.num_drawcalls", +1);
+    profile_incstat("Render.num_triangles", +2);
+
+    glBindVertexArray( 0 );
+
+    glUseProgram( last_shader );
+
+    fbo_unbind();
+    fbo_destroy(lut_fbo);
 }
 
 texture_t brdf_lut() {
@@ -19361,8 +19698,8 @@ texture_t brdf_lut() {
 // -----------------------------------------------------------------------------
 // materials
 
-bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
-    if( !material_file ) return false;
+bool colormap( colormap_t *cm, const char *texture_name, bool load_as_srgb ) {
+    if( !texture_name ) return false;
 
     if( cm->texture ) {
         texture_destroy(cm->texture);
@@ -19370,8 +19707,8 @@ bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
     }
 
     int srgb = load_as_srgb ? TEXTURE_SRGB : 0;
-    int hdr = strendi(material_file, ".hdr") ? TEXTURE_FLOAT | TEXTURE_RGBA : 0;
-    texture_t t = texture_compressed(material_file, TEXTURE_LINEAR | TEXTURE_MIPMAPS | TEXTURE_REPEAT | hdr | srgb);
+    int hdr = strendi(texture_name, ".hdr") ? TEXTURE_FLOAT|TEXTURE_RGBA : 0;
+    texture_t t = texture_compressed(texture_name, TEXTURE_LINEAR | TEXTURE_ANISOTROPY | TEXTURE_MIPMAPS | TEXTURE_REPEAT | hdr | srgb);
 
     if( t.id == texture_checker().id ) {
         cm->texture = NULL;
@@ -19380,63 +19717,6 @@ bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
     cm->texture = CALLOC(1, sizeof(texture_t));
     *cm->texture = t;
     return true;
-}
-
-bool pbr_material(pbr_material_t *pbr, const char *material) {
-    if( !material || !pbr ) return false;
-
-    //pbr_material_destroy(pbr);
-    *pbr = (pbr_material_t){0};
-
-    pbr->name = STRDUP(material);
-
-    pbr->specular_shininess = 1.0f;
-    /*
-    if( const float *f = aiGetMaterialFloat(scn_material[i], aiMaterialTypeString(MATERIAL_SHININESS)) ) {
-        pbr->specular_shininess = *f;
-    }
-    */
-
-    pbr->diffuse.color = vec4(0.5,0.5,0.5,0.5);
-    pbr->normals.color = vec4(0,0,0,0);
-    pbr->specular.color = vec4(0,0,0,0);
-    pbr->albedo.color = vec4(0.5,0.5,0.5,1.0);
-    pbr->roughness.color = vec4(1,1,1,1);
-    pbr->metallic.color = vec4(0,0,0,0);
-    pbr->ao.color = vec4(1,1,1,1);
-    pbr->ambient.color = vec4(0,0,0,1);
-    pbr->emissive.color = vec4(0,0,0,0);
-
-    array(char*) tokens = strsplit(material, "+");
-    for( int j = 0, end = array_count(tokens); j < end; ++j ) {
-        char *t = tokens[j];
-        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") )    colormap(&pbr->diffuse, t, 1);
-        if( strstri(t, "_N.") || strstri(t, "Normal") )     colormap(&pbr->normals, t, 0);
-        if( strstri(t, "_S.") || strstri(t, "Specular") )   colormap(&pbr->specular, t, 0);
-        if( strstri(t, "_A.") || strstri(t, "Albedo") )     colormap(&pbr->albedo, t, 1); // 0?
-        if( strstri(t, "_MR.")|| strstri(t, "Roughness") )  colormap(&pbr->roughness, t, 0);
-        else
-        if( strstri(t, "_M.") || strstri(t, "Metallic") )   colormap(&pbr->metallic, t, 0);
-      //if( strstri(t, "_S.") || strstri(t, "Shininess") )  colormap(&pbr->roughness, t, 0);
-      //if( strstri(t, "_A.") || strstri(t, "Ambient") )    colormap(&pbr->ambient, t, 0);
-        if( strstri(t, "_E.") || strstri(t, "Emissive") )   colormap(&pbr->emissive, t, 1);
-        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) colormap(&pbr->ao, t, 0);
-    }
-
-    return true;
-}
-
-void pbr_material_destroy(pbr_material_t *m) {
-    if( m->name )              FREE(m->name), m->name = NULL;
-    if( m->diffuse.texture)    texture_destroy( m->diffuse.texture );
-    if( m->normals.texture)    texture_destroy( m->normals.texture );
-    if( m->specular.texture)   texture_destroy( m->specular.texture );
-    if( m->albedo.texture)     texture_destroy( m->albedo.texture );
-    if( m->roughness.texture)  texture_destroy( m->roughness.texture );
-    if( m->metallic.texture)   texture_destroy( m->metallic.texture );
-    if( m->ao.texture )        texture_destroy( m->ao.texture );
-    if( m->ambient.texture )   texture_destroy( m->ambient.texture );
-    *m = (pbr_material_t){0};
 }
 
 // ----------------------------------------------------------------------------
@@ -19547,6 +19827,7 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
             }
         }
 
+        glViewport(0, 0, s->dims.x ? s->dims.x : window_width(), s->dims.y ? s->dims.y : window_height());
         glBindVertexArray(s->vao);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
@@ -19686,37 +19967,12 @@ typedef struct iqm_t {
     vec4 *colormaps;
 } iqm_t;
 
-#define meshdata (q->meshdata)
-#define animdata (q->animdata)
-#define nummeshes (q->nummeshes)
-#define numtris (q->numtris)
-#define numverts (q->numverts)
-#define numjoints (q->numjoints)
-#define numframes (q->numframes)
-#define numanims (q->numanims)
-#define meshes (q->meshes)
-#define textures (q->textures)
-#define joints (q->joints)
-#define poses (q->poses)
-#define anims (q->anims)
-#define baseframe (q->baseframe)
-#define inversebaseframe (q->inversebaseframe)
-#define outframe (q->outframe)
-#define frames (q->frames)
-#define vao (q->vao)
-#define ibo (q->ibo)
-#define vbo (q->vbo)
-#define bonematsoffset (q->bonematsoffset)
-#define buf (q->buf)
-#define bounds (q->bounds)
-#define colormaps (q->colormaps)
-
 void model_set_texture(model_t m, texture_t t) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    for( int i = 0; i < nummeshes; ++i) { // assume 1 texture per mesh
-        textures[i] = t.id;
+    for( int i = 0; i < q->nummeshes; ++i) { // assume 1 texture per mesh
+        q->textures[i] = t.id;
     }
 }
 
@@ -19802,6 +20058,11 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "view")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, view);
     }
+    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0) {
+        mat44 inv_view;
+        invert44( inv_view, view);
+        glUniformMatrix4fv(loc, 1, GL_FALSE, inv_view);
+    }
     if ((loc = glGetUniformLocation(shader, "P")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
     }
@@ -19809,12 +20070,34 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "proj")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
     }
-    if( (loc = glGetUniformLocation(shader, "SKINNED")) >= 0 ) glUniform1i( loc, numanims ? GL_TRUE : GL_FALSE);
-    if( numanims )
-    if( (loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0 ) glUniformMatrix3x4fv( loc, numjoints, GL_FALSE, outframe[0]);
+    if( (loc = glGetUniformLocation(shader, "SKINNED")) >= 0 ) glUniform1i( loc, q->numanims ? GL_TRUE : GL_FALSE);
+    if( q->numanims )
+    if( (loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0 ) glUniformMatrix3x4fv( loc, q->numjoints, GL_FALSE, q->outframe[0]);
 
     if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0) {
         glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
+    }
+
+    if (m.shading == SHADING_PBR) {
+        handle old_shader = last_shader;
+        shader_bind(shader);
+        shader_vec2( "resolution", vec2(window_width(),window_height()));
+        
+        bool has_tex_skysphere = m.sky_refl.id != texture_checker().id;
+        bool has_tex_skyenv = m.sky_env.id != texture_checker().id;
+        shader_bool( "has_tex_skysphere", has_tex_skysphere );
+        shader_bool( "has_tex_skyenv", has_tex_skyenv );
+        if( has_tex_skysphere ) {
+            float mipCount = floor( log2( max(m.sky_refl.w, m.sky_refl.h) ) );
+            shader_texture("tex_skysphere", m.sky_refl);
+            shader_float( "skysphere_mip_count", mipCount );
+        }
+        if( has_tex_skyenv ) {
+            shader_texture( "tex_skyenv", m.sky_env );
+        }
+        shader_texture( "tex_brdf_lut", brdf_lut() );
+        shader_uint( "frame_count", (unsigned)window_frame() );
+        shader_bind(old_shader);
     }
 }
 static
@@ -19822,10 +20105,10 @@ void model_set_state(model_t m) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    glBindVertexArray( vao );
+    glBindVertexArray( q->vao );
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, q->ibo);
+    glBindBuffer(GL_ARRAY_BUFFER, q->vbo);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, position) );
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, texcoord) );
@@ -19846,7 +20129,7 @@ void model_set_state(model_t m) {
     glEnableVertexAttribArray(12);
 
     // animation
-    if(numframes > 0) {
+    if(q->numframes > 0) {
         glVertexAttribPointer( 8, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,blendindexes) );
         glVertexAttribPointer( 9, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,blendweights) );
         glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, blendvertexindex) );
@@ -19887,71 +20170,71 @@ void model_set_state(model_t m) {
 
 static
 bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
-    if(meshdata) return false;
+    if(q->meshdata) return false;
 
-    lil32p(&buf[hdr->ofs_vertexarrays], hdr->num_vertexarrays*sizeof(struct iqmvertexarray)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_triangles], hdr->num_triangles*sizeof(struct iqmtriangle)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_meshes], hdr->num_meshes*sizeof(struct iqmmesh)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_joints], hdr->num_joints*sizeof(struct iqmjoint)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_vertexarrays], hdr->num_vertexarrays*sizeof(struct iqmvertexarray)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_triangles], hdr->num_triangles*sizeof(struct iqmtriangle)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_meshes], hdr->num_meshes*sizeof(struct iqmmesh)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_joints], hdr->num_joints*sizeof(struct iqmjoint)/sizeof(uint32_t));
 
-    meshdata = buf;
-    nummeshes = hdr->num_meshes;
-    numtris = hdr->num_triangles;
-    numverts = hdr->num_vertexes;
-    numjoints = hdr->num_joints;
-    outframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->meshdata = q->buf;
+    q->nummeshes = hdr->num_meshes;
+    q->numtris = hdr->num_triangles;
+    q->numverts = hdr->num_vertexes;
+    q->numjoints = hdr->num_joints;
+    q->outframe = CALLOC(hdr->num_joints, sizeof(mat34));
 
     float *inposition = NULL, *innormal = NULL, *intangent = NULL, *intexcoord = NULL, *invertexindex = NULL;
     uint8_t *inblendindex8 = NULL, *inblendweight8 = NULL;
     int *inblendindexi = NULL; float *inblendweightf = NULL;
     uint8_t *invertexcolor8 = NULL;
-    struct iqmvertexarray *vas = (struct iqmvertexarray *)&buf[hdr->ofs_vertexarrays];
+    struct iqmvertexarray *vas = (struct iqmvertexarray *)&q->buf[hdr->ofs_vertexarrays];
     for(int i = 0; i < (int)hdr->num_vertexarrays; i++) {
         struct iqmvertexarray *va = &vas[i];
         switch(va->type) {
         default: continue; // return PANIC("unknown iqm vertex type (%d)", va->type), false;
-        break; case IQM_POSITION: ASSERT(va->format == IQM_FLOAT && va->size == 3); inposition = (float *)&buf[va->offset]; lil32pf(inposition, 3*hdr->num_vertexes);
-        break; case IQM_NORMAL: ASSERT(va->format == IQM_FLOAT && va->size == 3); innormal = (float *)&buf[va->offset]; lil32pf(innormal, 3*hdr->num_vertexes);
-        break; case IQM_TANGENT: ASSERT(va->format == IQM_FLOAT && va->size == 4); intangent = (float *)&buf[va->offset]; lil32pf(intangent, 4*hdr->num_vertexes);
-        break; case IQM_TEXCOORD: ASSERT(va->format == IQM_FLOAT && va->size == 2); intexcoord = (float *)&buf[va->offset]; lil32pf(intexcoord, 2*hdr->num_vertexes);
-        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE); invertexcolor8 = (uint8_t *)&buf[va->offset];
+        break; case IQM_POSITION: ASSERT(va->format == IQM_FLOAT && va->size == 3); inposition = (float *)&q->buf[va->offset]; lil32pf(inposition, 3*hdr->num_vertexes);
+        break; case IQM_NORMAL: ASSERT(va->format == IQM_FLOAT && va->size == 3); innormal = (float *)&q->buf[va->offset]; lil32pf(innormal, 3*hdr->num_vertexes);
+        break; case IQM_TANGENT: ASSERT(va->format == IQM_FLOAT && va->size == 4); intangent = (float *)&q->buf[va->offset]; lil32pf(intangent, 4*hdr->num_vertexes);
+        break; case IQM_TEXCOORD: ASSERT(va->format == IQM_FLOAT && va->size == 2); intexcoord = (float *)&q->buf[va->offset]; lil32pf(intexcoord, 2*hdr->num_vertexes);
+        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE); invertexcolor8 = (uint8_t *)&q->buf[va->offset];
         break; case IQM_BLENDINDEXES: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE || va->format == IQM_INT);
-        if(va->format == IQM_UBYTE) inblendindex8 = (uint8_t *)&buf[va->offset];
-        else inblendindexi = (int *)&buf[va->offset];
+        if(va->format == IQM_UBYTE) inblendindex8 = (uint8_t *)&q->buf[va->offset];
+        else inblendindexi = (int *)&q->buf[va->offset];
         break; case IQM_BLENDWEIGHTS: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE || va->format == IQM_FLOAT);
-        if(va->format == IQM_UBYTE) inblendweight8 = (uint8_t *)&buf[va->offset];
-        else inblendweightf = (float *)&buf[va->offset];
+        if(va->format == IQM_UBYTE) inblendweight8 = (uint8_t *)&q->buf[va->offset];
+        else inblendweightf = (float *)&q->buf[va->offset];
         invertexindex = (inblendweight8 ? (float*)(inblendweight8 + 4) : inblendweightf + 4 );
         }
     }
 
-    if (hdr->ofs_bounds) lil32p(buf + hdr->ofs_bounds, hdr->num_frames * sizeof(struct iqmbounds));
-    if (hdr->ofs_bounds) bounds = (struct iqmbounds *) &buf[hdr->ofs_bounds];
+    if (hdr->ofs_bounds) lil32p(q->buf + hdr->ofs_bounds, hdr->num_frames * sizeof(struct iqmbounds));
+    if (hdr->ofs_bounds) q->bounds = (struct iqmbounds *) &q->buf[hdr->ofs_bounds];
 
-    meshes = (struct iqmmesh *)&buf[hdr->ofs_meshes];
-    joints = (struct iqmjoint *)&buf[hdr->ofs_joints];
+    q->meshes = (struct iqmmesh *)&q->buf[hdr->ofs_meshes];
+    q->joints = (struct iqmjoint *)&q->buf[hdr->ofs_joints];
 
-    baseframe = CALLOC(hdr->num_joints, sizeof(mat34));
-    inversebaseframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->baseframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->inversebaseframe = CALLOC(hdr->num_joints, sizeof(mat34));
     for(int i = 0; i < (int)hdr->num_joints; i++) {
-        struct iqmjoint *j = &joints[i];
-        compose34(baseframe[i], ptr3(j->translate), normq(ptrq(j->rotate)), ptr3(j->scale));
-        invert34(inversebaseframe[i], baseframe[i]);
+        struct iqmjoint *j = &q->joints[i];
+        compose34(q->baseframe[i], ptr3(j->translate), normq(ptrq(j->rotate)), ptr3(j->scale));
+        invert34(q->inversebaseframe[i], q->baseframe[i]);
         if(j->parent >= 0) {
-            multiply34x2(baseframe[i], baseframe[j->parent], baseframe[i]);
-            multiply34(inversebaseframe[i], inversebaseframe[j->parent]);
+            multiply34x2(q->baseframe[i], q->baseframe[j->parent], q->baseframe[i]);
+            multiply34(q->inversebaseframe[i], q->inversebaseframe[j->parent]);
         }
     }
 
-    struct iqmtriangle *tris = (struct iqmtriangle *)&buf[hdr->ofs_triangles];
+    struct iqmtriangle *tris = (struct iqmtriangle *)&q->buf[hdr->ofs_triangles];
     m->num_tris = hdr->num_triangles;
     m->tris = (void*)tris;
 
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
+    glGenVertexArrays(1, &q->vao);
+    glBindVertexArray(q->vao);
 
-    if(!ibo) glGenBuffers(1, &ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    if(!q->ibo) glGenBuffers(1, &q->ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, q->ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, hdr->num_triangles*sizeof(struct iqmtriangle), tris, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
@@ -19982,8 +20265,8 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
         if(invertexcolor8) memcpy(v->color, &invertexcolor8[i*4], sizeof(v->color));
     }
 
-    if(!vbo) glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    if(!q->vbo) glGenBuffers(1, &q->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, q->vbo);
     glBufferData(GL_ARRAY_BUFFER, hdr->num_vertexes*sizeof(iqm_vertex), verts, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -20004,16 +20287,16 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     m->verts = verts;
     /*m->verts = 0; FREE(verts);*/
 
-    textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
-    colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
+    q->textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
+    q->colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
         int invalid = texture_checker().id;
-        textures[i] = invalid;
+        q->textures[i] = invalid;
     }
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
+    const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
-        struct iqmmesh *m = &meshes[i];
+        struct iqmmesh *m = &q->meshes[i];
         PRINTF("loaded mesh: %s\n", &str[m->name]);
     }
 
@@ -20022,34 +20305,34 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
 
 static
 bool model_load_anims(iqm_t *q, const struct iqmheader *hdr) {
-    if((int)hdr->num_poses != numjoints) return false;
+    if((int)hdr->num_poses != q->numjoints) return false;
 
-    if(animdata) {
-        if(animdata != meshdata) FREE(animdata);
-        FREE(frames);
-        animdata = NULL;
-        anims = NULL;
-        frames = 0;
-        numframes = 0;
-        numanims = 0;
+    if(q->animdata) {
+        if(q->animdata != q->meshdata) FREE(q->animdata);
+        FREE(q->frames);
+        q->animdata = NULL;
+        q->anims = NULL;
+        q->frames = 0;
+        q->numframes = 0;
+        q->numanims = 0;
     }
 
-    lil32p(&buf[hdr->ofs_poses], hdr->num_poses*sizeof(struct iqmpose)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_anims], hdr->num_anims*sizeof(struct iqmanim)/sizeof(uint32_t));
-    lil16p((uint16_t *)&buf[hdr->ofs_frames], hdr->num_frames*hdr->num_framechannels);
+    lil32p(&q->buf[hdr->ofs_poses], hdr->num_poses*sizeof(struct iqmpose)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_anims], hdr->num_anims*sizeof(struct iqmanim)/sizeof(uint32_t));
+    lil16p((uint16_t *)&q->buf[hdr->ofs_frames], hdr->num_frames*hdr->num_framechannels);
 
-    animdata = buf;
-    numanims = hdr->num_anims;
-    numframes = hdr->num_frames;
+    q->animdata = q->buf;
+    q->numanims = hdr->num_anims;
+    q->numframes = hdr->num_frames;
 
-    anims = (struct iqmanim *)&buf[hdr->ofs_anims];
-    poses = (struct iqmpose *)&buf[hdr->ofs_poses];
-    frames = CALLOC(hdr->num_frames * hdr->num_poses, sizeof(mat34));
-    uint16_t *framedata = (uint16_t *)&buf[hdr->ofs_frames];
+    q->anims = (struct iqmanim *)&q->buf[hdr->ofs_anims];
+    q->poses = (struct iqmpose *)&q->buf[hdr->ofs_poses];
+    q->frames = CALLOC(hdr->num_frames * hdr->num_poses, sizeof(mat34));
+    uint16_t *framedata = (uint16_t *)&q->buf[hdr->ofs_frames];
 
     for(int i = 0; i < (int)hdr->num_frames; i++) {
         for(int j = 0; j < (int)hdr->num_poses; j++) {
-            struct iqmpose *p = &poses[j];
+            struct iqmpose *p = &q->poses[j];
             quat rotate;
             vec3 translate, scale;
             translate.x = p->channeloffset[0]; if(p->mask&0x01) translate.x += *framedata++ * p->channelscale[0];
@@ -20073,16 +20356,16 @@ bool model_load_anims(iqm_t *q, const struct iqmheader *hdr) {
             //   parentPose * childPose * childInverseBasePose
 
             mat34 m; compose34(m, translate, normq(rotate), scale);
-            if(p->parent >= 0) multiply34x3(frames[i*hdr->num_poses + j], baseframe[p->parent], m, inversebaseframe[j]);
-            else multiply34x2(frames[i*hdr->num_poses + j], m, inversebaseframe[j]);
+            if(p->parent >= 0) multiply34x3(q->frames[i*hdr->num_poses + j], q->baseframe[p->parent], m, q->inversebaseframe[j]);
+            else multiply34x2(q->frames[i*hdr->num_poses + j], m, q->inversebaseframe[j]);
         }
     }
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
-    for(int i = 0; i < (int)hdr->num_anims; i++) {
-        struct iqmanim *a = &anims[i];
-        PRINTF("loaded anim[%d]: %s\n", i, &str[a->name]);
-    }
+    // const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
+    // for(int i = 0; i < (int)hdr->num_anims; i++) {
+    //     struct iqmanim *a = &anims[i];
+    //     PRINTF("loaded anim[%d]: %s\n", i, &str[a->name]);
+    // }
 
     return true;
 }
@@ -20094,22 +20377,60 @@ static char* strcpy_safe(char *d, const char *s) {
 }
 
 static
-bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) {
-    textures = textures ? textures : CALLOC(hdr->num_meshes * 8, sizeof(GLuint)); // up to 8 textures per mesh
-    colormaps = colormaps ? colormaps : CALLOC(hdr->num_meshes * 8, sizeof(vec4)); // up to 8 colormaps per mesh
+void model_load_pbr_layer(material_layer_t *layer, const char *texname, bool load_as_srgb) {
+    strcpy_safe(layer->texname, texname);
+    colormap(&layer->map, texname, false);
+}
 
-    GLuint *out = textures;
+static
+void model_load_pbr(material_t *mt) {
+    // initialise default colors
+    mt->layer[MATERIAL_CHANNEL_DIFFUSE].map.color = vec4(0.5,0.5,0.5,0.5);
+    mt->layer[MATERIAL_CHANNEL_NORMALS].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_SPECULAR].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_SPECULAR].value = 1.0f; // specular_shininess
+    mt->layer[MATERIAL_CHANNEL_ALBEDO].map.color = vec4(0.5,0.5,0.5,1.0);
+    mt->layer[MATERIAL_CHANNEL_ROUGHNESS].map.color = vec4(1,1,1,1);
+    mt->layer[MATERIAL_CHANNEL_METALLIC].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_AO].map.color = vec4(1,1,1,1);
+    mt->layer[MATERIAL_CHANNEL_AMBIENT].map.color = vec4(0,0,0,1);
+    mt->layer[MATERIAL_CHANNEL_EMISSIVE].map.color = vec4(0,0,0,0);
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
+    // load colormaps
+    array(char*) tokens = strsplit(mt->name, "+");
+    for( int j = 0, end = array_count(tokens); j < end; ++j ) {
+        char *t = tokens[j];
+        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") || strstri(t, "Base_Color") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_DIFFUSE], t, 1);
+        if( strstri(t, "_N.") || strstri(t, "Normal") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0);
+        if( strstri(t, "_S.") || strstri(t, "Specular") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0);
+        if( strstri(t, "_A.") || strstri(t, "Albedo") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); // 0?
+        if( strstri(t, "_MR.")|| strstri(t, "Roughness") || strstri(t, "MetallicRoughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        else
+        if( strstri(t, "_M.") || strstri(t, "Metallic") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0);
+      //if( strstri(t, "_S.") || strstri(t, "Shininess") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+      //if( strstri(t, "_A.") || strstri(t, "Ambient") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AMBIENT], t, 0);
+        if( strstri(t, "_E.") || strstri(t, "Emissive") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_EMISSIVE], t, 1);
+        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AO], t, 0);
+    }
+}
+
+static
+bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, int _flags) {
+    q->textures = q->textures ? q->textures : CALLOC(hdr->num_meshes * 8, sizeof(GLuint)); // up to 8 textures per mesh
+    q->colormaps = q->colormaps ? q->colormaps : CALLOC(hdr->num_meshes * 8, sizeof(vec4)); // up to 8 colormaps per mesh
+
+    GLuint *out = q->textures;
+
+    const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
-        struct iqmmesh *m = &meshes[i];
+        struct iqmmesh *m = &q->meshes[i];
 
         // reuse texture+material if already decoded
         bool reused = 0;
         for( int j = 0; !reused && j < model->num_textures; ++j ) {
             if( !strcmpi(model->texture_names[j], &str[m->material])) {
 
-                *out++ = model->materials[j].layer[0].texture;
+                *out++ = model->materials[j].layer[0].map.texture->id;
 
                 {
                     model->num_textures++;
@@ -20125,7 +20446,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
         if( reused ) continue;
 
         // decode texture+material
-        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT; // LINEAR, NEAREST
+        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT|TEXTURE_ANISOTROPY; // LINEAR, NEAREST
+        if (!(_flags & MODEL_NO_FILTERING))
+            flags |= TEXTURE_LINEAR;
         int invalid = texture_checker().id;
 
 #if 1
@@ -20196,8 +20519,12 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
 
             material_t mt = {0};
             mt.name = STRDUP(&str[m->material]);
-            mt.layer[mt.count].color = material_color_hex ? material_color : vec4(1,1,1,1);
-            mt.layer[mt.count++].texture = *out++;
+
+            // initialise basic texture layer
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.color = material_color_hex ? material_color : vec4(1,1,1,1);
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id = *out++;
+
             array_push(model->materials, mt);
         }
 
@@ -20238,9 +20565,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
     if( array_count(model->materials) == 0 ) {
         material_t mt = {0};
         mt.name = "placeholder";
-        mt.count = 1;
-        mt.layer[0].color = vec4(1,1,1,1);
-        mt.layer[0].texture = texture_checker().id;
+        mt.layer[0].map.color = vec4(1,1,1,1);
+        mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
+        mt.layer[0].map.texture->id = texture_checker().id;
 
         array_push(model->materials, mt);
     }
@@ -20250,6 +20577,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
 
 model_t model_from_mem(const void *mem, int len, int flags) {
     model_t m = {0};
+
+    m.stored_flags = flags;
+    m.shading = SHADING_PHONG;
 
     const char *ptr = (const char *)mem;
     // can't cache shader programs since we enable features via flags here
@@ -20271,13 +20601,23 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         if( !memcmp(hdr.magic, IQM_MAGIC, sizeof(hdr.magic))) {
             lil32p(&hdr.version, (sizeof(hdr) - sizeof(hdr.magic))/sizeof(uint32_t));
             if(hdr.version == IQM_VERSION) {
-                buf = CALLOC(hdr.filesize, sizeof(uint8_t));
-                memcpy(buf + sizeof(hdr), ptr, hdr.filesize - sizeof(hdr));
+                q->buf = CALLOC(hdr.filesize, sizeof(uint8_t));
+                memcpy(q->buf + sizeof(hdr), ptr, hdr.filesize - sizeof(hdr));
                 error = 0;
                 if( hdr.num_meshes > 0 && !(flags & MODEL_NO_MESHES) )     error |= !model_load_meshes(q, &hdr, &m);
-                if( hdr.num_meshes > 0 && !(flags & MODEL_NO_TEXTURES) )   error |= !model_load_textures(q, &hdr, &m);
+                if( hdr.num_meshes > 0 && !(flags & MODEL_NO_TEXTURES) )   error |= !model_load_textures(q, &hdr, &m, flags);
+                else {
+                    // setup fallback
+                    material_t mt = {0};
+                    mt.name = "placeholder";
+                    mt.layer[0].map.color = vec4(1,1,1,1);
+                    mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
+                    mt.layer[0].map.texture->id = texture_checker().id;
+
+                    array_push(m.materials, mt);
+                }
                 if( hdr.num_anims  > 0 && !(flags & MODEL_NO_ANIMATIONS) ) error |= !model_load_anims(q, &hdr);
-                if( buf != meshdata && buf != animdata ) FREE(buf);
+                if( q->buf != q->meshdata && q->buf != q->animdata ) FREE(q->buf);
             }
         }
     }
@@ -20286,31 +20626,23 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         PRINTF("Error: cannot load %s", "model");
         FREE(q), q = 0;
     } else {
-        #undef vao
-        #undef ibo
-        #undef vbo
         m.vao = q->vao;
         m.ibo = q->ibo;
         m.vbo = q->vbo;
-        m.num_verts = numverts;
-        #define vao (q->vao)
-        #define ibo (q->ibo)
-        #define vbo (q->vbo)
+        m.num_verts = q->numverts;
 
         // m.boxes = bounds; // <@todo
-        m.num_meshes = nummeshes;
-        m.num_triangles = numtris;
-        m.num_joints = numjoints;
+        m.num_meshes = q->nummeshes;
+        m.num_triangles = q->numtris;
+        m.num_joints = q->numjoints;
         //m.num_poses = numposes;
-        m.num_anims = numanims;
-        m.num_frames = numframes;
+        m.num_anims = q->numanims;
+        m.num_frames = q->numframes;
         m.iqm = q;
         m.curframe = model_animate(m, 0);
 
-        //m.num_textures = nummeshes; // assume 1 texture only per mesh
-        #undef textures
+        //m.num_textures = q->nummeshes; // assume 1 texture only per mesh
         m.textures = (q->textures);
-        #define textures (q->textures)
 
         m.flags = flags;
 
@@ -20321,6 +20653,9 @@ model_t model_from_mem(const void *mem, int len, int flags) {
 
         glGenBuffers(1, &m.vao_instanced);
         model_set_state(m);
+        if (flags & MODEL_PBR) {
+            model_shading(&m, SHADING_PBR);
+        }
     }
     return m;
 }
@@ -20334,9 +20669,9 @@ bool model_get_bone_pose(model_t m, unsigned joint, mat34 *out) {
     if(!m.iqm) return false;
     iqm_t *q = m.iqm;
 
-    if(joint >= numjoints) return false;
+    if(joint >= q->numjoints) return false;
 
-    multiply34x2(*out, outframe[joint], baseframe[joint]);
+    multiply34x2(*out, q->outframe[joint], q->baseframe[joint]);
     return true;
 }
 
@@ -20345,6 +20680,26 @@ anim_t clip(float minframe, float maxframe, float blendtime, unsigned flags) {
 }
 anim_t loop(float minframe, float maxframe, float blendtime, unsigned flags) {
     return clip(minframe, maxframe, blendtime, flags | ANIM_LOOP);
+}
+
+array(anim_t) animlist(const char *pathfile) {
+    anim_t *animlist = 0;
+    char *anim_file = vfs_read(strendi(pathfile,".txt") ? pathfile : va("%s@animlist.txt", pathfile));
+    if( anim_file ) {
+        // deserialize anim
+        for each_substring(anim_file, "\r\n", anim) {
+            int from, to;
+            char anim_name[128] = {0};
+            if( sscanf(anim, "%*s %d-%d %127[^\r\n]", &from, &to, anim_name) != 3) continue;
+            array_push(animlist, !!strstri(anim_name, "loop") || !strcmpi(anim_name, "idle") ? loop(from, to, 0, 0) : clip(from, to, 0, 0)); // [from,to,flags]
+            array_back(animlist)->name = strswap(strswap(strswap(STRDUP(anim_name), "Loop", ""), "loop", ""), "()", ""); // @leak
+        }
+    } else {
+        // placeholder
+        array_push(animlist, clip(0,1,0,0));
+        array_back(animlist)->name = STRDUP("Error"); // @leak
+    }
+    return animlist;
 }
 
 static
@@ -20384,18 +20739,18 @@ float model_animate_blends(model_t m, anim_t *primary, anim_t *secondary, float 
     unsigned frame4 = secondary->pose.y;
     float    alphaB = secondary->pose.z;
 
-    mat34 *mat1 = &frames[frame1 * numjoints];
-    mat34 *mat2 = &frames[frame2 * numjoints];
-    mat34 *mat3 = &frames[frame3 * numjoints];
-    mat34 *mat4 = &frames[frame4 * numjoints];
+    mat34 *mat1 = &q->frames[frame1 * q->numjoints];
+    mat34 *mat2 = &q->frames[frame2 * q->numjoints];
+    mat34 *mat3 = &q->frames[frame3 * q->numjoints];
+    mat34 *mat4 = &q->frames[frame4 * q->numjoints];
 
-    for(int i = 0; i < numjoints; i++) {
+    for(int i = 0; i < q->numjoints; i++) {
         mat34 matA, matB, matF;
         lerp34(matA, mat1[i], mat2[i], alphaA);
         lerp34(matB, mat3[i], mat4[i], alphaB);
         lerp34(matF, matA, matB, alpha );
-        if(joints[i].parent >= 0) multiply34x2(outframe[i], outframe[joints[i].parent], matF);
-        else copy34(outframe[i], matF);
+        if(q->joints[i].parent >= 0) multiply34x2(q->outframe[i], q->outframe[q->joints[i].parent], matF);
+        else copy34(q->outframe[i], matF);
     }
 
     return frame1 + alpha;
@@ -20430,20 +20785,20 @@ float model_animate_clip(model_t m, float curframe, int minframe, int maxframe, 
     iqm_t *q = m.iqm;
 
     float retframe = -1;
-    if( numframes > 0 ) {
+    if( q->numframes > 0 ) {
         vec3 p = pose(curframe >= m.curframe, curframe, minframe, maxframe, loop, &retframe);
         int frame1 = p.x;
         int frame2 = p.y;
         float offset = p.z;
 
-        mat34 *mat1 = &frames[frame1 * numjoints];
-        mat34 *mat2 = &frames[frame2 * numjoints];
+        mat34 *mat1 = &q->frames[frame1 * q->numjoints];
+        mat34 *mat2 = &q->frames[frame2 * q->numjoints];
 
         // @todo: add animation blending and inter-frame blending here
-        for(int i = 0; i < numjoints; i++) {
+        for(int i = 0; i < q->numjoints; i++) {
             mat34 mat; lerp34(mat, mat1[i], mat2[i], offset);
-            if(joints[i].parent >= 0) multiply34x2(outframe[i], outframe[joints[i].parent], mat);
-            else copy34(outframe[i], mat);
+            if(q->joints[i].parent >= 0) multiply34x2(q->outframe[i], q->outframe[q->joints[i].parent], mat);
+            else copy34(q->outframe[i], mat);
         }
     }
 
@@ -20454,20 +20809,20 @@ void model_render_skeleton(model_t m, mat44 M) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    if(!numjoints) return;
+    if(!q->numjoints) return;
 
     ddraw_ontop_push(true);
     ddraw_color_push(RED);
 
-    for( int joint = 0; joint < numjoints; joint++ ) {
-        if( joints[joint].parent < 0) continue;
+    for( int joint = 0; joint < q->numjoints; joint++ ) {
+        if( q->joints[joint].parent < 0) continue;
 
         // bone space...
         mat34 f;
         model_get_bone_pose(m, joint, &f);
         vec3 pos = vec3(f[3],f[7],f[11]);
 
-        model_get_bone_pose(m, joints[joint].parent, &f);
+        model_get_bone_pose(m, q->joints[joint].parent, &f);
         vec3 src = vec3(f[3],f[7],f[11]);
 
         // ...to model space
@@ -20495,7 +20850,7 @@ void model_render_skeleton(model_t m, mat44 M) {
 float model_animate(model_t m, float curframe) {
     if(!m.iqm) return -1;
     iqm_t *q = m.iqm;
-    return model_animate_clip(m, curframe, 0, numframes-1, true);
+    return model_animate_clip(m, curframe, 0, q->numframes-1, true);
 }
 
 static
@@ -20503,28 +20858,41 @@ void model_draw_call(model_t m, int shader) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    glBindVertexArray( vao );
+    handle old_shader = last_shader;
+    shader_bind(shader);
+
+    glBindVertexArray( q->vao );
 
     struct iqmtriangle *tris = NULL;
-    for(int i = 0; i < nummeshes; i++) {
-        struct iqmmesh *im = &meshes[i];
+    for(int i = 0; i < q->nummeshes; i++) {
+        struct iqmmesh *im = &q->meshes[i];
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(shader, "u_texture2d"), 0 );
+        if (m.shading != SHADING_PBR) {
+            shader_texture_unit("u_texture2d", q->textures[i], texture_unit());
+            shader_texture("u_lightmap", m.lightmap);
 
-        int loc;
-        if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
-            bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
-            glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
-                glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
+            int loc;
+            if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
+                bool textured = !!q->textures[i] && q->textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
+                glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
+                if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
+                    glUniform4f(loc, m.materials[i].layer[0].map.color.r, m.materials[i].layer[0].map.color.g, m.materials[i].layer[0].map.color.b, m.materials[i].layer[0].map.color.a);
+                }
             }
-        }
 
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, m.lightmap.id);
-        glUniform1i(glGetUniformLocation(shader, "u_lightmap"), 1 );
+        } else {
+            const material_t *material = &m.materials[i];
+            shader_colormap( "map_diffuse", material->layer[MATERIAL_CHANNEL_DIFFUSE].map );
+            shader_colormap( "map_normals", material->layer[MATERIAL_CHANNEL_NORMALS].map );
+            shader_colormap( "map_specular", material->layer[MATERIAL_CHANNEL_SPECULAR].map );
+            shader_colormap( "map_albedo", material->layer[MATERIAL_CHANNEL_ALBEDO].map );
+            shader_colormap( "map_roughness", material->layer[MATERIAL_CHANNEL_ROUGHNESS].map );
+            shader_colormap( "map_metallic", material->layer[MATERIAL_CHANNEL_METALLIC].map );
+            shader_colormap( "map_ao", material->layer[MATERIAL_CHANNEL_AO].map );
+            shader_colormap( "map_ambient", material->layer[MATERIAL_CHANNEL_AMBIENT].map );
+            shader_colormap( "map_emissive", material->layer[MATERIAL_CHANNEL_EMISSIVE].map );
+            // shader_float( "specular_shininess", material->specular_shininess ); // unused, basic_specgloss.fs only
+        }
 
         glDrawElementsInstanced(GL_TRIANGLES, 3*im->num_triangles, GL_UNSIGNED_INT, &tris[im->first_triangle], m.num_instances);
         profile_incstat("Render.num_drawcalls", +1);
@@ -20532,6 +20900,8 @@ void model_draw_call(model_t m, int shader) {
     }
 
     glBindVertexArray( 0 );
+
+    shader_bind(old_shader);
 }
 
 void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, int shader, unsigned count) {
@@ -20552,6 +20922,37 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
 
 void model_render(model_t m, mat44 proj, mat44 view, mat44 model, int shader) {
     model_render_instanced(m, proj, view, (mat44*)model, shader, 1);
+}
+
+void model_shading(model_t *m, int shading) {
+    m->shading = shading;
+    int flags = m->stored_flags;
+
+    // load pbr material if SHADING_PBR was selected
+    if (shading == SHADING_PBR) {
+        for (int i = 0; i < array_count(m->materials); ++i) {
+            model_load_pbr(&m->materials[i]);
+        }
+    }
+
+    // rebind shader
+    // @fixme: app crashes rn
+    // glUseProgram(0);
+    // glDeleteProgram(m->program);
+    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
+    int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
+        va("%s,%s", shading == SHADING_PBR ? "SHADING_PBR" : "SHADING_PHONG", (flags&MODEL_RIMLIGHT)?"RIM":""));
+    m->program = shaderprog;
+}
+
+void model_skybox(model_t *mdl, skybox_t sky, bool load_sh) {
+    if (load_sh) {
+        shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
+    }
+
+    mdl->sky_refl = sky.refl;
+    mdl->sky_env = sky.env;
 }
 
 // static
@@ -20575,10 +20976,10 @@ aabb aabb_transform( aabb A, mat44 M ) {
 
 aabb model_aabb(model_t m, mat44 transform) {
     iqm_t *q = m.iqm;
-    if( q && bounds ) {
-    int f = ( (int)m.curframe ) % (numframes + !numframes);
-    vec3 bbmin = ptr3(bounds[f].bbmin);
-    vec3 bbmax = ptr3(bounds[f].bbmax);
+    if( q && q->bounds ) {
+    int f = ( (int)m.curframe ) % (q->numframes + !q->numframes);
+    vec3 bbmin = ptr3(q->bounds[f].bbmin);
+    vec3 bbmax = ptr3(q->bounds[f].bbmax);
     return aabb_transform(aabb(bbmin,bbmax), transform);
     }
     return aabb(vec3(0,0,0),vec3(0,0,0));
@@ -20593,62 +20994,22 @@ void model_destroy(model_t m) {
 
     iqm_t *q = m.iqm;
 //    if(m.mesh) mesh_destroy(m.mesh);
-    FREE(outframe);
-    FREE(colormaps);
-    FREE(textures);
-    FREE(baseframe);
-    FREE(inversebaseframe);
-    if(animdata != meshdata) FREE(animdata);
-    //FREE(meshdata);
-    FREE(frames);
-    FREE(buf);
+    FREE(q->outframe);
+    FREE(q->colormaps);
+    FREE(q->textures);
+    FREE(q->baseframe);
+    FREE(q->inversebaseframe);
+    if(q->animdata != q->meshdata) FREE(q->animdata);
+    //FREE(q->meshdata);
+    FREE(q->frames);
+    FREE(q->buf);
     FREE(q);
 }
 
-#undef program
-#undef meshdata
-#undef animdata
-#undef nummeshes
-#undef numtris
-#undef numverts
-#undef numjoints
-#undef numframes
-#undef numanims
-#undef meshes
-#undef textures
-#undef joints
-#undef poses
-#undef anims
-#undef baseframe
-#undef inversebaseframe
-#undef outframe
-#undef frames
-#undef vao
-#undef ibo
-#undef vbo
-#undef bonematsoffset
-#undef buf
-#undef bounds
-#undef colormaps
-
 anims_t animations(const char *pathfile, int flags) {
     anims_t a = {0};
-    char *anim_file = vfs_read(strendi(pathfile,".txt") ? pathfile : va("%s@animlist.txt", pathfile));
-    if( anim_file ) {
-        // deserialize anim
-        a.speed = 1.0;
-        for each_substring(anim_file, "\r\n", anim) {
-            int from, to;
-            char anim_name[128] = {0};
-            if( sscanf(anim, "%*s %d-%d %127[^\r\n]", &from, &to, anim_name) != 3) continue;
-            array_push(a.anims, !!strstri(anim_name, "loop") || !strcmpi(anim_name, "idle") ? loop(from, to, 0, 0) : clip(from, to, 0, 0)); // [from,to,flags]
-            array_back(a.anims)->name = strswap(strswap(strswap(STRDUP(anim_name), "Loop", ""), "loop", ""), "()", ""); // @leak
-        }
-    } else {
-        // placeholder
-        array_push(a.anims, clip(0,1,0,0));
-        array_back(a.anims)->name = STRDUP("Error"); // @leak
-    }
+    a.anims = animlist(pathfile);
+    if(a.anims) a.speed = 1.0;
     return a;
 }
 
@@ -21744,7 +22105,7 @@ camera_t camera() {
         cam.move_damping = 0.96f;
         cam.look_friction = 0.30f;
         cam.look_damping = 0.96f;
-        cam.last_look = vec2(0,0);
+        cam.last_look = vec3(0,0,0);
         cam.last_move = vec3(0,0,0);
 
         // update proj & view
@@ -21843,7 +22204,7 @@ void camera_fov(camera_t *cam, float fov) {
     }
 }
 
-void camera_fps(camera_t *cam, float yaw, float pitch) {
+void camera_fps2(camera_t *cam, float yaw, float pitch, float roll) {
     last_camera = cam;
 
     // camera damping
@@ -21851,21 +22212,41 @@ void camera_fps(camera_t *cam, float yaw, float pitch) {
         float fr = cam->look_friction; fr *= fr; fr *= fr; fr *= fr;
         float sm = clampf(cam->look_damping, 0, 0.999f); sm *= sm; sm *= sm;
 
-        cam->last_look = scale2(cam->last_look, 1 - fr);
+        cam->last_look = scale3(cam->last_look, 1 - fr);
         yaw = cam->last_look.y = yaw * (1 - sm) + cam->last_look.y * sm;
         pitch = cam->last_look.x = pitch * (1 - sm) + cam->last_look.x * sm;
+        roll = cam->last_look.z = roll * (1 - sm) + cam->last_look.z * sm;
     }
 
     cam->yaw += yaw;
     cam->yaw = fmod(cam->yaw, 360);
     cam->pitch += pitch;
     cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
+    cam->roll += roll;
+    cam->roll += fmod(cam->roll, 360);
 
-    const float deg2rad = 0.0174532f, y = cam->yaw * deg2rad, p = cam->pitch * deg2rad;
+    const float deg2rad = 0.0174532f, y = cam->yaw * deg2rad, p = cam->pitch * deg2rad, r = cam->roll * deg2rad;
     cam->lookdir = norm3(vec3(cos(y) * cos(p), sin(p), sin(y) * cos(p)));
+    vec3 up = vec3(0,1,0);
+    // calculate updir
+    {
+        float cosfa = cosf(r);
+        float sinfa = sinf(r);
+        vec3 right = cross3(cam->lookdir, up);
+        float th = dot3(cam->lookdir, up);
+
+        cam->updir.x = up.x * cosfa + right.x * sinfa + cam->lookdir.x * th * (1.0f - cosfa);
+        cam->updir.y = up.y * cosfa + right.y * sinfa + cam->lookdir.y * th * (1.0f - cosfa);
+        cam->updir.z = up.z * cosfa + right.z * sinfa + cam->lookdir.z * th * (1.0f - cosfa);
+    }
+
     lookat44(cam->view, cam->position, add3(cam->position, cam->lookdir), cam->updir); // eye,center,up
 
     camera_fov(cam, cam->fov);
+}
+
+void camera_fps(camera_t *cam, float yaw, float pitch) {
+    camera_fps2(cam, yaw, pitch, 0.0f);
 }
 
 void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
@@ -21926,6 +22307,8 @@ void object_update(object_t *obj) {
     quat p = eulerq(vec3(obj->pivot.x,obj->pivot.y,obj->pivot.z));
     quat e = eulerq(vec3(obj->euler.x,obj->euler.y,obj->euler.z));
     compose44(obj->transform, obj->pos, mulq(e, p), obj->sca);
+
+
 }
 
 object_t object() {
@@ -21973,6 +22356,11 @@ vec3 object_position(object_t *obj) {
 
 void object_model(object_t *obj, model_t model) {
     obj->model = model;
+}
+
+void object_anim(object_t *obj, anim_t anim, float speed) {
+    obj->anim = anim;
+    obj->anim_speed = speed;
 }
 
 void object_push_diffuse(object_t *obj, texture_t tex) {
@@ -22137,7 +22525,7 @@ int scene_merge(const char *source) {
             //char *a = archive_read(animation_file);
             object_t *o = scene_spawn();
             object_model(o, m);
-            if( texture_file[0] ) object_diffuse(o, texture_from_mem(vfs_read(texture_file), vfs_size(texture_file), opt_flip_uv ? IMAGE_FLIP : 0) );
+            if( texture_file[0] ) object_diffuse(o, texture_from_mem(vfs_read(texture_file), vfs_size(texture_file), (opt_flip_uv ? IMAGE_FLIP : 0)) );
             object_scale(o, scale);
             object_teleport(o, position);
             object_pivot(o, rotation); // object_rotate(o, rotation);
@@ -22242,6 +22630,7 @@ void scene_render(int flags) {
         for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
             object_t *obj = scene_index(j);
             model_t *model = &obj->model;
+            anim_t *anim = &obj->anim;
             mat44 *views = (mat44*)(&cam->view);
 
             // @todo: avoid heap allocs here?
@@ -22265,9 +22654,17 @@ void scene_render(int flags) {
                 shader_bind(model->program);
                 shader_vec3v("u_coefficients_sh", 9, last_scene->skybox.cubemap.sh);
             }
+     
+            model_skybox(model, last_scene->skybox, 0);
+
+            if (anim) {
+                float delta = window_delta() * obj->anim_speed;
+                model->curframe = model_animate_clip(*model, model->curframe + delta, anim->from, anim->to, anim->flags & ANIM_LOOP );
+            }
+
 
             model->billboard = obj->billboard;
-            model_render(*model, cam->proj, cam->view, obj->transform, 0);
+            model_render(*model, cam->proj, cam->view, obj->transform, model->program);
 
             if( do_retexturing ) {
                 for(int i = 0; i < model->iqm->nummeshes; ++i) {
@@ -23878,11 +24275,13 @@ bool steam_init(unsigned app_id) {
     app_id = app_id ? app_id : STEAM_APPID;
 
     // Steam installed?
+    #if is(win32)
     HKEY hSteamProcess;
     if( RegOpenKeyExA(HKEY_CURRENT_USER,"Software\\Valve\\Steam\\ActiveProcess", 0, KEY_READ, &hSteamProcess) ) {
         return !strcpy(steam.status, "Err: steam not installed");
     }
     RegCloseKey(hSteamProcess);
+    #endif
 
     // dll present?
     if( !file_exist(STEAM_DLL) ) {
@@ -23896,14 +24295,17 @@ bool steam_init(unsigned app_id) {
     // Initialize
     char *app_id_str = va("%d", app_id);
     //if( !file_exist("steam_appid.txt") ) file_write("steam_appid.txt", app_id_str, strlen(app_id_str));
+    #if is(win32)
     if( !getenv("SteamAppId") ) SetEnvironmentVariableA("SteamAppId", app_id_str);
+    #endif
 
     int started = SteamAPI_Init && SteamAPI_Init();
     if( !started ) {
         return !strcpy(steam.status, "Err: steam not running");
     }
 
-    SteamAPI_RestartAppIfNecessary(app_id);
+    if( SteamAPI_RestartAppIfNecessary(app_id) )
+        exit(0); // restarting app thru Steam client if needed
 
     // Create interfaces
     steam.iclient = (intptr_t)SteamInternal_CreateInterface("SteamClient020");
@@ -25764,7 +26166,7 @@ video_t* video( const char *filename, int flags ) {
     } else {
         int w16 = (w+15) & ~15;
         int h16 = (h+15) & ~15;
-        v->texture = texture_create( w16, h16, 3, NULL, TEXTURE_SRGB );
+        v->texture = texture_create( w16, h16, 3, NULL, 0 );
         v->surface = REALLOC( v->surface,  w16 * h16 * 3 );
     }
 
@@ -25936,11 +26338,10 @@ int fps__timing_thread(void *arg) {
             timer_counter++;
             int64_t tt = (int64_t)(1e9/(float)framerate) - ns_excess;
             uint64_t took = -time_ns();
-        #if is(win32)
-            timeBeginPeriod(1); Sleep( tt > 0 ? tt/1e6 : 0 );
-        #else
-            sleep_ns( (float)tt );
-        #endif
+            #if is(win32)
+            timeBeginPeriod(1);
+            #endif
+            sleep_ns( tt > 0 ? (float)tt : 0.f );
             took += time_ns();
             ns_excess = took - tt;
             if( ns_excess < 0 ) ns_excess = 0;
@@ -26330,54 +26731,54 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     // static camera_t cam = {0}; id44(cam.view); id44(cam.proj); extern camera_t *last_camera; last_camera = &cam;
     fwk_pre_init();
 
-        // display a progress bar meanwhile cook is working in the background
-        // Sleep(500);
-        if( !COOK_ON_DEMAND )
-        if( have_tools() && cook_jobs() )
-        while( cook_progress() < 100 ) {
-            for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
-                window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
-                if( input(KEY_ESC) ) cook_cancel();
+    // display a progress bar meanwhile cook is working in the background
+    // Sleep(500);
+    if( !COOK_ON_DEMAND )
+    if( have_tools() && cook_jobs() )
+    while( cook_progress() < 100 ) {
+        for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
+            window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
+            if( input(KEY_ESC) ) cook_cancel();
 
-                glNewFrame();
-
-                static float previous[JOBS_MAX] = {0};
-
-                #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
-                   /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
-                   float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
-                   float speed = progress < 1 ? 0.05f : 0.75f; \
-                   float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
-                   \
-                   float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
-                   if(JOB_ID==0)ddraw_line(vec3(-1,y-pixel*2,0), vec3(1,   y-pixel*2,0)); /* full line */ \
-                   ddraw_line(vec3(-1,y-pixel  ,0), vec3(dist,y-pixel  ,0)); /* progress line */ \
-                   ddraw_line(vec3(-1,y+0      ,0), vec3(dist,y+0      ,0)); /* progress line */ \
-                   ddraw_line(vec3(-1,y+pixel  ,0), vec3(dist,y+pixel  ,0)); /* progress line */ \
-                   if(JOB_ID==JOB_MAX-1)ddraw_line(vec3(-1,y+pixel*2,0), vec3(1,   y+pixel*2,0)); /* full line */ \
-                } while(0)
-
-                if( FLAGS_TRANSPARENT ) {} else // @transparent
-                for(int i = 0; i < cook_jobs(); ++i) ddraw_progress_bar(i, cook_jobs(), jobs[i].progress);
-                // ddraw_progress_bar(0, 1, cook_progress());
-
-                ddraw_flush();
-
-                do_once window_visible(1);
-
-                // render progress bar at 30Hz + give the cook threads more time to actually cook the assets.
-                // no big deal since progress bar is usually quiet when cooking assets most of the time.
-                // also, make the delay even larger when window is minimized or hidden.
-                // shaved cook times: 88s -> 57s (tcc), 50s -> 43s (vc)
-                sleep_ms( window_has_visible() && window_has_focus() ? 8 : 16 );
-            }
-            // set black screen
             glNewFrame();
-            window_swap();
-#if !ENABLE_RETAIL
-            window_title("");
-#endif
+
+            static float previous[JOBS_MAX] = {0};
+
+            #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
+               /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
+               float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
+               float speed = progress < 1 ? 0.05f : 0.75f; \
+               float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
+               \
+               float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
+               if(JOB_ID==0)ddraw_line(vec3(-1,y-pixel*2,0), vec3(1,   y-pixel*2,0)); /* full line */ \
+               ddraw_line(vec3(-1,y-pixel  ,0), vec3(dist,y-pixel  ,0)); /* progress line */ \
+               ddraw_line(vec3(-1,y+0      ,0), vec3(dist,y+0      ,0)); /* progress line */ \
+               ddraw_line(vec3(-1,y+pixel  ,0), vec3(dist,y+pixel  ,0)); /* progress line */ \
+               if(JOB_ID==JOB_MAX-1)ddraw_line(vec3(-1,y+pixel*2,0), vec3(1,   y+pixel*2,0)); /* full line */ \
+            } while(0)
+
+            if( FLAGS_TRANSPARENT ) {} else // @transparent
+            for(int i = 0; i < cook_jobs(); ++i) ddraw_progress_bar(i, cook_jobs(), jobs[i].progress);
+            // ddraw_progress_bar(0, 1, cook_progress());
+
+            ddraw_flush();
+
+            do_once window_visible(1);
+
+            // render progress bar at 30Hz + give the cook threads more time to actually cook the assets.
+            // no big deal since progress bar is usually quiet when cooking assets most of the time.
+            // also, make the delay even larger when window is minimized or hidden.
+            // shaved cook times: 88s -> 57s (tcc), 50s -> 43s (vc)
+            sleep_ms( window_has_visible() && window_has_focus() ? 8 : 16 );
         }
+        // set black screen
+        glNewFrame();
+        window_swap();
+#if !ENABLE_RETAIL
+        window_title("");
+#endif
+    }
 
     if(cook_cancelling) cook_stop(), exit(-1);
 
@@ -26457,6 +26858,9 @@ int window_frame_begin() {
             may_render_debug_panel = (frames > 0);
         }
     }
+
+    if (!win_debug_visible)
+        may_render_debug_panel = 0;
 
     // generate Debug panel contents
     if( may_render_debug_panel ) {
@@ -26665,6 +27069,13 @@ double window_time() {
 }
 double window_delta() {
     return dt;
+}
+
+void window_debug(int visible) {
+    win_debug_visible = visible;
+}
+int window_has_debug() {
+    return win_debug_visible;
 }
 
 double window_fps() {
@@ -27000,9 +27411,11 @@ void window_setclipboard(const char *text) {
 
 static
 double window_scale() { // ok? @testme
-    float xscale, yscale;
+    float xscale = 1, yscale = 1;
+    #if !is(ems) && !is(osx) // @todo: remove silicon mac M1 hack
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+    #endif
     return maxi(xscale, yscale);
 }
 #line 0
@@ -28999,16 +29412,18 @@ int engine_send(const char *cmd, const char *optional_value) {
 }
 
 int engine_tick() {
-    enum { engine_hz = 60 };
-    enum { engine_hz_mid = 18 };
-    enum { engine_hz_low = 5 };
+    enum { engine_hz_mid = 30 };
+    enum { engine_hz_low = 10 };
+    static double old_hz = 0.0;
     if( *engine_geti("powersave") ) {
         // adaptive framerate
         int app_on_background = !window_has_focus();
         int hz = app_on_background ? engine_hz_low : engine_hz_mid;
-        window_fps_lock( hz < 5 ? 5 : hz );
-    } else {
-        // window_fps_lock( editor_hz );
+        if (!old_hz) old_hz = window_fps_target();
+        window_fps_lock( hz );
+    } else if( old_hz && old_hz != window_fps_target() ) {
+        window_fps_lock( old_hz );
+        old_hz = 0.0;
     }
 
     return 0;
@@ -29299,6 +29714,9 @@ static void fwk_post_init(float refresh_rate) {
 
     hz = refresh_rate;
     // t = glfwGetTime();
+
+    // preload brdf LUT early
+    (void)brdf_lut();
 }
 
 // ----------------------------------------------------------------------------

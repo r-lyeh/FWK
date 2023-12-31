@@ -83,6 +83,7 @@ API void    ui_spine(spine_t *p);
 
 // ----------------------------------------------------------------------------
 // atlas api
+
 typedef struct atlas_frame_t {
     unsigned delay;
     vec4 sheet;
