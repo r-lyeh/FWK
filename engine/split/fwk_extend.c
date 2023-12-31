@@ -41,7 +41,10 @@ int main() { int (*adder)() = dll("demo.dll", "add2"); printf("%d\n", adder(2,3)
 
 typedef lua_State lua;
 
-// the Lua interpreter
+// the Lua interpreter(s)
+static array(lua*) Ls;
+
+// the **current** Lua interpreter
 static lua *L;
 
 #if is(linux)
@@ -201,6 +204,9 @@ void script_init() {
         luaopen_string(L);
         luaopen_math(L);
 
+        // enable ffi (via luaffi)
+        luaopen_ffi(L);
+
         // @fixme: workaround that prevents script binding on lua 5.4.3 on top of luajit 2.1.0-beta3 on linux. lua_setglobal() crashing when accessing null L->l_G
         if(L->l_G) {
         XMACRO(BIND_ALL);
@@ -285,4 +291,14 @@ void *script_init_env(unsigned flags) {
     }
 
     return 0;
+}
+
+bool script_push(void *env) {
+    array_push(Ls, L = env);
+    return true;
+}
+
+bool script_pop() {
+    L = array_count(Ls) && (array_pop(Ls), array_count(Ls)) ? *array_back(Ls) : NULL;
+    return !!array_count(Ls);
 }

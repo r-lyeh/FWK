@@ -14,11 +14,10 @@ int fps__timing_thread(void *arg) {
             timer_counter++;
             int64_t tt = (int64_t)(1e9/(float)framerate) - ns_excess;
             uint64_t took = -time_ns();
-        #if is(win32)
-            timeBeginPeriod(1); Sleep( tt > 0 ? tt/1e6 : 0 );
-        #else
-            sleep_ns( (float)tt );
-        #endif
+            #if is(win32)
+            timeBeginPeriod(1);
+            #endif
+            sleep_ns( tt > 0 ? (float)tt : 0.f );
             took += time_ns();
             ns_excess = took - tt;
             if( ns_excess < 0 ) ns_excess = 0;
@@ -222,7 +221,20 @@ struct nk_glfw *window_handle_nkglfw() {
     return g->nk_glfw;
 }
 
+static renderstate_t window_rs;
+
 void glNewFrame() {
+    do_once {
+        window_rs = renderstate();
+        window_rs.blend_enabled = 1;
+        window_rs.depth_test_enabled = 1;
+    }
+
+    window_rs.clear_color[0] = winbgcolor.r;
+    window_rs.clear_color[1] = winbgcolor.g;
+    window_rs.clear_color[2] = winbgcolor.b;
+    window_rs.clear_color[3] = window_has_transparent() ? 0 : winbgcolor.a;
+
     // @transparent debug
     // if( input_down(KEY_F1) ) window_transparent(window_has_transparent()^1);
     // if( input_down(KEY_F2) ) window_maximize(window_has_maximize()^1);
@@ -243,30 +255,8 @@ void glNewFrame() {
     g->width = w;
     g->height = h;
 
-    // blending defaults
-    glEnable(GL_BLEND);
+    renderstate_apply(&window_rs);
 
-    // culling defaults
-//  glEnable(GL_CULL_FACE);
-//  glCullFace(GL_BACK);
-//  glFrontFace(GL_CCW);
-
-    // depth-testing defaults
-    glEnable(GL_DEPTH_TEST);
-//  glDepthFunc(GL_LESS);
-
-    // depth-writing defaults
-//  glDepthMask(GL_TRUE);
-
-    // seamless cubemaps
-//  glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-
-    glViewport(0, 0, window_width(), window_height());
-
-    // GLfloat bgColor[4]; glGetFloatv(GL_COLOR_CLEAR_VALUE, bgColor);
-    glClearColor(winbgcolor.r, winbgcolor.g, winbgcolor.b, window_has_transparent() ? 0 : winbgcolor.a); // @transparent
-    //glClearColor(0.15,0.15,0.15,1);
-    //glClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a );
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 }
 
@@ -408,54 +398,54 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     // static camera_t cam = {0}; id44(cam.view); id44(cam.proj); extern camera_t *last_camera; last_camera = &cam;
     fwk_pre_init();
 
-        // display a progress bar meanwhile cook is working in the background
-        // Sleep(500);
-        if( !COOK_ON_DEMAND )
-        if( have_tools() && cook_jobs() )
-        while( cook_progress() < 100 ) {
-            for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
-                window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
-                if( input(KEY_ESC) ) cook_cancel();
+    // display a progress bar meanwhile cook is working in the background
+    // Sleep(500);
+    if( !COOK_ON_DEMAND )
+    if( have_tools() && cook_jobs() )
+    while( cook_progress() < 100 ) {
+        for( int frames = 0; frames < 2/*10*/ && window_swap(); frames += cook_progress() >= 100 ) {
+            window_title(va("%s %.2d%%", cook_cancelling ? "Aborting" : "Cooking assets", cook_progress()));
+            if( input(KEY_ESC) ) cook_cancel();
 
-                glNewFrame();
-
-                static float previous[JOBS_MAX] = {0};
-
-                #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
-                   /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
-                   float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
-                   float speed = progress < 1 ? 0.05f : 0.75f; \
-                   float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
-                   \
-                   float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
-                   if(JOB_ID==0)ddraw_line(vec3(-1,y-pixel*2,0), vec3(1,   y-pixel*2,0)); /* full line */ \
-                   ddraw_line(vec3(-1,y-pixel  ,0), vec3(dist,y-pixel  ,0)); /* progress line */ \
-                   ddraw_line(vec3(-1,y+0      ,0), vec3(dist,y+0      ,0)); /* progress line */ \
-                   ddraw_line(vec3(-1,y+pixel  ,0), vec3(dist,y+pixel  ,0)); /* progress line */ \
-                   if(JOB_ID==JOB_MAX-1)ddraw_line(vec3(-1,y+pixel*2,0), vec3(1,   y+pixel*2,0)); /* full line */ \
-                } while(0)
-
-                if( FLAGS_TRANSPARENT ) {} else // @transparent
-                for(int i = 0; i < cook_jobs(); ++i) ddraw_progress_bar(i, cook_jobs(), jobs[i].progress);
-                // ddraw_progress_bar(0, 1, cook_progress());
-
-                ddraw_flush();
-
-                do_once window_visible(1);
-
-                // render progress bar at 30Hz + give the cook threads more time to actually cook the assets.
-                // no big deal since progress bar is usually quiet when cooking assets most of the time.
-                // also, make the delay even larger when window is minimized or hidden.
-                // shaved cook times: 88s -> 57s (tcc), 50s -> 43s (vc)
-                sleep_ms( window_has_visible() && window_has_focus() ? 8 : 16 );
-            }
-            // set black screen
             glNewFrame();
-            window_swap();
-#if !ENABLE_RETAIL
-            window_title("");
-#endif
+
+            static float previous[JOBS_MAX] = {0};
+
+            #define ddraw_progress_bar(JOB_ID, JOB_MAX, PERCENT) do { \
+               /* NDC coordinates (2d): bottom-left(-1,-1), center(0,0), top-right(+1,+1) */ \
+               float progress = (PERCENT+1) / 100.f; if(progress > 1) progress = 1; \
+               float speed = progress < 1 ? 0.05f : 0.75f; \
+               float smooth = previous[JOB_ID] = progress * speed + previous[JOB_ID] * (1-speed); \
+               \
+               float pixel = 2.f / window_height(), dist = smooth*2-1, y = pixel*3*JOB_ID; \
+               if(JOB_ID==0)ddraw_line(vec3(-1,y-pixel*2,0), vec3(1,   y-pixel*2,0)); /* full line */ \
+               ddraw_line(vec3(-1,y-pixel  ,0), vec3(dist,y-pixel  ,0)); /* progress line */ \
+               ddraw_line(vec3(-1,y+0      ,0), vec3(dist,y+0      ,0)); /* progress line */ \
+               ddraw_line(vec3(-1,y+pixel  ,0), vec3(dist,y+pixel  ,0)); /* progress line */ \
+               if(JOB_ID==JOB_MAX-1)ddraw_line(vec3(-1,y+pixel*2,0), vec3(1,   y+pixel*2,0)); /* full line */ \
+            } while(0)
+
+            if( FLAGS_TRANSPARENT ) {} else // @transparent
+            for(int i = 0; i < cook_jobs(); ++i) ddraw_progress_bar(i, cook_jobs(), jobs[i].progress);
+            // ddraw_progress_bar(0, 1, cook_progress());
+
+            ddraw_flush();
+
+            do_once window_visible(1);
+
+            // render progress bar at 30Hz + give the cook threads more time to actually cook the assets.
+            // no big deal since progress bar is usually quiet when cooking assets most of the time.
+            // also, make the delay even larger when window is minimized or hidden.
+            // shaved cook times: 88s -> 57s (tcc), 50s -> 43s (vc)
+            sleep_ms( window_has_visible() && window_has_focus() ? 8 : 16 );
         }
+        // set black screen
+        glNewFrame();
+        window_swap();
+#if !ENABLE_RETAIL
+        window_title("");
+#endif
+    }
 
     if(cook_cancelling) cook_stop(), exit(-1);
 
@@ -535,6 +525,9 @@ int window_frame_begin() {
             may_render_debug_panel = (frames > 0);
         }
     }
+
+    if (!win_debug_visible)
+        may_render_debug_panel = 0;
 
     // generate Debug panel contents
     if( may_render_debug_panel ) {
@@ -743,6 +736,13 @@ double window_time() {
 }
 double window_delta() {
     return dt;
+}
+
+void window_debug(int visible) {
+    win_debug_visible = visible;
+}
+int window_has_debug() {
+    return win_debug_visible;
 }
 
 double window_fps() {
@@ -1078,8 +1078,10 @@ void window_setclipboard(const char *text) {
 
 static
 double window_scale() { // ok? @testme
-    float xscale, yscale;
+    float xscale = 1, yscale = 1;
+    #if !is(ems) && !is(osx) // @todo: remove silicon mac M1 hack
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+    #endif
     return maxi(xscale, yscale);
 }

@@ -686,7 +686,7 @@ bool vfs_mount_(const char *path, array(struct vfs_entry) *entries) {
             array_push(*entries, (struct vfs_entry){filename, fileid, filesize});
         }
 
-        PRINTF("Mounted VFS volume '%s' (%u entries)\n", path_bak, fn_count[dir->type](dir->archive) );
+        // PRINTF("Mounted VFS volume '%s' (%u entries)\n", path_bak, fn_count[dir->type](dir->archive) );
     }
 
     return 1;

@@ -4,9 +4,9 @@
 #include "fwk.h"
 
 main() {
-    window_create(0.75, 0);
-
     steam_init(0); // steam_appid: 0 to use SpaceWar vanilla project from Valve
+
+    window_create(0.75, 0);
 
     while( window_swap() ) {
         steam_tick();

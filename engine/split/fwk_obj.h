@@ -55,8 +55,10 @@ API bool        id_valid(uintptr_t id);
         array(struct obj*) objchildren; \
     };
 
+#ifndef OBJ
 #define OBJ \
     OBJHEADER
+#endif
 
 // ----------------------------------------------------------------------------
 // syntax sugars
@@ -93,8 +95,10 @@ API bool        id_valid(uintptr_t id);
 #define OBJCOMPONENTS_ALL_FLAGGED 0x5555555555555555ULL
 #define COMPONENTS_ONLY(x) ((x) & ~OBJCOMPONENTS_ALL_FLAGGED)
 
+#ifndef ENTITY
 #define ENTITY \
     struct { OBJHEADER union { struct { uintptr_t objenabled:OBJCOMPONENTS_MAX, objflagged:OBJCOMPONENTS_MAX; }; uintptr_t cflags; }; void *c[OBJCOMPONENTS_MAX]; };
+#endif
 
 #define TYPEDEF_ENTITY(NAME,N,...) \
     typedef struct NAME { ENTITY \

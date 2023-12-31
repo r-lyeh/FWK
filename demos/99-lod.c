@@ -187,6 +187,8 @@ int main() {
     cam.position = vec3(1.667,0.503,2.417);
     camera_lookat(&cam, vec3(0,0,0));
 
+    renderstate_t state = renderstate();
+
     mesh_t m = mesh();
     InitModel(&m);
 
@@ -221,6 +223,7 @@ int main() {
             mesh_area(&m);
         }
 
+        renderstate_apply(&state);
         DrawModel(&m);
 
         if( ui_panel("LODs", PANEL_OPEN) ) {

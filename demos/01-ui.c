@@ -32,7 +32,7 @@ int main() {
             // video api: decode frame and get associated textures (audio is sent to audiomixer automatically)
             textures = video_decode( v );
             // fullscreen video
-            // if(video_is_rgb(v)) fullscreen_quad_rgb( textures[0], 1.3f );
+            // if(video_is_rgb(v)) fullscreen_quad_rgb( textures[0] );
             // else fullscreen_quad_ycbcr( textures, 1.3f );
         }
 

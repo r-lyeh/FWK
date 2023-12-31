@@ -74,7 +74,7 @@ video_t* video( const char *filename, int flags ) {
     } else {
         int w16 = (w+15) & ~15;
         int h16 = (h+15) & ~15;
-        v->texture = texture_create( w16, h16, 3, NULL, TEXTURE_SRGB );
+        v->texture = texture_create( w16, h16, 3, NULL, 0 );
         v->surface = REALLOC( v->surface,  w16 * h16 * 3 );
     }
 

@@ -472,7 +472,7 @@ void main(void)
     float e = 0.14f;
     color = clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
     // gamma correction
-    color = pow( color, vec3(1. / 2.2) );
+    color = pow( color, vec3(1.0/2.2) );
 #endif
 
     // dither with noise.

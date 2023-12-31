@@ -29,7 +29,7 @@ int main() {
         compute_dispatch(TEX_WIDTH/10, TEX_WIDTH/10, 1);
         write_barrier_image();
         
-        fullscreen_quad_rgb(tex, 2.2);
+        fullscreen_quad_rgb(tex);
     }
 
     return 0;

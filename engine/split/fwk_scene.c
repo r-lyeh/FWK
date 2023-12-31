@@ -20,7 +20,7 @@ camera_t camera() {
         cam.move_damping = 0.96f;
         cam.look_friction = 0.30f;
         cam.look_damping = 0.96f;
-        cam.last_look = vec2(0,0);
+        cam.last_look = vec3(0,0,0);
         cam.last_move = vec3(0,0,0);
 
         // update proj & view
@@ -119,7 +119,7 @@ void camera_fov(camera_t *cam, float fov) {
     }
 }
 
-void camera_fps(camera_t *cam, float yaw, float pitch) {
+void camera_fps2(camera_t *cam, float yaw, float pitch, float roll) {
     last_camera = cam;
 
     // camera damping
@@ -127,21 +127,41 @@ void camera_fps(camera_t *cam, float yaw, float pitch) {
         float fr = cam->look_friction; fr *= fr; fr *= fr; fr *= fr;
         float sm = clampf(cam->look_damping, 0, 0.999f); sm *= sm; sm *= sm;
 
-        cam->last_look = scale2(cam->last_look, 1 - fr);
+        cam->last_look = scale3(cam->last_look, 1 - fr);
         yaw = cam->last_look.y = yaw * (1 - sm) + cam->last_look.y * sm;
         pitch = cam->last_look.x = pitch * (1 - sm) + cam->last_look.x * sm;
+        roll = cam->last_look.z = roll * (1 - sm) + cam->last_look.z * sm;
     }
 
     cam->yaw += yaw;
     cam->yaw = fmod(cam->yaw, 360);
     cam->pitch += pitch;
     cam->pitch = cam->pitch > 89 ? 89 : cam->pitch < -89 ? -89 : cam->pitch;
+    cam->roll += roll;
+    cam->roll += fmod(cam->roll, 360);
 
-    const float deg2rad = 0.0174532f, y = cam->yaw * deg2rad, p = cam->pitch * deg2rad;
+    const float deg2rad = 0.0174532f, y = cam->yaw * deg2rad, p = cam->pitch * deg2rad, r = cam->roll * deg2rad;
     cam->lookdir = norm3(vec3(cos(y) * cos(p), sin(p), sin(y) * cos(p)));
+    vec3 up = vec3(0,1,0);
+    // calculate updir
+    {
+        float cosfa = cosf(r);
+        float sinfa = sinf(r);
+        vec3 right = cross3(cam->lookdir, up);
+        float th = dot3(cam->lookdir, up);
+
+        cam->updir.x = up.x * cosfa + right.x * sinfa + cam->lookdir.x * th * (1.0f - cosfa);
+        cam->updir.y = up.y * cosfa + right.y * sinfa + cam->lookdir.y * th * (1.0f - cosfa);
+        cam->updir.z = up.z * cosfa + right.z * sinfa + cam->lookdir.z * th * (1.0f - cosfa);
+    }
+
     lookat44(cam->view, cam->position, add3(cam->position, cam->lookdir), cam->updir); // eye,center,up
 
     camera_fov(cam, cam->fov);
+}
+
+void camera_fps(camera_t *cam, float yaw, float pitch) {
+    camera_fps2(cam, yaw, pitch, 0.0f);
 }
 
 void camera_orbit( camera_t *cam, float yaw, float pitch, float inc_distance ) {
@@ -202,6 +222,8 @@ void object_update(object_t *obj) {
     quat p = eulerq(vec3(obj->pivot.x,obj->pivot.y,obj->pivot.z));
     quat e = eulerq(vec3(obj->euler.x,obj->euler.y,obj->euler.z));
     compose44(obj->transform, obj->pos, mulq(e, p), obj->sca);
+
+
 }
 
 object_t object() {
@@ -249,6 +271,11 @@ vec3 object_position(object_t *obj) {
 
 void object_model(object_t *obj, model_t model) {
     obj->model = model;
+}
+
+void object_anim(object_t *obj, anim_t anim, float speed) {
+    obj->anim = anim;
+    obj->anim_speed = speed;
 }
 
 void object_push_diffuse(object_t *obj, texture_t tex) {
@@ -413,7 +440,7 @@ int scene_merge(const char *source) {
             //char *a = archive_read(animation_file);
             object_t *o = scene_spawn();
             object_model(o, m);
-            if( texture_file[0] ) object_diffuse(o, texture_from_mem(vfs_read(texture_file), vfs_size(texture_file), opt_flip_uv ? IMAGE_FLIP : 0) );
+            if( texture_file[0] ) object_diffuse(o, texture_from_mem(vfs_read(texture_file), vfs_size(texture_file), (opt_flip_uv ? IMAGE_FLIP : 0)) );
             object_scale(o, scale);
             object_teleport(o, position);
             object_pivot(o, rotation); // object_rotate(o, rotation);
@@ -472,39 +499,18 @@ light_t* scene_index_light(unsigned light_index) {
     return &last_scene->lights[light_index];
 }
 
-
 void scene_render(int flags) {
     camera_t *cam = camera_get_active();
 
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glActiveTexture(GL_TEXTURE0);
-
     if(flags & SCENE_BACKGROUND) {
         if(last_scene->skybox.program) {
-        skybox_push_state(&last_scene->skybox, cam->proj, cam->view);
-
-        glDisable(GL_DEPTH_TEST);
-    //  glDepthFunc(GL_LESS);
-    //    glActiveTexture(GL_TEXTURE0);
-    //    (flags & SCENE_CULLFACE ? glEnable : glDisable)(GL_CULL_FACE); glCullFace(GL_BACK); glFrontFace(GL_CCW);
-    //    glPolygonMode( GL_FRONT_AND_BACK, flags & SCENE_WIREFRAME ? GL_LINE : GL_FILL );
-
-        mesh_render(&last_scene->skybox.geometry);
-        skybox_pop_state();
+            skybox_push_state(&last_scene->skybox, cam->proj, cam->view);
+            mesh_render(&last_scene->skybox.geometry);
+            skybox_pop_state();
         }
 
         ddraw_flush();
     }
-
-    glDepthFunc(GL_LESS);
-    glActiveTexture(GL_TEXTURE0);
-
-    // @fixme: CW ok for one-sided rendering. CCW ok for FXs. we need both
-    (flags & SCENE_CULLFACE ? glEnable : glDisable)(GL_CULL_FACE); glCullFace(GL_BACK); glFrontFace(GL_CCW);
-    glPolygonMode( GL_FRONT_AND_BACK, flags & SCENE_WIREFRAME ? GL_LINE : GL_FILL );
-    // @todo alpha mode
-    // @todo texture mode
 
     if( flags & SCENE_FOREGROUND ) {
         bool do_relighting = 0;
@@ -518,6 +524,7 @@ void scene_render(int flags) {
         for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
             object_t *obj = scene_index(j);
             model_t *model = &obj->model;
+            anim_t *anim = &obj->anim;
             mat44 *views = (mat44*)(&cam->view);
 
             // @todo: avoid heap allocs here?
@@ -541,9 +548,19 @@ void scene_render(int flags) {
                 shader_bind(model->program);
                 shader_vec3v("u_coefficients_sh", 9, last_scene->skybox.cubemap.sh);
             }
+     
+            model_skybox(model, last_scene->skybox, 0);
+
+            if (anim) {
+                float delta = window_delta() * obj->anim_speed;
+                model->curframe = model_animate_clip(*model, model->curframe + delta, anim->from, anim->to, anim->flags & ANIM_LOOP );
+            }
+
 
             model->billboard = obj->billboard;
-            model_render(*model, cam->proj, cam->view, obj->transform, 0);
+            model->rs[RENDER_PASS_NORMAL].cull_face_enabled = flags&SCENE_CULLFACE ? 1 : 0;
+            model->rs[RENDER_PASS_NORMAL].polygon_mode_draw = flags&SCENE_WIREFRAME ? GL_LINE : GL_FILL;
+            model_render(*model, cam->proj, cam->view, obj->transform, model->program);
 
             if( do_retexturing ) {
                 for(int i = 0; i < model->iqm->nummeshes; ++i) {
@@ -554,6 +571,4 @@ void scene_render(int flags) {
         }
         glBindVertexArray(0);
     }
-
-    glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 }

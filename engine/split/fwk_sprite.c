@@ -301,15 +301,23 @@ static void sprite_init() {
     }
 }
 
+static renderstate_t sprite_rs;
+
 void sprite_flush() {
+    do_once {
+        sprite_rs = renderstate();
+        sprite_rs.depth_test_enabled = 1;
+        sprite_rs.blend_enabled = 1;
+        sprite_rs.cull_face_enabled = 0;
+        sprite_rs.front_face = GL_CCW;
+    }
+    
     profile("Sprite.rebuild_time") {
         sprite_rebuild_meshes();
     }
     profile("Sprite.render_time") {
         // setup rendering state
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_BLEND);
-        glDepthFunc(GL_LEQUAL); // try to help with zfighting
+        renderstate_apply(&sprite_rs);
 
         // 3d
         mat44 mvp3d; multiply44x2(mvp3d, camera_get_active()->proj, camera_get_active()->view);
@@ -336,9 +344,6 @@ void sprite_flush() {
         sprite_render_meshes_group(&sprite_group[SPRITE_ADDITIVE], GL_SRC_ALPHA, GL_ONE, mvp2d );
 
         // restore rendering state
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
-        glDepthFunc(GL_LESS);
         glUseProgram(0);
     }
 }

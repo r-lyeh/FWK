@@ -62,12 +62,16 @@ out vec4 v_color;
 out vec3 v_position, v_position_ws;
 out vec3 v_normal, v_normal_ws;
 out vec2 v_texcoord, v_texcoord2;
+out vec3 v_tangent;
+out vec3 v_binormal;
+out vec3 v_viewpos;
+out vec3 v_to_camera;
 
 
 
 
 // shadow
-uniform mat4 model, view;
+uniform mat4 model, view, inv_view;
 uniform mat4 cameraToShadowProjector;
 out vec4 vneye;
 out vec4 vpeye;
@@ -114,7 +118,7 @@ void main() {
     
     //   vec3 tangent = att_tangent.xyz;
     //   vec3 bitangent = cross(att_normal, att_tangent.xyz) * att_tangent.w;
-    v_normal_ws = normalize(vec3(model * vec4(v_normal, 0.))); // normal to world/model space
+    v_normal_ws = normalize(vec3(att_instanced_matrix * vec4(v_normal, 0.))); // normal to world/model space
     v_normal = normalize(v_normal);
     v_position = att_position;
     v_texcoord = att_texcoord;
@@ -153,6 +157,24 @@ void main() {
         modelView = view * l_model;
     }
     v_position_ws = (l_model * vec4( objPos, 1.0 )).xyz;
-    gl_Position = P * modelView * vec4( objPos, 1.0 );
+    v_tangent = normalize(mat3(att_instanced_matrix) * att_tangent.xyz);
+    #if 0
+      // compute tangent T and bitangent B
+      vec3 Q1 = dFdx(att_position);
+      vec3 Q2 = dFdy(att_position);
+      vec2 st1 = dFdx(att_texcoord);
+      vec2 st2 = dFdy(att_texcoord);
+
+      vec3 T = normalize(Q1*st2.t - Q2*st1.t);
+      vec3 B = normalize(-Q1*st2.s + Q2*st1.s);
+      vec3 binormal = B;
+    #else
+        vec3 binormal = cross(att_normal, att_tangent.xyz) * att_tangent.w;
+    #endif
+    v_binormal = normalize(mat3(att_instanced_matrix) * binormal);
+    vec4 finalPos = modelView * vec4( objPos, 1.0 );
+    vec3 to_camera = normalize( -finalPos.xyz );
+    v_to_camera = mat3( inv_view ) * to_camera;
+    gl_Position = P * finalPos;
     do_shadow();
 }

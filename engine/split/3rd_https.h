@@ -15318,7 +15318,7 @@ int xts_decrypt(
 
 void xts_done(symmetric_xts *xts);
 int  xts_test(void);
-void xts_mult_x(unsigned char *I);
+void xts_mult_x(unsigned char *); //< @r-lyeh: remove I arg
 #endif
 
 int find_cipher(const char *name);
@@ -15989,7 +15989,7 @@ typedef struct {
  #endif
 } gcm_state;
 
-void gcm_mult_h(gcm_state *gcm, unsigned char *I);
+void gcm_mult_h(gcm_state *gcm, unsigned char *); //< @r-lyeh: remove I arg
 
 int gcm_init(gcm_state *gcm, int cipher,
              const unsigned char *key, int keylen);
@@ -34216,35 +34216,35 @@ int gcm_process(gcm_state *gcm,
   @param gcm   The GCM state which holds the H value
   @param I     The value to multiply H by
  */
-void gcm_mult_h(gcm_state *gcm, unsigned char *I)
+void gcm_mult_h(gcm_state *gcm, unsigned char *i) //< @r-lyeh: lowercase I argument
 {
    unsigned char T[16];
 #ifdef LTC_GCM_TABLES
    int x, y;
 #ifdef LTC_GCM_TABLES_SSE2
-   asm("movdqa (%0),%%xmm0"::"r"(&gcm->PC[0][I[0]][0]));
+   asm("movdqa (%0),%%xmm0"::"r"(&gcm->PC[0][i[0]][0]));
    for (x = 1; x < 16; x++) {
-      asm("pxor (%0),%%xmm0"::"r"(&gcm->PC[x][I[x]][0]));
+      asm("pxor (%0),%%xmm0"::"r"(&gcm->PC[x][i[x]][0]));
    }
    asm("movdqa %%xmm0,(%0)"::"r"(&T));
 #else
-   XMEMCPY(T, &gcm->PC[0][I[0]][0], 16);
+   XMEMCPY(T, &gcm->PC[0][i[0]][0], 16);
    for (x = 1; x < 16; x++) {
 #ifdef LTC_FAST
        for (y = 0; y < 16; y += sizeof(LTC_FAST_TYPE)) {
-           *((LTC_FAST_TYPE *)(T + y)) ^= *((LTC_FAST_TYPE *)(&gcm->PC[x][I[x]][y]));
+           *((LTC_FAST_TYPE *)(T + y)) ^= *((LTC_FAST_TYPE *)(&gcm->PC[x][i[x]][y]));
        }
 #else
        for (y = 0; y < 16; y++) {
-           T[y] ^= gcm->PC[x][I[x]][y];
+           T[y] ^= gcm->PC[x][i[x]][y];
        }
 #endif /* LTC_FAST */
    }
 #endif /* LTC_GCM_TABLES_SSE2 */
 #else
-   gcm_gf_mult(gcm->H, I, T);
+   gcm_gf_mult(gcm->H, i, T);
 #endif
-   XMEMCPY(I, T, 16);
+   XMEMCPY(i, T, 16);
 }
 #endif
 

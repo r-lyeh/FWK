@@ -45,9 +45,157 @@ void glDebugEnable() {
 
 static
 void glCopyBackbufferToTexture( texture_t *tex ) { // unused
-    glActiveTexture( GL_TEXTURE0 + tex->unit );
+    glActiveTexture( GL_TEXTURE0 + texture_unit() );
     glBindTexture( GL_TEXTURE_2D, tex->id );
     glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 0, 0, window_width(), window_height(), 0 );
+}
+
+// ----------------------------------------------------------------------------
+// renderstate
+
+renderstate_t renderstate() {
+    renderstate_t state = {0};
+
+    // Set default clear color to black
+    state.clear_color[0] = 0.0f; // Red
+    state.clear_color[1] = 0.0f; // Green
+    state.clear_color[2] = 0.0f; // Blue
+    state.clear_color[3] = 1.0f; // Alpha
+
+    // Set default clear depth to maximum distance
+    state.clear_depth = 1.0;
+
+    // Enable depth test by default with less or equal function
+    state.depth_test_enabled = GL_TRUE;
+    state.depth_write_enabled = GL_TRUE;
+    state.depth_func = GL_LEQUAL;
+
+    // Disable blending by default
+    state.blend_enabled = GL_FALSE;
+    state.blend_func = GL_FUNC_ADD;
+    state.blend_src = GL_ONE;
+    state.blend_dst = GL_ZERO;
+
+    // Disable culling by default but cull back faces
+    state.cull_face_enabled = GL_FALSE;
+    state.cull_face_mode = GL_BACK;
+
+    // Disable stencil test by default
+    state.stencil_test_enabled = GL_FALSE;
+    state.stencil_func = GL_ALWAYS;
+    state.stencil_ref = 0;
+    state.stencil_mask = 0xFFFFFFFF;
+
+    // Set default front face to counter-clockwise
+    state.front_face = GL_CCW;
+
+    // Set default line width
+    state.line_smooth_enabled = GL_FALSE;
+    state.line_width = 1.0f;
+
+    // Set default point size
+    state.point_size_enabled = GL_FALSE;
+    state.point_size = 1.0f;
+
+    // Set default polygon mode to fill
+    state.polygon_mode_face = GL_FRONT_AND_BACK;
+    state.polygon_mode_draw = GL_FILL;
+
+    // Disable scissor test by default
+    state.scissor_test_enabled = GL_FALSE;
+
+    return state;
+}
+
+bool renderstate_compare(const renderstate_t *stateA, const renderstate_t *stateB) {
+    return memcmp(stateA, stateB, sizeof(renderstate_t)) == 0;
+}
+
+static renderstate_t last_rs;
+
+void renderstate_apply(const renderstate_t *state) {
+    if (state != NULL) {
+        // Compare renderstates and bail if they are the same
+        if (renderstate_compare(state, &last_rs)) {
+            return;
+        }
+
+        // Store renderstate
+        last_rs = *state;
+
+        // Apply clear color
+        glClearColor(state->clear_color[0], state->clear_color[1], state->clear_color[2], state->clear_color[3]);
+
+        // Apply clear depth
+        glClearDepth(state->clear_depth);
+
+        // Apply depth test
+        if (state->depth_test_enabled) {
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(state->depth_func);
+        } else {
+            glDisable(GL_DEPTH_TEST);
+        }
+
+        // Apply depth write
+        glDepthMask(state->depth_write_enabled);
+
+        // Apply blending
+        if (state->blend_enabled) {
+            glEnable(GL_BLEND);
+            glBlendEquation(state->blend_func);
+            glBlendFunc(state->blend_src, state->blend_dst);
+        } else {
+            glDisable(GL_BLEND);
+        }
+
+        // Apply culling @fixme
+        if (state->cull_face_enabled) {
+            glEnable(GL_CULL_FACE);
+            glCullFace(state->cull_face_mode);
+        } else {
+            glDisable(GL_CULL_FACE);
+        }
+
+        // Apply stencil test
+        if (state->stencil_test_enabled) {
+            glEnable(GL_STENCIL_TEST);
+            glStencilFunc(state->stencil_func, state->stencil_ref, state->stencil_mask);
+        } else {
+            glDisable(GL_STENCIL_TEST);
+        }
+
+        // Apply front face direction @fixme
+        glFrontFace(state->front_face);
+
+        // Apply line width
+        glLineWidth(state->line_width);
+
+        // Apply smooth lines
+        if (state->line_smooth_enabled) {
+            glEnable(GL_LINE_SMOOTH);
+        } else {
+            glDisable(GL_LINE_SMOOTH);
+        }
+
+        // Apply point size
+        if (state->point_size_enabled) {
+            glEnable(GL_PROGRAM_POINT_SIZE);
+            glPointSize(state->point_size);
+        } else {
+            glDisable(GL_PROGRAM_POINT_SIZE);
+        }
+
+        // Apply polygon mode
+        glPolygonMode(state->polygon_mode_face, state->polygon_mode_draw);
+
+        // Apply scissor test
+        if (state->scissor_test_enabled) {
+            glEnable(GL_SCISSOR_TEST);
+        } else {
+            glDisable(GL_SCISSOR_TEST);
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -81,7 +229,7 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
         // dump log with line numbers
         shader_print( source );
-        PRINTF("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
+        PANIC("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
         return 0;
     }
 
@@ -90,6 +238,22 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
 unsigned shader(const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines){
     return shader_geom(NULL, vs, fs, attribs, fragcolor, defines);
+}
+
+static inline
+char *shader_preprocess(const char *src, const char *defines) {
+    if (!src) return NULL;
+
+    const char *glsl_version = va("#version %s", ifdef(ems, "300 es", "150"));
+
+    // detect GLSL version if set
+    if (src[0] == '#' && src[1] == 'v') {
+        const char *end = strstri(src, "\n");
+        glsl_version = va("%.*s", (int)(end-src), src);
+        src = end+1;
+    }
+
+    return va("%s\n%s\n%s", glsl_version, defines ? defines : "", src);
 }
 
 unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines) {
@@ -102,12 +266,10 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
         }
     }
 
-    const char *glsl_version = ifdef(ems, "300 es", "150");
-
     if(gs)
-    gs = gs && gs[0] == '#' && gs[1] == 'v' ? gs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, gs ? gs : "");
-    vs = vs && vs[0] == '#' && vs[1] == 'v' ? vs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, vs ? vs : "");
-    fs = fs && fs[0] == '#' && fs[1] == 'v' ? fs : va("#version %s\n%s\n%s", glsl_version, glsl_defines, fs ? fs : "");
+    gs = shader_preprocess(gs, glsl_defines);
+    vs = shader_preprocess(vs, glsl_defines);
+    fs = shader_preprocess(fs, glsl_defines);
 
 #if is(ems)
     {
@@ -138,7 +300,7 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
             while( attribs[0] && attribs[0] == ',' ) { attribs++; break; }
             if(!attrib[0]) continue;
             glBindAttribLocation(program, i, attrib);
-            PRINTF("Shader.attribute[%d]=%s\n", i, attrib);
+            // PRINTF("Shader.attribute[%d]=%s\n", i, attrib);
         }
 
 #if !is(ems) // @fixme
@@ -507,14 +669,36 @@ void ssbo_unbind(){
 }
 
 static __thread unsigned last_shader = -1;
-static
+
 int shader_uniform(const char *name) {
-    int ret = glGetUniformLocation(last_shader, name);
-    // if( ret < 0 ) PRINTF("!cannot find uniform '%s' in shader program %d\n", name, (int)last_shader );
-    return ret;
+    return glGetUniformLocation(last_shader, name);
 }
 unsigned shader_get_active() { return last_shader; }
 unsigned shader_bind(unsigned program) { unsigned ret = last_shader; return glUseProgram(last_shader = program), ret; }
+static inline void shader_int_(int uniform, int i)     { glUniform1i(uniform, i); }
+static inline void shader_float_(int uniform, float f) { glUniform1f(uniform, f); }
+static inline void shader_vec2_(int uniform, vec2 v)   { glUniform2fv(uniform, 1, &v.x); }
+static inline void shader_vec3_(int uniform, vec3 v)   { glUniform3fv(uniform, 1, &v.x); }
+static inline void shader_vec3v_(int uniform, int count, vec3 *v) { glUniform3fv(uniform, count, &v[0].x); }
+static inline void shader_vec4_(int uniform, vec4 v)   { glUniform4fv(uniform, 1, &v.x); }
+static inline void shader_mat44_(int uniform, mat44 m) { glUniformMatrix4fv(uniform, 1, GL_FALSE/*GL_TRUE*/, m); }
+static inline void shader_cubemap_(int sampler, unsigned texture) { 
+    int id = texture_unit();
+    glUniform1i(sampler, id); 
+    glActiveTexture(GL_TEXTURE0 + id); 
+    glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
+}
+static inline void shader_bool_(int uniform, bool x) { glUniform1i(uniform, x); }
+static inline void shader_uint_(int uniform, unsigned x ) { glUniform1ui(uniform, x); }
+static inline void shader_texture_unit_(int sampler, unsigned id, unsigned unit) {
+    // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
+    glUniform1i(sampler, unit);
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_2D, id);
+}
+static inline void shader_texture_(int sampler, texture_t t) { shader_texture_unit_(sampler, t.id, texture_unit()); }
+
+// public api
 void shader_int(const char *uniform, int i)     { glUniform1i(shader_uniform(uniform), i); }
 void shader_float(const char *uniform, float f) { glUniform1f(shader_uniform(uniform), f); }
 void shader_vec2(const char *uniform, vec2 v)   { glUniform2fv(shader_uniform(uniform), 1, &v.x); }
@@ -522,10 +706,15 @@ void shader_vec3(const char *uniform, vec3 v)   { glUniform3fv(shader_uniform(un
 void shader_vec3v(const char *uniform, int count, vec3 *v) { glUniform3fv(shader_uniform(uniform), count, &v[0].x); }
 void shader_vec4(const char *uniform, vec4 v)   { glUniform4fv(shader_uniform(uniform), 1, &v.x); }
 void shader_mat44(const char *uniform, mat44 m) { glUniformMatrix4fv(shader_uniform(uniform), 1, GL_FALSE/*GL_TRUE*/, m); }
-void shader_cubemap(const char *sampler, unsigned texture) { glUniform1i(shader_uniform(sampler), 0); glBindTexture(GL_TEXTURE_CUBE_MAP, texture); }
+void shader_cubemap(const char *sampler, unsigned texture) { 
+    int id = texture_unit();
+    glUniform1i(shader_uniform(sampler), id); 
+    glActiveTexture(GL_TEXTURE0 + id); 
+    glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
+}
 void shader_bool(const char *uniform, bool x) { glUniform1i(shader_uniform(uniform), x); }
 void shader_uint(const char *uniform, unsigned x ) { glUniform1ui(shader_uniform(uniform), x); }
-void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, t.unit); }
+void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, texture_unit()); }
 void shader_texture_unit(const char *sampler, unsigned id, unsigned unit) {
     // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(shader_uniform(sampler), unit);
@@ -666,13 +855,11 @@ vec3 bilinear(image_t in, vec2 uv) { // image_bilinear_pixel() ?
 // -----------------------------------------------------------------------------
 // textures
 
-static
-int allocate_texture_unit() {
+int texture_unit() {
     static int textureUnit = 0, totalTextureUnits = 0;
     do_once glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &totalTextureUnits);
-
-    ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
-    return textureUnit++;
+    // ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
+    return textureUnit++ % totalTextureUnits;
 }
 
 unsigned texture_update(texture_t *t, unsigned w, unsigned h, unsigned n, const void *pixels, int flags) {
@@ -730,6 +917,15 @@ GLenum texture_type = t->flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTUR
     glTexParameteri(texture_type, GL_TEXTURE_WRAP_T, wrap);
     glTexParameteri(texture_type, GL_TEXTURE_MIN_FILTER, min_filter);
     glTexParameteri(texture_type, GL_TEXTURE_MAG_FILTER, mag_filter);
+
+    if (flags & TEXTURE_ANISOTROPY) {
+        GLfloat value, max_anisotropy = 16.0f;
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &value);
+
+        value = (value > max_anisotropy) ? max_anisotropy : value;
+        glTexParameterf(texture_type, GL_TEXTURE_MAX_ANISOTROPY, value);
+    }
+
 #if 0 // only for sampler2DShadow
     if( flags & TEXTURE_DEPTH )   glTexParameteri(texture_type, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
     if( flags & TEXTURE_DEPTH )   glTexParameteri(texture_type, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
@@ -759,7 +955,6 @@ texture_t texture_create(unsigned w, unsigned h, unsigned n, const void *pixels,
     texture_t texture = {0};
     glGenTextures( 1, &texture.id );
     texture_update( &texture, w, h, n, pixels, flags );
-    texture.unit = allocate_texture_unit();
     texture.transparent = texture.n > 3; // @fixme: should be true only if any pixel.a == 0
     return texture;
 }
@@ -1139,6 +1334,9 @@ texture_t texture_compressed_from_mem(const void *data, int len, unsigned flags)
     if( dimensions > 0 ) glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_REPEAT);
     if( dimensions > 1 ) glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_REPEAT);
     if( dimensions > 2 ) glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_REPEAT);
+    if( flags&TEXTURE_CLAMP && dimensions > 0 ) glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    if( flags&TEXTURE_CLAMP && dimensions > 1 ) glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if( flags&TEXTURE_CLAMP && dimensions > 2 ) glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     if( target == GL_TEXTURE_CUBE_MAP ) target = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
 
@@ -1286,7 +1484,22 @@ void shadowmatrix_ortho(mat44 shm_proj, float left, float right, float bottom, f
 // usage: bind empty vao & commit call for 6 (quad) or 3 vertices (tri).
 // ie, glBindVertexArray(empty_vao); glDrawArrays(GL_TRIANGLES, 0, 3);
 
-void fullscreen_quad_rgb( texture_t texture, float gamma ) {
+static renderstate_t fullscreen_quad_rs;
+
+static inline
+void fullscreen_quad_rs_init() {
+    do_once {
+        fullscreen_quad_rs = renderstate();
+        fullscreen_quad_rs.depth_test_enabled = false;
+        fullscreen_quad_rs.blend_enabled = true;
+        fullscreen_quad_rs.blend_src = GL_SRC_ALPHA;
+        fullscreen_quad_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+        fullscreen_quad_rs.front_face = GL_CW;
+    }
+}
+
+void fullscreen_quad_rgb( texture_t texture ) {
+    fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
@@ -1298,9 +1511,10 @@ void fullscreen_quad_rgb( texture_t texture, float gamma ) {
     }
 
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
-//    glEnable( GL_BLEND );
+    renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
+    float gamma = 1;
+    glUniform1f( u_inv_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -1317,7 +1531,8 @@ void fullscreen_quad_rgb( texture_t texture, float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
+void fullscreen_quad_rgb_flipped( texture_t texture ) {
+    fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
@@ -1329,9 +1544,10 @@ void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
     }
 
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
-//    glEnable( GL_BLEND );
+    renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    glUniform1f( u_inv_gamma, 1.0f / (gamma + !gamma) );
+    float gamma = 1;
+    glUniform1f( u_inv_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -1348,7 +1564,8 @@ void fullscreen_quad_rgb_flipped( texture_t texture, float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
+void fullscreen_quad_ycbcr( texture_t textureYCbCr[3] ) {
+    fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_gamma = -1, uy = -1, ucb = -1, ucr = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
@@ -1364,9 +1581,9 @@ void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
         glGenVertexArrays( 1, (GLuint*)&vao );
     }
 
-//    glEnable( GL_BLEND );
+    renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    glUniform1f( u_gamma, gamma );
+    // glUniform1f( u_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -1392,7 +1609,8 @@ void fullscreen_quad_ycbcr( texture_t textureYCbCr[3], float gamma ) {
 //    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3], float gamma ) {
+void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3] ) {
+    fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_gamma = -1, uy = -1, ucb = -1, ucr = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B.glsl");
@@ -1408,9 +1626,9 @@ void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3], float gamma ) {
         glGenVertexArrays( 1, (GLuint*)&vao );
     }
 
-//    glEnable( GL_BLEND );
+    renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    glUniform1f( u_gamma, gamma );
+    // glUniform1f( u_gamma, gamma );
 
     glBindVertexArray( vao );
 
@@ -1552,6 +1770,7 @@ cubemap_t cubemap6( const image_t images[6], int flags ) {
         }
     }
 
+
     for (int s = 0; s < 9; s++) {
         c.sh[s] = scale3(c.sh[s], 32.f / samples);
     }
@@ -1602,7 +1821,7 @@ skybox_t skybox(const char *asset, int flags) {
     mesh_update(&sky.geometry, "p3", 0,countof(vertices),vertices, countof(indices),indices, MESH_TRIANGLE_STRIP);
 
     // sky program
-    sky.flags = flags ? flags : !!asset; // either cubemap or rayleigh
+    sky.flags = flags && flags != SKYBOX_PBR ? flags : !!asset ? SKYBOX_CUBEMAP : SKYBOX_RAYLEIGH; // either cubemap or rayleigh
     sky.program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
         sky.flags ? vfs_read("fs_3_4_skybox.glsl") : vfs_read("shaders/fs_3_4_skybox_rayleigh.glsl"),
         "att_position", "fragcolor", NULL);
@@ -1611,7 +1830,7 @@ skybox_t skybox(const char *asset, int flags) {
     if( asset ) {
         int is_panorama = vfs_size( asset );
         if( is_panorama ) { // is file
-            stbi_hdr_to_ldr_gamma(1.2f);
+            stbi_hdr_to_ldr_gamma(1.0f);
             image_t panorama = image( asset, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
             image_destroy(&panorama);
@@ -1640,6 +1859,60 @@ skybox_t skybox(const char *asset, int flags) {
         shader_float("uMieScaleHeight", 1200.0);
         shader_float("uMiePreferredDirection", 0.758);
         skybox_mie_calc_sh(&sky, 1.2);
+    }
+
+    return sky;
+}
+
+static inline
+texture_t load_env_tex( const char *pathfile, unsigned flags ) {
+    int flags_hdr = strendi(pathfile, ".hdr") ? TEXTURE_FLOAT | TEXTURE_RGBA : 0;
+    texture_t t = texture(pathfile, flags | TEXTURE_LINEAR | TEXTURE_MIPMAPS | TEXTURE_REPEAT | flags_hdr);
+    glBindTexture( GL_TEXTURE_2D, t.id );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return t;
+}
+
+skybox_t skybox_pbr(const char *sky_map, const char *refl_map, const char *env_map) {
+    skybox_t sky = {0};
+
+    // sky mesh
+    vec3 vertices[] = {{+1,-1,+1},{+1,+1,+1},{+1,+1,-1},{-1,+1,-1},{+1,-1,-1},{-1,-1,-1},{-1,-1,+1},{-1,+1,+1}};
+    unsigned indices[] = { 0, 1, 2, 3, 4, 5, 6, 3, 7, 1, 6, 0, 4, 2 };
+    mesh_update(&sky.geometry, "p3", 0,countof(vertices),vertices, countof(indices),indices, MESH_TRIANGLE_STRIP);
+
+    // sky program
+    sky.flags = SKYBOX_PBR;
+    sky.program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
+        vfs_read("fs_3_4_skybox.glsl"),
+        "att_position", "fragcolor", NULL);
+
+    // sky cubemap & SH
+    if( sky_map ) {
+        int is_panorama = vfs_size( sky_map );
+        if( is_panorama ) { // is file
+            stbi_hdr_to_ldr_gamma(1.0f);
+            image_t panorama = image( sky_map, IMAGE_RGBA );
+            sky.cubemap = cubemap( panorama, 0 ); // RGBA required
+            image_destroy(&panorama);
+        } else { // is folder
+            image_t images[6] = {0};
+            images[0] = image( va("%s/posx", sky_map), IMAGE_RGB ); // cubepx
+            images[1] = image( va("%s/negx", sky_map), IMAGE_RGB ); // cubenx
+            images[2] = image( va("%s/posy", sky_map), IMAGE_RGB ); // cubepy
+            images[3] = image( va("%s/negy", sky_map), IMAGE_RGB ); // cubeny
+            images[4] = image( va("%s/posz", sky_map), IMAGE_RGB ); // cubepz
+            images[5] = image( va("%s/negz", sky_map), IMAGE_RGB ); // cubenz
+            sky.cubemap = cubemap6( images, 0 );
+            for( int i = 0; i < countof(images); ++i ) image_destroy(&images[i]);
+        }
+    }
+    if( refl_map ) {
+        sky.refl = load_env_tex(refl_map, 0);
+    }
+    if( env_map ) {
+        sky.env = load_env_tex(env_map, 0);
     }
 
     return sky;
@@ -1753,17 +2026,24 @@ void skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength) {
 
 API vec4 window_getcolor_(); // internal use, not public
 
+static renderstate_t skybox_rs;
+
 int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view) {
     last_cubemap = &sky->cubemap;
 
-    //glClear(GL_DEPTH_BUFFER_BIT);
-    //glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
-    //glDisable(GL_CULL_FACE);
-    glDisable(GL_DEPTH_TEST);
+    do_once {
+        skybox_rs = renderstate();
+        skybox_rs.depth_test_enabled = 1;
+        skybox_rs.cull_face_enabled = 0;
+        skybox_rs.front_face = GL_CCW;
+    }
 
     // we have to reset clear color here, because of wrong alpha compositing issues on native transparent windows otherwise
-    vec4 bgcolor = window_getcolor_(); glClearColor(bgcolor.r, bgcolor.g, bgcolor.b, 1); // @transparent
+    vec4 bgcolor = window_getcolor_(); 
+    skybox_rs.clear_color[0] = bgcolor.r;
+    skybox_rs.clear_color[1] = bgcolor.g;
+    skybox_rs.clear_color[2] = bgcolor.b;
+    skybox_rs.clear_color[3] = 1; // @transparent
 
     mat44 mvp; multiply44x2(mvp, proj, view);
 
@@ -1773,6 +2053,8 @@ int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view) {
     if( sky->flags ) {
         shader_cubemap("u_cubemap", sky->cubemap.id);
     }
+
+    renderstate_apply(&skybox_rs);
     return 0; // @fixme: return sortable hash here?
 }
 int skybox_pop_state() {
@@ -1783,7 +2065,6 @@ int skybox_pop_state() {
 }
 int skybox_render(skybox_t *sky, mat44 proj, mat44 view) {
     skybox_push_state(sky, proj, view);
-    glEnable(GL_DEPTH_TEST);
     mesh_render(&sky->geometry);
     skybox_pop_state();
     return 0;
@@ -1934,7 +2215,9 @@ void mesh_render_prim(mesh_t *sm, unsigned prim) {
 
 void mesh_destroy(mesh_t *m) {
     // @todo
-    (void)m;
+    glDeleteBuffers(1, &m->vbo);
+    glDeleteBuffers(1, &m->ibo);
+    glDeleteVertexArrays(1, &m->vao);
 }
 
 // -----------------------------------------------------------------------------
@@ -2001,6 +2284,14 @@ void* screenshot_async( int n ) { // 3 RGB, 4 RGBA, -3 BGR, -4 BGRA
 // -----------------------------------------------------------------------------
 // viewports
 
+void viewport_color(unsigned color) {
+    unsigned r = (color >>  0) & 255;
+    unsigned g = (color >>  8) & 255;
+    unsigned b = (color >> 16) & 255;
+    unsigned a = (color >> 24) & 255;
+    glClearColor(r, g, b, a);
+}
+
 void viewport_clear(bool color, bool depth) {
     glClearDepthf(1);
     glClearStencil(0);
@@ -2019,6 +2310,9 @@ void viewport_clip(vec2 from, vec2 to) {
 // fbos
 
 unsigned fbo(unsigned color_texture_id, unsigned depth_texture_id, int flags) {
+    int last_fb;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &last_fb);
+
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -2067,14 +2361,21 @@ unsigned fbo(unsigned color_texture_id, unsigned depth_texture_id, int flags) {
     }
 #endif
 
-    glBindFramebuffer (GL_FRAMEBUFFER, 0);
+    glBindFramebuffer (GL_FRAMEBUFFER, last_fb);
     return fbo;
 }
+static __thread array(handle) fbos;
 void fbo_bind(unsigned id) {
     glBindFramebuffer(GL_FRAMEBUFFER, id);
+    array_push(fbos, id);
 }
 void fbo_unbind() {
-    fbo_bind(0);
+    handle id = 0;
+    if (array_count(fbos)) {
+        array_pop(fbos);
+        id = *array_back(fbos);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, id);
 }
 void fbo_destroy(unsigned id) {
     // glDeleteRenderbuffers(1, &renderbuffer);
@@ -2098,6 +2399,7 @@ bool postfx_enabled(postfx *fx, int pass_number);
 bool postfx_enable(postfx *fx, int pass_number, bool enabled);
 // bool postfx_toggle(postfx *fx, int pass_number);
 void postfx_clear(postfx *fx);
+void postfx_order(postfx *fx, int pass, unsigned priority);
 
 char* postfx_name(postfx *fx, int slot);
 
@@ -2108,6 +2410,8 @@ struct passfx {
     char *name;
     unsigned program;
     int uniforms[16];
+    unsigned priority;
+    bool enabled;
 };
 
 struct postfx {
@@ -2115,12 +2419,9 @@ struct postfx {
     unsigned fb[2];
     texture_t diffuse[2], depth[2];
     // shader passes
-    passfx pass[64];
-    uint64_t mask;
+    array(passfx) pass;
     // global enable flag
     bool enabled;
-    //
-    int num_loaded;
 };
 
 enum {
@@ -2142,9 +2443,10 @@ void postfx_create(postfx *fx, int flags) {
 }
 
 void postfx_destroy( postfx *fx ) {
-    for( int i = 0; i < 64; ++i ) {
+    for( int i = 0; i < array_count(fx->pass); ++i ) {
         FREE(fx->pass[i].name);
     }
+    array_free(fx->pass);
     texture_destroy(&fx->diffuse[0]);
     texture_destroy(&fx->diffuse[1]);
     texture_destroy(&fx->depth[0]);
@@ -2156,22 +2458,37 @@ void postfx_destroy( postfx *fx ) {
 }
 
 char* postfx_name(postfx *fx, int slot) {
-    return slot < 0 ? "" : fx->pass[ slot & 63 ].name;
+    return slot < 0 || slot >= array_count(fx->pass) ? "" : fx->pass[ slot ].name;
 }
 int postfx_find(postfx *fx, const char *name) {
     name = file_name(name);
-    for( int i = 0; i < 64; ++i) if(!strcmpi(fx->pass[i].name, name)) return i;
+    for( int i = 0; i < array_count(fx->pass); ++i) if(!strcmpi(fx->pass[i].name, name)) return i;
     return -1;
+}
+
+static
+int postfx_sort_fn(const void *a, const void *b) {
+    unsigned p1 = ((passfx*)a)->priority;
+    unsigned p2 = ((passfx*)b)->priority;
+    return (p1 > p2) - (p1 < p2);
+}
+void postfx_order(postfx *fx, int pass, unsigned priority) {
+    if (pass < 0 || pass >= array_count(fx->pass)) return;
+    if (priority >= array_count(fx->pass)) return;
+    fx->pass[priority].priority = pass;
+    fx->pass[pass].priority = priority;
+    array_sort(fx->pass, postfx_sort_fn);
 }
 
 int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
     PRINTF("%s\n", name);
     if(!fs || !fs[0]) return -1; // PANIC("!invalid fragment shader");
 
-    int slot = fx->num_loaded++;
-
-    passfx *p = &fx->pass[ slot & 63 ];
+    passfx pass={0};
+    array_push(fx->pass, pass);
+    passfx *p = array_back(fx->pass);
     p->name = STRDUP(name);
+    p->priority = array_count(fx->pass)-1;
 
     // preload stuff
     static const char *vs = 0;
@@ -2218,42 +2535,61 @@ int postfx_load_from_mem( postfx *fx, const char *name, const char *fs ) {
 
     if( p->uniforms[u_channelres1x] == -1 ) p->uniforms[u_channelres1x] = glGetUniformLocation(p->program, "iChannelRes1x");
     if( p->uniforms[u_channelres1y] == -1 ) p->uniforms[u_channelres1y] = glGetUniformLocation(p->program, "iChannelRes1y");
-
+    
     // set quad
     glGenVertexArrays(1, &p->m.vao);
-    return slot;
+    return array_count(fx->pass)-1;
 }
 
 bool postfx_enable(postfx *fx, int pass, bool enabled) {
-    if( pass < 0 ) return false;
-    fx->mask = enabled ? fx->mask | (1ull << pass) : fx->mask & ~(1ull << pass);
-    fx->enabled = !!popcnt64(fx->mask);
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
+    fx->pass[pass].enabled = enabled;
+    fx->enabled = !!array_count(fx->pass);
     return fx->enabled;
 }
 
 bool postfx_enabled(postfx *fx, int pass) {
-    if( pass < 0 ) return false;
-    return (!!(fx->mask & (1ull << pass)));
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
+    return fx->pass[pass].enabled;
 }
 
 bool postfx_toggle(postfx *fx, int pass) {
-    if( pass < 0 ) return false;
+    if( pass < 0 || pass >= array_count(fx->pass) ) return false;
     return postfx_enable(fx, pass, 1 ^ postfx_enabled(fx, pass));
 }
 
 void postfx_clear(postfx *fx) {
-    fx->mask = fx->enabled = 0;
+    for (int i = 0; i < array_count(fx->pass); i++) {
+        fx->pass[i].enabled = 0;
+    }
+    fx->enabled = 0;
 }
 
 int ui_postfx(postfx *fx, int pass) {
+    if (pass < 0 || pass >= array_count(fx->pass)) return 0;
     int on = ui_enabled();
     ( postfx_enabled(fx,pass) ? ui_enable : ui_disable )();
     int rc = ui_shader(fx->pass[pass].program);
+    ui_separator();
+    int btn = ui_buttons(2, "Move up", "Move down");
+    if (btn == 1) {
+        postfx_order(fx, pass, fx->pass[pass].priority-1);
+    } 
+    else if (btn == 2) {
+        postfx_order(fx, pass, fx->pass[pass].priority+1);
+    }
     ( on ? ui_enable : ui_disable )();
     return rc;
 }
 
-static __thread array(handle) last_fb;
+static
+int postfx_active_passes(postfx *fx) {
+    int num_passes = 0;
+    for (int i = 0; i < array_count(fx->pass); i++)
+        if (fx->pass[i].enabled)
+            ++num_passes;
+    return num_passes;
+}
 
 bool postfx_begin(postfx *fx, int width, int height) {
     // reset clear color: needed in case transparent window is being used (alpha != 0)
@@ -2261,10 +2597,6 @@ bool postfx_begin(postfx *fx, int width, int height) {
 
     width += !width;
     height += !height;
-
-    int fb;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb);
-    array_push(last_fb, fb);
 
     // resize if needed
     if( fx->diffuse[0].w != width || fx->diffuse[0].h != height ) {
@@ -2276,51 +2608,58 @@ bool postfx_begin(postfx *fx, int width, int height) {
         fbo_destroy(fx->fb[1]);
 
         // create texture, set texture parameters and content
-        fx->diffuse[0] = texture_create(width, height, 4, NULL, TEXTURE_RGBA);
+        fx->diffuse[0] = texture_create(width, height, 4, NULL, TEXTURE_RGBA|TEXTURE_FLOAT);
         fx->depth[0] = texture_create(width, height, 1,  NULL, TEXTURE_DEPTH|TEXTURE_FLOAT);
         fx->fb[0] = fbo(fx->diffuse[0].id, fx->depth[0].id, 0);
 
         // create texture, set texture parameters and content
-        fx->diffuse[1] = texture_create(width, height, 4, NULL, TEXTURE_RGBA);
+        fx->diffuse[1] = texture_create(width, height, 4, NULL, TEXTURE_RGBA|TEXTURE_FLOAT);
         fx->depth[1] = texture_create(width, height, 1, NULL, TEXTURE_DEPTH|TEXTURE_FLOAT);
         fx->fb[1] = fbo(fx->diffuse[1].id, fx->depth[1].id, 0);
     }
 
-    uint64_t num_active_passes = popcnt64(fx->mask);
+    uint64_t num_active_passes = postfx_active_passes(fx);
     bool active = fx->enabled && num_active_passes;
     if( !active ) {
-        array_pop(last_fb);
-        fbo_bind(fb);
         return false;
     }
 
     fbo_bind(fx->fb[1]);
-
     viewport_clear(true, true);
     viewport_clip(vec2(0,0), vec2(width, height));
+    fbo_unbind();
 
     fbo_bind(fx->fb[0]);
-
     viewport_clear(true, true);
     viewport_clip(vec2(0,0), vec2(width, height));
+    // we keep fbo_0 bound so that user can render into it.
 
     return true;
 }
 
+static renderstate_t postfx_rs;
+
 bool postfx_end(postfx *fx) {
-    uint64_t num_active_passes = popcnt64(fx->mask);
+    uint64_t num_active_passes = postfx_active_passes(fx);
     bool active = fx->enabled && num_active_passes;
     if( !active ) {
         return false;
     }
 
-    handle fb = *array_back(last_fb);
-    array_pop(last_fb);
-    fbo_bind(fb);
+    do_once {
+        postfx_rs = renderstate();
+        // disable depth test in 2d rendering
+        postfx_rs.depth_test_enabled = 0;
+        postfx_rs.cull_face_enabled = 0;
+        postfx_rs.blend_enabled = 1;
+        postfx_rs.blend_src = GL_SRC_ALPHA;
+        postfx_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+    }
 
-    // disable depth test in 2d rendering
-    bool is_depth_test_enabled = glIsEnabled(GL_DEPTH_TEST);
-    glDisable(GL_DEPTH_TEST);
+    // unbind postfx fbo
+    fbo_unbind();
+
+    renderstate_apply(&postfx_rs);
 
     int frame = 0;
     float t = time_ms() / 1000.f;
@@ -2329,10 +2668,9 @@ bool postfx_end(postfx *fx) {
     float mx = input(MOUSE_X);
     float my = input(MOUSE_Y);
 
-    for(int i = 0, e = countof(fx->pass); i < e; ++i) {
-        if( fx->mask & (1ull << i) ) {
-            passfx *pass = &fx->pass[i];
-
+    for(int i = 0, e = array_count(fx->pass); i < e; ++i) {
+        passfx *pass = &fx->pass[i];
+        if( pass->enabled ) {
             if( !pass->program ) { --num_active_passes; continue; }
             glUseProgram(pass->program);
 
@@ -2343,7 +2681,7 @@ bool postfx_end(postfx *fx) {
 
             glUniform1f(pass->uniforms[u_channelres0x], fx->diffuse[frame].w);
             glUniform1f(pass->uniforms[u_channelres0y], fx->diffuse[frame].h);
-
+            
             // bind depth to texture unit 1
             // shader_texture_unit(fx->depth[frame], 1);
  glActiveTexture(GL_TEXTURE0 + 1);            glBindTexture(GL_TEXTURE_2D, fx->depth[frame].id);
@@ -2361,7 +2699,7 @@ bool postfx_end(postfx *fx) {
 
             // bind the vao
             int bound = --num_active_passes;
-            if( bound ) fbo_bind(fx->fb[frame ^= 1]);
+            if (bound) fbo_bind(fx->fb[frame ^= 1]);
 
                 // fullscreen quad
                 glBindVertexArray(pass->m.vao);
@@ -2370,13 +2708,10 @@ bool postfx_end(postfx *fx) {
                 profile_incstat("Render.num_triangles", +2);
                 glBindVertexArray(0);
 
-            if( bound ) fbo_bind(fb);
-            else glUseProgram(0);
+            if (bound) fbo_unbind();
         }
     }
-
-    if(is_depth_test_enabled);
-    glEnable(GL_DEPTH_TEST);
+    glUseProgram(0);
 
     // restore clear color: needed in case transparent window is being used (alpha != 0)
     glClearColor(0,0,0,1); // @transparent
@@ -2422,7 +2757,7 @@ void fx_enable(int pass, int enabled) {
     postfx_enable(&fx, pass, enabled);
 }
 void fx_enable_all(int enabled) {
-    for( int i = 0; i < fx.num_loaded; ++i ) fx_enable(i, enabled);
+    for( int i = 0; i < array_count(fx.pass); ++i ) fx_enable(i, enabled);
 }
 char *fx_name(int pass) {
     return postfx_name(&fx, pass);
@@ -2430,14 +2765,17 @@ char *fx_name(int pass) {
 int fx_find(const char *name) {
     return postfx_find(&fx, name);
 }
+void fx_order(int pass, unsigned priority) {
+    postfx_order(&fx, pass, priority);
+}
 int ui_fx(int pass) {
     return ui_postfx(&fx, pass);
 }
 int ui_fxs() {
-    if(!fx.num_loaded) return ui_label(ICON_MD_WARNING " No Post FXs with annotations loaded."), 0;
+    if(!array_count(fx.pass)) return ui_label(ICON_MD_WARNING " No Post FXs with annotations loaded."), 0;
 
     int changed = 0;
-    for( int i = 0; i < 64; ++i ) {
+    for( int i = 0; i < array_count(fx.pass); ++i ) {
         char *name = fx_name(i); if( !name ) break;
         bool b = fx_enabled(i);
         if( ui_bool(name, &b) ) fx_enable(i, fx_enabled(i) ^ 1);
@@ -2453,15 +2791,55 @@ int ui_fxs() {
 static texture_t brdf = {0};
 
 static void brdf_load() {
-    const char *filename;
-    filename = "Skyboxes/brdf_lut1k_256x256_32F.ktx";
-    filename = "Skyboxes/brdf_lut2k_512x512_32F.ktx";
+    // generate texture
+    unsigned tex;
+    glGenTextures(1, &tex);
 
-    brdf = texture_compressed( filename,
-        TEXTURE_CLAMP | TEXTURE_NEAREST | TEXTURE_RG | TEXTURE_FLOAT | TEXTURE_SRGB
-    );
-    unsigned texchecker = texture_checker().id;
-    ASSERT(brdf.id != texchecker, "!Couldn't load BRDF lookup table '%s'!", filename );
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, 512, 512, 0, GL_RG, GL_FLOAT, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); 
+
+    brdf.id = tex;
+    brdf.w = 512;
+    brdf.h = 512;
+
+    // create program and generate BRDF LUT
+    unsigned lut_fbo = fbo(tex, 0, 0), rbo=0;
+    fbo_bind(lut_fbo);
+
+    static int program = -1, vao = -1;
+    if( program < 0 ) {
+        const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
+        const char* fs = vfs_read("shaders/brdf.glsl");
+
+        program = shader(vs, fs, "", "fragcolor", NULL);
+        glGenVertexArrays( 1, (GLuint*)&vao );
+    }
+
+    glDisable(GL_BLEND);
+
+    handle old_shader = last_shader;
+    glUseProgram( program );
+
+    glViewport(0, 0, 512, 512);
+
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+
+    glBindVertexArray( vao );
+
+    glDrawArrays( GL_TRIANGLES, 0, 6 );
+    profile_incstat("Render.num_drawcalls", +1);
+    profile_incstat("Render.num_triangles", +2);
+
+    glBindVertexArray( 0 );
+
+    glUseProgram( last_shader );
+
+    fbo_unbind();
+    fbo_destroy(lut_fbo);
 }
 
 texture_t brdf_lut() {
@@ -2472,8 +2850,8 @@ texture_t brdf_lut() {
 // -----------------------------------------------------------------------------
 // materials
 
-bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
-    if( !material_file ) return false;
+bool colormap( colormap_t *cm, const char *texture_name, bool load_as_srgb ) {
+    if( !texture_name ) return false;
 
     if( cm->texture ) {
         texture_destroy(cm->texture);
@@ -2481,8 +2859,8 @@ bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
     }
 
     int srgb = load_as_srgb ? TEXTURE_SRGB : 0;
-    int hdr = strendi(material_file, ".hdr") ? TEXTURE_FLOAT | TEXTURE_RGBA : 0;
-    texture_t t = texture_compressed(material_file, TEXTURE_LINEAR | TEXTURE_MIPMAPS | TEXTURE_REPEAT | hdr | srgb);
+    int hdr = strendi(texture_name, ".hdr") ? TEXTURE_FLOAT|TEXTURE_RGBA : 0;
+    texture_t t = texture_compressed(texture_name, TEXTURE_LINEAR | TEXTURE_ANISOTROPY | TEXTURE_MIPMAPS | TEXTURE_REPEAT | hdr | srgb);
 
     if( t.id == texture_checker().id ) {
         cm->texture = NULL;
@@ -2491,63 +2869,6 @@ bool colormap( colormap_t *cm, const char *material_file, bool load_as_srgb ) {
     cm->texture = CALLOC(1, sizeof(texture_t));
     *cm->texture = t;
     return true;
-}
-
-bool pbr_material(pbr_material_t *pbr, const char *material) {
-    if( !material || !pbr ) return false;
-
-    //pbr_material_destroy(pbr);
-    *pbr = (pbr_material_t){0};
-
-    pbr->name = STRDUP(material);
-
-    pbr->specular_shininess = 1.0f;
-    /*
-    if( const float *f = aiGetMaterialFloat(scn_material[i], aiMaterialTypeString(MATERIAL_SHININESS)) ) {
-        pbr->specular_shininess = *f;
-    }
-    */
-
-    pbr->diffuse.color = vec4(0.5,0.5,0.5,0.5);
-    pbr->normals.color = vec4(0,0,0,0);
-    pbr->specular.color = vec4(0,0,0,0);
-    pbr->albedo.color = vec4(0.5,0.5,0.5,1.0);
-    pbr->roughness.color = vec4(1,1,1,1);
-    pbr->metallic.color = vec4(0,0,0,0);
-    pbr->ao.color = vec4(1,1,1,1);
-    pbr->ambient.color = vec4(0,0,0,1);
-    pbr->emissive.color = vec4(0,0,0,0);
-
-    array(char*) tokens = strsplit(material, "+");
-    for( int j = 0, end = array_count(tokens); j < end; ++j ) {
-        char *t = tokens[j];
-        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") )    colormap(&pbr->diffuse, t, 1);
-        if( strstri(t, "_N.") || strstri(t, "Normal") )     colormap(&pbr->normals, t, 0);
-        if( strstri(t, "_S.") || strstri(t, "Specular") )   colormap(&pbr->specular, t, 0);
-        if( strstri(t, "_A.") || strstri(t, "Albedo") )     colormap(&pbr->albedo, t, 1); // 0?
-        if( strstri(t, "_MR.")|| strstri(t, "Roughness") )  colormap(&pbr->roughness, t, 0);
-        else
-        if( strstri(t, "_M.") || strstri(t, "Metallic") )   colormap(&pbr->metallic, t, 0);
-      //if( strstri(t, "_S.") || strstri(t, "Shininess") )  colormap(&pbr->roughness, t, 0);
-      //if( strstri(t, "_A.") || strstri(t, "Ambient") )    colormap(&pbr->ambient, t, 0);
-        if( strstri(t, "_E.") || strstri(t, "Emissive") )   colormap(&pbr->emissive, t, 1);
-        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) colormap(&pbr->ao, t, 0);
-    }
-
-    return true;
-}
-
-void pbr_material_destroy(pbr_material_t *m) {
-    if( m->name )              FREE(m->name), m->name = NULL;
-    if( m->diffuse.texture)    texture_destroy( m->diffuse.texture );
-    if( m->normals.texture)    texture_destroy( m->normals.texture );
-    if( m->specular.texture)   texture_destroy( m->specular.texture );
-    if( m->albedo.texture)     texture_destroy( m->albedo.texture );
-    if( m->roughness.texture)  texture_destroy( m->roughness.texture );
-    if( m->metallic.texture)   texture_destroy( m->metallic.texture );
-    if( m->ao.texture )        texture_destroy( m->ao.texture );
-    if( m->ambient.texture )   texture_destroy( m->ambient.texture );
-    *m = (pbr_material_t){0};
 }
 
 // ----------------------------------------------------------------------------
@@ -2658,6 +2979,7 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
             }
         }
 
+        glViewport(0, 0, s->dims.x ? s->dims.x : window_width(), s->dims.y ? s->dims.y : window_height());
         glBindVertexArray(s->vao);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
@@ -2797,46 +3119,100 @@ typedef struct iqm_t {
     vec4 *colormaps;
 } iqm_t;
 
-#define meshdata (q->meshdata)
-#define animdata (q->animdata)
-#define nummeshes (q->nummeshes)
-#define numtris (q->numtris)
-#define numverts (q->numverts)
-#define numjoints (q->numjoints)
-#define numframes (q->numframes)
-#define numanims (q->numanims)
-#define meshes (q->meshes)
-#define textures (q->textures)
-#define joints (q->joints)
-#define poses (q->poses)
-#define anims (q->anims)
-#define baseframe (q->baseframe)
-#define inversebaseframe (q->inversebaseframe)
-#define outframe (q->outframe)
-#define frames (q->frames)
-#define vao (q->vao)
-#define ibo (q->ibo)
-#define vbo (q->vbo)
-#define bonematsoffset (q->bonematsoffset)
-#define buf (q->buf)
-#define bounds (q->bounds)
-#define colormaps (q->colormaps)
-
 void model_set_texture(model_t m, texture_t t) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    for( int i = 0; i < nummeshes; ++i) { // assume 1 texture per mesh
-        textures[i] = t.id;
+    for( int i = 0; i < q->nummeshes; ++i) { // assume 1 texture per mesh
+        q->textures[i] = t.id;
     }
 }
 
+//@fixme: some locations are invalid, find out why
+#if 0
 static
 void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view, mat44 model) {  // @todo: cache uniform locs
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    glUseProgram(shader);
+    shader_bind(shader);
+    int loc;
+    //if( (loc = glGetUniformLocation(shader, "M")) >= 0 ) glUniformMatrix4fv( loc, 1, GL_FALSE/*GL_TRUE*/, m); // RIM
+    if( (loc = m.uniforms[MODEL_UNIFORM_MV]) >= 0 ) {
+        shader_mat44_(loc, mv);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_MVP]) >= 0 ) {
+        mat44 mvp; multiply44x2(mvp, proj, mv); // multiply44x3(mvp, proj, view, model);
+        shader_mat44_(loc, mvp);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_VP]) >= 0 ) {
+        mat44 vp; multiply44x2(vp, proj, view);
+        shader_mat44_(loc, vp);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_CAM_POS]) >= 0 ) {
+        vec3 pos = vec3(view[12], view[13], view[14]);
+        shader_vec3_(loc, pos);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_CAM_DIR]) >= 0 ) {
+        vec3 dir = norm3(vec3(view[2], view[6], view[10]));
+        shader_vec3_(loc, dir);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_BILLBOARD]) >= 0 ) {
+        shader_int_(loc, m.billboard);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_TEXLIT]) >= 0 ) {
+        shader_bool_(loc, (m.lightmap.w != 0));
+    }
+    if ((loc = m.uniforms[MODEL_UNIFORM_MODEL]) >= 0) {
+        shader_mat44_(loc, model);
+    }
+    if ((loc = m.uniforms[MODEL_UNIFORM_VIEW]) >= 0) {
+        shader_mat44_(loc, view);
+    }
+    if ((loc = m.uniforms[MODEL_UNIFORM_INV_VIEW]) >= 0) {
+        mat44 inv_view;
+        invert44(inv_view, view);
+        shader_mat44_(loc, inv_view);
+    }
+    if ((loc = m.uniforms[MODEL_UNIFORM_PROJ]) >= 0) {
+        shader_mat44_(loc, proj);
+    }
+    if( (loc = m.uniforms[MODEL_UNIFORM_SKINNED]) >= 0 ) shader_int_(loc, q->numanims ? GL_TRUE : GL_FALSE);
+    if( q->numanims )
+        if( (loc = m.uniforms[MODEL_UNIFORM_VS_BONE_MATRIX]) >= 0 ) glUniformMatrix3x4fv( loc, q->numjoints, GL_FALSE, q->outframe[0]);
+    if ((loc = m.uniforms[MODEL_UNIFORM_U_MATCAPS]) >= 0) {
+        shader_bool_(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
+    }
+
+    if (m.shading == SHADING_PBR) {
+        handle old_shader = last_shader;
+        shader_bind(shader);
+        shader_vec2_( m.uniforms[MODEL_UNIFORM_RESOLUTION], vec2(window_width(),window_height()));
+        
+        bool has_tex_skysphere = m.sky_refl.id != texture_checker().id;
+        bool has_tex_skyenv = m.sky_env.id != texture_checker().id;
+        shader_bool_( m.uniforms[MODEL_UNIFORM_HAS_TEX_SKYSPHERE], has_tex_skysphere );
+        shader_bool_( m.uniforms[MODEL_UNIFORM_HAS_TEX_SKYENV], has_tex_skyenv );
+        if( has_tex_skysphere ) {
+            float mipCount = floor( log2( max(m.sky_refl.w, m.sky_refl.h) ) );
+            shader_texture_(m.uniforms[MODEL_UNIFORM_TEX_SKYSPHERE], m.sky_refl);
+            shader_float_( m.uniforms[MODEL_UNIFORM_SKYSPHERE_MIP_COUNT], mipCount );
+        }
+        if( has_tex_skyenv ) {
+            shader_texture_( m.uniforms[MODEL_UNIFORM_TEX_SKYENV], m.sky_env );
+        }
+        shader_texture_( m.uniforms[MODEL_UNIFORM_TEX_BRDF_LUT], brdf_lut() );
+        shader_uint_( m.uniforms[MODEL_UNIFORM_FRAME_COUNT], (unsigned)window_frame() );
+        shader_bind(old_shader);
+    }
+}
+#else
+static
+void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view, mat44 model) {  // @todo: cache uniform locs
+    if(!m.iqm) return;
+    iqm_t *q = m.iqm;
+
+    shader_bind(shader);
     int loc;
     //if( (loc = glGetUniformLocation(shader, "M")) >= 0 ) glUniformMatrix4fv( loc, 1, GL_FALSE/*GL_TRUE*/, m); // RIM
     if( (loc = glGetUniformLocation(shader, "MV")) >= 0 ) {
@@ -2913,6 +3289,11 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "view")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, view);
     }
+    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0) {
+        mat44 inv_view;
+        invert44( inv_view, view);
+        glUniformMatrix4fv(loc, 1, GL_FALSE, inv_view);
+    }
     if ((loc = glGetUniformLocation(shader, "P")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
     }
@@ -2920,23 +3301,46 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "proj")) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
     }
-    if( (loc = glGetUniformLocation(shader, "SKINNED")) >= 0 ) glUniform1i( loc, numanims ? GL_TRUE : GL_FALSE);
-    if( numanims )
-    if( (loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0 ) glUniformMatrix3x4fv( loc, numjoints, GL_FALSE, outframe[0]);
+    if( (loc = glGetUniformLocation(shader, "SKINNED")) >= 0 ) glUniform1i( loc, q->numanims ? GL_TRUE : GL_FALSE);
+    if( q->numanims )
+    if( (loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0 ) glUniformMatrix3x4fv( loc, q->numjoints, GL_FALSE, q->outframe[0]);
 
     if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0) {
         glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
     }
+
+    if (m.shading == SHADING_PBR) {
+        handle old_shader = last_shader;
+        shader_bind(shader);
+        shader_vec2( "resolution", vec2(window_width(),window_height()));
+        
+        bool has_tex_skysphere = m.sky_refl.id != texture_checker().id;
+        bool has_tex_skyenv = m.sky_env.id != texture_checker().id;
+        shader_bool( "has_tex_skysphere", has_tex_skysphere );
+        shader_bool( "has_tex_skyenv", has_tex_skyenv );
+        if( has_tex_skysphere ) {
+            float mipCount = floor( log2( max(m.sky_refl.w, m.sky_refl.h) ) );
+            shader_texture("tex_skysphere", m.sky_refl);
+            shader_float( "skysphere_mip_count", mipCount );
+        }
+        if( has_tex_skyenv ) {
+            shader_texture( "tex_skyenv", m.sky_env );
+        }
+        shader_texture( "tex_brdf_lut", brdf_lut() );
+        shader_uint( "frame_count", (unsigned)window_frame() );
+        shader_bind(old_shader);
+    }
 }
+#endif
 static
 void model_set_state(model_t m) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    glBindVertexArray( vao );
+    glBindVertexArray( q->vao );
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, q->ibo);
+    glBindBuffer(GL_ARRAY_BUFFER, q->vbo);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, position) );
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, texcoord) );
@@ -2957,7 +3361,7 @@ void model_set_state(model_t m) {
     glEnableVertexAttribArray(12);
 
     // animation
-    if(numframes > 0) {
+    if(q->numframes > 0) {
         glVertexAttribPointer( 8, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,blendindexes) );
         glVertexAttribPointer( 9, 4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,blendweights) );
         glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex, blendvertexindex) );
@@ -2973,7 +3377,7 @@ void model_set_state(model_t m) {
 
         // vertex buffer object
         glBindBuffer(GL_ARRAY_BUFFER, m.vao_instanced);
-        glBufferData(GL_ARRAY_BUFFER, m.num_instances * mat4_size, m.instanced_matrices, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, m.num_instances * mat4_size, m.instanced_matrices, GL_STREAM_DRAW);
 
         glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 4 * vec4_size, (GLvoid*)(((char*)NULL)+(0 * vec4_size)));
         glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 4 * vec4_size, (GLvoid*)(((char*)NULL)+(1 * vec4_size)));
@@ -2998,71 +3402,71 @@ void model_set_state(model_t m) {
 
 static
 bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
-    if(meshdata) return false;
+    if(q->meshdata) return false;
 
-    lil32p(&buf[hdr->ofs_vertexarrays], hdr->num_vertexarrays*sizeof(struct iqmvertexarray)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_triangles], hdr->num_triangles*sizeof(struct iqmtriangle)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_meshes], hdr->num_meshes*sizeof(struct iqmmesh)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_joints], hdr->num_joints*sizeof(struct iqmjoint)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_vertexarrays], hdr->num_vertexarrays*sizeof(struct iqmvertexarray)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_triangles], hdr->num_triangles*sizeof(struct iqmtriangle)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_meshes], hdr->num_meshes*sizeof(struct iqmmesh)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_joints], hdr->num_joints*sizeof(struct iqmjoint)/sizeof(uint32_t));
 
-    meshdata = buf;
-    nummeshes = hdr->num_meshes;
-    numtris = hdr->num_triangles;
-    numverts = hdr->num_vertexes;
-    numjoints = hdr->num_joints;
-    outframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->meshdata = q->buf;
+    q->nummeshes = hdr->num_meshes;
+    q->numtris = hdr->num_triangles;
+    q->numverts = hdr->num_vertexes;
+    q->numjoints = hdr->num_joints;
+    q->outframe = CALLOC(hdr->num_joints, sizeof(mat34));
 
     float *inposition = NULL, *innormal = NULL, *intangent = NULL, *intexcoord = NULL, *invertexindex = NULL;
     uint8_t *inblendindex8 = NULL, *inblendweight8 = NULL;
     int *inblendindexi = NULL; float *inblendweightf = NULL;
     uint8_t *invertexcolor8 = NULL;
-    struct iqmvertexarray *vas = (struct iqmvertexarray *)&buf[hdr->ofs_vertexarrays];
+    struct iqmvertexarray *vas = (struct iqmvertexarray *)&q->buf[hdr->ofs_vertexarrays];
     for(int i = 0; i < (int)hdr->num_vertexarrays; i++) {
         struct iqmvertexarray *va = &vas[i];
         switch(va->type) {
         default: continue; // return PANIC("unknown iqm vertex type (%d)", va->type), false;
-        break; case IQM_POSITION: ASSERT(va->format == IQM_FLOAT && va->size == 3); inposition = (float *)&buf[va->offset]; lil32pf(inposition, 3*hdr->num_vertexes);
-        break; case IQM_NORMAL: ASSERT(va->format == IQM_FLOAT && va->size == 3); innormal = (float *)&buf[va->offset]; lil32pf(innormal, 3*hdr->num_vertexes);
-        break; case IQM_TANGENT: ASSERT(va->format == IQM_FLOAT && va->size == 4); intangent = (float *)&buf[va->offset]; lil32pf(intangent, 4*hdr->num_vertexes);
-        break; case IQM_TEXCOORD: ASSERT(va->format == IQM_FLOAT && va->size == 2); intexcoord = (float *)&buf[va->offset]; lil32pf(intexcoord, 2*hdr->num_vertexes);
-        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE); invertexcolor8 = (uint8_t *)&buf[va->offset];
+        break; case IQM_POSITION: ASSERT(va->format == IQM_FLOAT && va->size == 3); inposition = (float *)&q->buf[va->offset]; lil32pf(inposition, 3*hdr->num_vertexes);
+        break; case IQM_NORMAL: ASSERT(va->format == IQM_FLOAT && va->size == 3); innormal = (float *)&q->buf[va->offset]; lil32pf(innormal, 3*hdr->num_vertexes);
+        break; case IQM_TANGENT: ASSERT(va->format == IQM_FLOAT && va->size == 4); intangent = (float *)&q->buf[va->offset]; lil32pf(intangent, 4*hdr->num_vertexes);
+        break; case IQM_TEXCOORD: ASSERT(va->format == IQM_FLOAT && va->size == 2); intexcoord = (float *)&q->buf[va->offset]; lil32pf(intexcoord, 2*hdr->num_vertexes);
+        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE); invertexcolor8 = (uint8_t *)&q->buf[va->offset];
         break; case IQM_BLENDINDEXES: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE || va->format == IQM_INT);
-        if(va->format == IQM_UBYTE) inblendindex8 = (uint8_t *)&buf[va->offset];
-        else inblendindexi = (int *)&buf[va->offset];
+        if(va->format == IQM_UBYTE) inblendindex8 = (uint8_t *)&q->buf[va->offset];
+        else inblendindexi = (int *)&q->buf[va->offset];
         break; case IQM_BLENDWEIGHTS: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE || va->format == IQM_FLOAT);
-        if(va->format == IQM_UBYTE) inblendweight8 = (uint8_t *)&buf[va->offset];
-        else inblendweightf = (float *)&buf[va->offset];
+        if(va->format == IQM_UBYTE) inblendweight8 = (uint8_t *)&q->buf[va->offset];
+        else inblendweightf = (float *)&q->buf[va->offset];
         invertexindex = (inblendweight8 ? (float*)(inblendweight8 + 4) : inblendweightf + 4 );
         }
     }
 
-    if (hdr->ofs_bounds) lil32p(buf + hdr->ofs_bounds, hdr->num_frames * sizeof(struct iqmbounds));
-    if (hdr->ofs_bounds) bounds = (struct iqmbounds *) &buf[hdr->ofs_bounds];
+    if (hdr->ofs_bounds) lil32p(q->buf + hdr->ofs_bounds, hdr->num_frames * sizeof(struct iqmbounds));
+    if (hdr->ofs_bounds) q->bounds = (struct iqmbounds *) &q->buf[hdr->ofs_bounds];
 
-    meshes = (struct iqmmesh *)&buf[hdr->ofs_meshes];
-    joints = (struct iqmjoint *)&buf[hdr->ofs_joints];
+    q->meshes = (struct iqmmesh *)&q->buf[hdr->ofs_meshes];
+    q->joints = (struct iqmjoint *)&q->buf[hdr->ofs_joints];
 
-    baseframe = CALLOC(hdr->num_joints, sizeof(mat34));
-    inversebaseframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->baseframe = CALLOC(hdr->num_joints, sizeof(mat34));
+    q->inversebaseframe = CALLOC(hdr->num_joints, sizeof(mat34));
     for(int i = 0; i < (int)hdr->num_joints; i++) {
-        struct iqmjoint *j = &joints[i];
-        compose34(baseframe[i], ptr3(j->translate), normq(ptrq(j->rotate)), ptr3(j->scale));
-        invert34(inversebaseframe[i], baseframe[i]);
+        struct iqmjoint *j = &q->joints[i];
+        compose34(q->baseframe[i], ptr3(j->translate), normq(ptrq(j->rotate)), ptr3(j->scale));
+        invert34(q->inversebaseframe[i], q->baseframe[i]);
         if(j->parent >= 0) {
-            multiply34x2(baseframe[i], baseframe[j->parent], baseframe[i]);
-            multiply34(inversebaseframe[i], inversebaseframe[j->parent]);
+            multiply34x2(q->baseframe[i], q->baseframe[j->parent], q->baseframe[i]);
+            multiply34(q->inversebaseframe[i], q->inversebaseframe[j->parent]);
         }
     }
 
-    struct iqmtriangle *tris = (struct iqmtriangle *)&buf[hdr->ofs_triangles];
+    struct iqmtriangle *tris = (struct iqmtriangle *)&q->buf[hdr->ofs_triangles];
     m->num_tris = hdr->num_triangles;
     m->tris = (void*)tris;
 
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
+    glGenVertexArrays(1, &q->vao);
+    glBindVertexArray(q->vao);
 
-    if(!ibo) glGenBuffers(1, &ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    if(!q->ibo) glGenBuffers(1, &q->ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, q->ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, hdr->num_triangles*sizeof(struct iqmtriangle), tris, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
@@ -3093,8 +3497,8 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
         if(invertexcolor8) memcpy(v->color, &invertexcolor8[i*4], sizeof(v->color));
     }
 
-    if(!vbo) glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    if(!q->vbo) glGenBuffers(1, &q->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, q->vbo);
     glBufferData(GL_ARRAY_BUFFER, hdr->num_vertexes*sizeof(iqm_vertex), verts, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -3115,16 +3519,16 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     m->verts = verts;
     /*m->verts = 0; FREE(verts);*/
 
-    textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
-    colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
+    q->textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
+    q->colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
         int invalid = texture_checker().id;
-        textures[i] = invalid;
+        q->textures[i] = invalid;
     }
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
+    const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
-        struct iqmmesh *m = &meshes[i];
+        struct iqmmesh *m = &q->meshes[i];
         PRINTF("loaded mesh: %s\n", &str[m->name]);
     }
 
@@ -3133,34 +3537,34 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
 
 static
 bool model_load_anims(iqm_t *q, const struct iqmheader *hdr) {
-    if((int)hdr->num_poses != numjoints) return false;
+    if((int)hdr->num_poses != q->numjoints) return false;
 
-    if(animdata) {
-        if(animdata != meshdata) FREE(animdata);
-        FREE(frames);
-        animdata = NULL;
-        anims = NULL;
-        frames = 0;
-        numframes = 0;
-        numanims = 0;
+    if(q->animdata) {
+        if(q->animdata != q->meshdata) FREE(q->animdata);
+        FREE(q->frames);
+        q->animdata = NULL;
+        q->anims = NULL;
+        q->frames = 0;
+        q->numframes = 0;
+        q->numanims = 0;
     }
 
-    lil32p(&buf[hdr->ofs_poses], hdr->num_poses*sizeof(struct iqmpose)/sizeof(uint32_t));
-    lil32p(&buf[hdr->ofs_anims], hdr->num_anims*sizeof(struct iqmanim)/sizeof(uint32_t));
-    lil16p((uint16_t *)&buf[hdr->ofs_frames], hdr->num_frames*hdr->num_framechannels);
+    lil32p(&q->buf[hdr->ofs_poses], hdr->num_poses*sizeof(struct iqmpose)/sizeof(uint32_t));
+    lil32p(&q->buf[hdr->ofs_anims], hdr->num_anims*sizeof(struct iqmanim)/sizeof(uint32_t));
+    lil16p((uint16_t *)&q->buf[hdr->ofs_frames], hdr->num_frames*hdr->num_framechannels);
 
-    animdata = buf;
-    numanims = hdr->num_anims;
-    numframes = hdr->num_frames;
+    q->animdata = q->buf;
+    q->numanims = hdr->num_anims;
+    q->numframes = hdr->num_frames;
 
-    anims = (struct iqmanim *)&buf[hdr->ofs_anims];
-    poses = (struct iqmpose *)&buf[hdr->ofs_poses];
-    frames = CALLOC(hdr->num_frames * hdr->num_poses, sizeof(mat34));
-    uint16_t *framedata = (uint16_t *)&buf[hdr->ofs_frames];
+    q->anims = (struct iqmanim *)&q->buf[hdr->ofs_anims];
+    q->poses = (struct iqmpose *)&q->buf[hdr->ofs_poses];
+    q->frames = CALLOC(hdr->num_frames * hdr->num_poses, sizeof(mat34));
+    uint16_t *framedata = (uint16_t *)&q->buf[hdr->ofs_frames];
 
     for(int i = 0; i < (int)hdr->num_frames; i++) {
         for(int j = 0; j < (int)hdr->num_poses; j++) {
-            struct iqmpose *p = &poses[j];
+            struct iqmpose *p = &q->poses[j];
             quat rotate;
             vec3 translate, scale;
             translate.x = p->channeloffset[0]; if(p->mask&0x01) translate.x += *framedata++ * p->channelscale[0];
@@ -3184,16 +3588,16 @@ bool model_load_anims(iqm_t *q, const struct iqmheader *hdr) {
             //   parentPose * childPose * childInverseBasePose
 
             mat34 m; compose34(m, translate, normq(rotate), scale);
-            if(p->parent >= 0) multiply34x3(frames[i*hdr->num_poses + j], baseframe[p->parent], m, inversebaseframe[j]);
-            else multiply34x2(frames[i*hdr->num_poses + j], m, inversebaseframe[j]);
+            if(p->parent >= 0) multiply34x3(q->frames[i*hdr->num_poses + j], q->baseframe[p->parent], m, q->inversebaseframe[j]);
+            else multiply34x2(q->frames[i*hdr->num_poses + j], m, q->inversebaseframe[j]);
         }
     }
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
-    for(int i = 0; i < (int)hdr->num_anims; i++) {
-        struct iqmanim *a = &anims[i];
-        PRINTF("loaded anim[%d]: %s\n", i, &str[a->name]);
-    }
+    // const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
+    // for(int i = 0; i < (int)hdr->num_anims; i++) {
+    //     struct iqmanim *a = &anims[i];
+    //     PRINTF("loaded anim[%d]: %s\n", i, &str[a->name]);
+    // }
 
     return true;
 }
@@ -3205,22 +3609,60 @@ static char* strcpy_safe(char *d, const char *s) {
 }
 
 static
-bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) {
-    textures = textures ? textures : CALLOC(hdr->num_meshes * 8, sizeof(GLuint)); // up to 8 textures per mesh
-    colormaps = colormaps ? colormaps : CALLOC(hdr->num_meshes * 8, sizeof(vec4)); // up to 8 colormaps per mesh
+void model_load_pbr_layer(material_layer_t *layer, const char *texname, bool load_as_srgb) {
+    strcpy_safe(layer->texname, texname);
+    colormap(&layer->map, texname, false);
+}
 
-    GLuint *out = textures;
+static
+void model_load_pbr(material_t *mt) {
+    // initialise default colors
+    mt->layer[MATERIAL_CHANNEL_DIFFUSE].map.color = vec4(0.5,0.5,0.5,0.5);
+    mt->layer[MATERIAL_CHANNEL_NORMALS].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_SPECULAR].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_SPECULAR].value = 1.0f; // specular_shininess
+    mt->layer[MATERIAL_CHANNEL_ALBEDO].map.color = vec4(0.5,0.5,0.5,1.0);
+    mt->layer[MATERIAL_CHANNEL_ROUGHNESS].map.color = vec4(1,1,1,1);
+    mt->layer[MATERIAL_CHANNEL_METALLIC].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_AO].map.color = vec4(1,1,1,1);
+    mt->layer[MATERIAL_CHANNEL_AMBIENT].map.color = vec4(0,0,0,1);
+    mt->layer[MATERIAL_CHANNEL_EMISSIVE].map.color = vec4(0,0,0,0);
 
-    const char *str = hdr->ofs_text ? (char *)&buf[hdr->ofs_text] : "";
+    // load colormaps
+    array(char*) tokens = strsplit(mt->name, "+");
+    for( int j = 0, end = array_count(tokens); j < end; ++j ) {
+        char *t = tokens[j];
+        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") || strstri(t, "Base_Color") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_DIFFUSE], t, 1);
+        if( strstri(t, "_N.") || strstri(t, "Normal") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0);
+        if( strstri(t, "_S.") || strstri(t, "Specular") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0);
+        if( strstri(t, "_A.") || strstri(t, "Albedo") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); // 0?
+        if( strstri(t, "_MR.")|| strstri(t, "Roughness") || strstri(t, "MetallicRoughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        else
+        if( strstri(t, "_M.") || strstri(t, "Metallic") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0);
+      //if( strstri(t, "_S.") || strstri(t, "Shininess") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+      //if( strstri(t, "_A.") || strstri(t, "Ambient") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AMBIENT], t, 0);
+        if( strstri(t, "_E.") || strstri(t, "Emissive") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_EMISSIVE], t, 1);
+        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AO], t, 0);
+    }
+}
+
+static
+bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, int _flags) {
+    q->textures = q->textures ? q->textures : CALLOC(hdr->num_meshes * 8, sizeof(GLuint)); // up to 8 textures per mesh
+    q->colormaps = q->colormaps ? q->colormaps : CALLOC(hdr->num_meshes * 8, sizeof(vec4)); // up to 8 colormaps per mesh
+
+    GLuint *out = q->textures;
+
+    const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
-        struct iqmmesh *m = &meshes[i];
+        struct iqmmesh *m = &q->meshes[i];
 
         // reuse texture+material if already decoded
         bool reused = 0;
         for( int j = 0; !reused && j < model->num_textures; ++j ) {
             if( !strcmpi(model->texture_names[j], &str[m->material])) {
 
-                *out++ = model->materials[j].layer[0].texture;
+                *out++ = model->materials[j].layer[0].map.texture->id;
 
                 {
                     model->num_textures++;
@@ -3236,7 +3678,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
         if( reused ) continue;
 
         // decode texture+material
-        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT; // LINEAR, NEAREST
+        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT|TEXTURE_ANISOTROPY; // LINEAR, NEAREST
+        if (!(_flags & MODEL_NO_FILTERING))
+            flags |= TEXTURE_LINEAR;
         int invalid = texture_checker().id;
 
 #if 1
@@ -3307,8 +3751,12 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
 
             material_t mt = {0};
             mt.name = STRDUP(&str[m->material]);
-            mt.layer[mt.count].color = material_color_hex ? material_color : vec4(1,1,1,1);
-            mt.layer[mt.count++].texture = *out++;
+
+            // initialise basic texture layer
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.color = material_color_hex ? material_color : vec4(1,1,1,1);
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
+            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id = *out++;
+
             array_push(model->materials, mt);
         }
 
@@ -3349,9 +3797,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
     if( array_count(model->materials) == 0 ) {
         material_t mt = {0};
         mt.name = "placeholder";
-        mt.count = 1;
-        mt.layer[0].color = vec4(1,1,1,1);
-        mt.layer[0].texture = texture_checker().id;
+        mt.layer[0].map.color = vec4(1,1,1,1);
+        mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
+        mt.layer[0].map.texture->id = texture_checker().id;
 
         array_push(model->materials, mt);
     }
@@ -3359,22 +3807,50 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model) 
     return true;
 }
 
+static
+void model_set_renderstates(model_t *m) {
+    for (int i = 0; i<NUM_RENDER_PASSES; ++i) {
+        m->rs[i] = renderstate();
+    }
+
+    // Normal pass
+    renderstate_t *normal_rs = &m->rs[RENDER_PASS_NORMAL];
+    {
+        normal_rs->blend_enabled = 1;
+        normal_rs->blend_src = GL_SRC_ALPHA;
+        normal_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+        normal_rs->cull_face_mode = GL_BACK;
+        normal_rs->front_face = GL_CW;
+    }
+
+    // Shadow pass @todo
+    renderstate_t *shadow_rs = &m->rs[RENDER_PASS_SHADOW];
+    {
+        shadow_rs->blend_enabled = 1;
+        shadow_rs->blend_src = GL_SRC_ALPHA;
+        shadow_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+        shadow_rs->cull_face_mode = GL_BACK;
+        shadow_rs->front_face = GL_CW;
+    }
+
+    // Lightmap pass
+    renderstate_t *lightmap_rs = &m->rs[RENDER_PASS_LIGHTMAP];
+    {
+        lightmap_rs->blend_enabled = 0;
+        lightmap_rs->cull_face_enabled = 0;
+        lightmap_rs->front_face = GL_CW;
+    }
+}
+
 model_t model_from_mem(const void *mem, int len, int flags) {
     model_t m = {0};
 
-    const char *ptr = (const char *)mem;
-    // can't cache shader programs since we enable features via flags here
-    // static int shaderprog = -1;
-    // if( shaderprog < 0 ) {
-        const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
-        int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
-            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
-            va("SHADING_PHONG,%s", (flags&MODEL_RIMLIGHT)?"RIM":""));
-    // }
-    // ASSERT(shaderprog > 0);
+    m.stored_flags = flags;
+    m.shading = SHADING_PHONG;
+    model_set_renderstates(&m);
 
+    const char *ptr = (const char *)mem;
     iqm_t *q = CALLOC(1, sizeof(iqm_t));
-    m.program = shaderprog;
 
     int error = 1;
     if( ptr && len ) {
@@ -3382,13 +3858,23 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         if( !memcmp(hdr.magic, IQM_MAGIC, sizeof(hdr.magic))) {
             lil32p(&hdr.version, (sizeof(hdr) - sizeof(hdr.magic))/sizeof(uint32_t));
             if(hdr.version == IQM_VERSION) {
-                buf = CALLOC(hdr.filesize, sizeof(uint8_t));
-                memcpy(buf + sizeof(hdr), ptr, hdr.filesize - sizeof(hdr));
+                q->buf = CALLOC(hdr.filesize, sizeof(uint8_t));
+                memcpy(q->buf + sizeof(hdr), ptr, hdr.filesize - sizeof(hdr));
                 error = 0;
                 if( hdr.num_meshes > 0 && !(flags & MODEL_NO_MESHES) )     error |= !model_load_meshes(q, &hdr, &m);
-                if( hdr.num_meshes > 0 && !(flags & MODEL_NO_TEXTURES) )   error |= !model_load_textures(q, &hdr, &m);
+                if( hdr.num_meshes > 0 && !(flags & MODEL_NO_TEXTURES) )   error |= !model_load_textures(q, &hdr, &m, flags);
+                else {
+                    // setup fallback
+                    material_t mt = {0};
+                    mt.name = "placeholder";
+                    mt.layer[0].map.color = vec4(1,1,1,1);
+                    mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
+                    mt.layer[0].map.texture->id = texture_checker().id;
+
+                    array_push(m.materials, mt);
+                }
                 if( hdr.num_anims  > 0 && !(flags & MODEL_NO_ANIMATIONS) ) error |= !model_load_anims(q, &hdr);
-                if( buf != meshdata && buf != animdata ) FREE(buf);
+                if( q->buf != q->meshdata && q->buf != q->animdata ) FREE(q->buf);
             }
         }
     }
@@ -3397,31 +3883,23 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         PRINTF("Error: cannot load %s", "model");
         FREE(q), q = 0;
     } else {
-        #undef vao
-        #undef ibo
-        #undef vbo
         m.vao = q->vao;
         m.ibo = q->ibo;
         m.vbo = q->vbo;
-        m.num_verts = numverts;
-        #define vao (q->vao)
-        #define ibo (q->ibo)
-        #define vbo (q->vbo)
+        m.num_verts = q->numverts;
 
         // m.boxes = bounds; // <@todo
-        m.num_meshes = nummeshes;
-        m.num_triangles = numtris;
-        m.num_joints = numjoints;
+        m.num_meshes = q->nummeshes;
+        m.num_triangles = q->numtris;
+        m.num_joints = q->numjoints;
         //m.num_poses = numposes;
-        m.num_anims = numanims;
-        m.num_frames = numframes;
+        m.num_anims = q->numanims;
+        m.num_frames = q->numframes;
         m.iqm = q;
         m.curframe = model_animate(m, 0);
 
-        //m.num_textures = nummeshes; // assume 1 texture only per mesh
-        #undef textures
+        //m.num_textures = q->nummeshes; // assume 1 texture only per mesh
         m.textures = (q->textures);
-        #define textures (q->textures)
 
         m.flags = flags;
 
@@ -3432,6 +3910,7 @@ model_t model_from_mem(const void *mem, int len, int flags) {
 
         glGenBuffers(1, &m.vao_instanced);
         model_set_state(m);
+        model_shading(&m, (flags & MODEL_PBR) ? SHADING_PBR : SHADING_PHONG);
     }
     return m;
 }
@@ -3445,9 +3924,9 @@ bool model_get_bone_pose(model_t m, unsigned joint, mat34 *out) {
     if(!m.iqm) return false;
     iqm_t *q = m.iqm;
 
-    if(joint >= numjoints) return false;
+    if(joint >= q->numjoints) return false;
 
-    multiply34x2(*out, outframe[joint], baseframe[joint]);
+    multiply34x2(*out, q->outframe[joint], q->baseframe[joint]);
     return true;
 }
 
@@ -3456,6 +3935,26 @@ anim_t clip(float minframe, float maxframe, float blendtime, unsigned flags) {
 }
 anim_t loop(float minframe, float maxframe, float blendtime, unsigned flags) {
     return clip(minframe, maxframe, blendtime, flags | ANIM_LOOP);
+}
+
+array(anim_t) animlist(const char *pathfile) {
+    anim_t *animlist = 0;
+    char *anim_file = vfs_read(strendi(pathfile,".txt") ? pathfile : va("%s@animlist.txt", pathfile));
+    if( anim_file ) {
+        // deserialize anim
+        for each_substring(anim_file, "\r\n", anim) {
+            int from, to;
+            char anim_name[128] = {0};
+            if( sscanf(anim, "%*s %d-%d %127[^\r\n]", &from, &to, anim_name) != 3) continue;
+            array_push(animlist, !!strstri(anim_name, "loop") || !strcmpi(anim_name, "idle") ? loop(from, to, 0, 0) : clip(from, to, 0, 0)); // [from,to,flags]
+            array_back(animlist)->name = strswap(strswap(strswap(STRDUP(anim_name), "Loop", ""), "loop", ""), "()", ""); // @leak
+        }
+    } else {
+        // placeholder
+        array_push(animlist, clip(0,1,0,0));
+        array_back(animlist)->name = STRDUP("Error"); // @leak
+    }
+    return animlist;
 }
 
 static
@@ -3495,18 +3994,18 @@ float model_animate_blends(model_t m, anim_t *primary, anim_t *secondary, float 
     unsigned frame4 = secondary->pose.y;
     float    alphaB = secondary->pose.z;
 
-    mat34 *mat1 = &frames[frame1 * numjoints];
-    mat34 *mat2 = &frames[frame2 * numjoints];
-    mat34 *mat3 = &frames[frame3 * numjoints];
-    mat34 *mat4 = &frames[frame4 * numjoints];
+    mat34 *mat1 = &q->frames[frame1 * q->numjoints];
+    mat34 *mat2 = &q->frames[frame2 * q->numjoints];
+    mat34 *mat3 = &q->frames[frame3 * q->numjoints];
+    mat34 *mat4 = &q->frames[frame4 * q->numjoints];
 
-    for(int i = 0; i < numjoints; i++) {
+    for(int i = 0; i < q->numjoints; i++) {
         mat34 matA, matB, matF;
         lerp34(matA, mat1[i], mat2[i], alphaA);
         lerp34(matB, mat3[i], mat4[i], alphaB);
         lerp34(matF, matA, matB, alpha );
-        if(joints[i].parent >= 0) multiply34x2(outframe[i], outframe[joints[i].parent], matF);
-        else copy34(outframe[i], matF);
+        if(q->joints[i].parent >= 0) multiply34x2(q->outframe[i], q->outframe[q->joints[i].parent], matF);
+        else copy34(q->outframe[i], matF);
     }
 
     return frame1 + alpha;
@@ -3541,20 +4040,20 @@ float model_animate_clip(model_t m, float curframe, int minframe, int maxframe, 
     iqm_t *q = m.iqm;
 
     float retframe = -1;
-    if( numframes > 0 ) {
+    if( q->numframes > 0 ) {
         vec3 p = pose(curframe >= m.curframe, curframe, minframe, maxframe, loop, &retframe);
         int frame1 = p.x;
         int frame2 = p.y;
         float offset = p.z;
 
-        mat34 *mat1 = &frames[frame1 * numjoints];
-        mat34 *mat2 = &frames[frame2 * numjoints];
+        mat34 *mat1 = &q->frames[frame1 * q->numjoints];
+        mat34 *mat2 = &q->frames[frame2 * q->numjoints];
 
         // @todo: add animation blending and inter-frame blending here
-        for(int i = 0; i < numjoints; i++) {
+        for(int i = 0; i < q->numjoints; i++) {
             mat34 mat; lerp34(mat, mat1[i], mat2[i], offset);
-            if(joints[i].parent >= 0) multiply34x2(outframe[i], outframe[joints[i].parent], mat);
-            else copy34(outframe[i], mat);
+            if(q->joints[i].parent >= 0) multiply34x2(q->outframe[i], q->outframe[q->joints[i].parent], mat);
+            else copy34(q->outframe[i], mat);
         }
     }
 
@@ -3565,20 +4064,20 @@ void model_render_skeleton(model_t m, mat44 M) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    if(!numjoints) return;
+    if(!q->numjoints) return;
 
     ddraw_ontop_push(true);
     ddraw_color_push(RED);
 
-    for( int joint = 0; joint < numjoints; joint++ ) {
-        if( joints[joint].parent < 0) continue;
+    for( int joint = 0; joint < q->numjoints; joint++ ) {
+        if( q->joints[joint].parent < 0) continue;
 
         // bone space...
         mat34 f;
         model_get_bone_pose(m, joint, &f);
         vec3 pos = vec3(f[3],f[7],f[11]);
 
-        model_get_bone_pose(m, joints[joint].parent, &f);
+        model_get_bone_pose(m, q->joints[joint].parent, &f);
         vec3 src = vec3(f[3],f[7],f[11]);
 
         // ...to model space
@@ -3606,7 +4105,16 @@ void model_render_skeleton(model_t m, mat44 M) {
 float model_animate(model_t m, float curframe) {
     if(!m.iqm) return -1;
     iqm_t *q = m.iqm;
-    return model_animate_clip(m, curframe, 0, numframes-1, true);
+    return model_animate_clip(m, curframe, 0, q->numframes-1, true);
+}
+
+// @fixme: store uniform handles into model_t/colormap_t and rely on those directly
+static inline
+void shader_colormap_model_internal(const char *col_name, const char *bool_name, const char *tex_name, colormap_t c ) {
+    // assumes shader uses `struct { vec4 color; bool has_tex } name + sampler2D name_tex;`
+    shader_vec4( col_name, c.color );
+    shader_bool( bool_name, c.texture != NULL );
+    if( c.texture ) shader_texture( tex_name, *c.texture );
 }
 
 static
@@ -3614,28 +4122,43 @@ void model_draw_call(model_t m, int shader) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
-    glBindVertexArray( vao );
+    handle old_shader = last_shader;
+    shader_bind(shader);
+
+    renderstate_apply(&m.rs[model_getpass()]);
+
+    glBindVertexArray( q->vao );
 
     struct iqmtriangle *tris = NULL;
-    for(int i = 0; i < nummeshes; i++) {
-        struct iqmmesh *im = &meshes[i];
+    for(int i = 0; i < q->nummeshes; i++) {
+        struct iqmmesh *im = &q->meshes[i];
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textures[i] );
-        glUniform1i(glGetUniformLocation(shader, "u_texture2d"), 0 );
+        if (m.shading != SHADING_PBR) {
+            shader_texture_unit("u_texture2d", q->textures[i], texture_unit());
+            shader_texture("u_lightmap", m.lightmap);
 
-        int loc;
-        if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
-            bool textured = !!textures[i] && textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
-            glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-            if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
-                glUniform4f(loc, m.materials[i].layer[0].color.r, m.materials[i].layer[0].color.g, m.materials[i].layer[0].color.b, m.materials[i].layer[0].color.a);
+            int loc;
+            if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
+                bool textured = !!q->textures[i] && q->textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
+                glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
+                if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
+                    glUniform4f(loc, m.materials[i].layer[0].map.color.r, m.materials[i].layer[0].map.color.g, m.materials[i].layer[0].map.color.b, m.materials[i].layer[0].map.color.a);
+                }
             }
-        }
 
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, m.lightmap.id);
-        glUniform1i(glGetUniformLocation(shader, "u_lightmap"), 1 );
+        } else {
+            const material_t *material = &m.materials[i];
+            shader_colormap_model_internal( "map_diffuse.color", "map_diffuse.has_tex", "map_diffuse_tex", material->layer[MATERIAL_CHANNEL_DIFFUSE].map );
+            shader_colormap_model_internal( "map_normals.color", "map_normals.has_tex", "map_normals_tex", material->layer[MATERIAL_CHANNEL_NORMALS].map );
+            shader_colormap_model_internal( "map_specular.color", "map_specular.has_tex", "map_specular_tex", material->layer[MATERIAL_CHANNEL_SPECULAR].map );
+            shader_colormap_model_internal( "map_albedo.color", "map_albedo.has_tex", "map_albedo_tex", material->layer[MATERIAL_CHANNEL_ALBEDO].map );
+            shader_colormap_model_internal( "map_roughness.color", "map_roughness.has_tex", "map_roughness_tex", material->layer[MATERIAL_CHANNEL_ROUGHNESS].map );
+            shader_colormap_model_internal( "map_metallic.color", "map_metallic.has_tex", "map_metallic_tex", material->layer[MATERIAL_CHANNEL_METALLIC].map );
+            shader_colormap_model_internal( "map_ao.color", "map_ao.has_tex", "map_ao_tex", material->layer[MATERIAL_CHANNEL_AO].map );
+            shader_colormap_model_internal( "map_ambient.color", "map_ambient.has_tex", "map_ambient_tex", material->layer[MATERIAL_CHANNEL_AMBIENT].map );
+            shader_colormap_model_internal( "map_emissive.color", "map_emissive.has_tex", "map_emissive_tex", material->layer[MATERIAL_CHANNEL_EMISSIVE].map );
+            // shader_float( "specular_shininess", material->specular_shininess ); // unused, basic_specgloss.fs only
+        }
 
         glDrawElementsInstanced(GL_TRIANGLES, 3*im->num_triangles, GL_UNSIGNED_INT, &tris[im->first_triangle], m.num_instances);
         profile_incstat("Render.num_drawcalls", +1);
@@ -3643,6 +4166,8 @@ void model_draw_call(model_t m, int shader) {
     }
 
     glBindVertexArray( 0 );
+
+    shader_bind(old_shader);
 }
 
 void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, int shader, unsigned count) {
@@ -3663,6 +4188,140 @@ void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, in
 
 void model_render(model_t m, mat44 proj, mat44 view, mat44 model, int shader) {
     model_render_instanced(m, proj, view, (mat44*)model, shader, 1);
+}
+
+static inline
+void model_init_uniforms(model_t *m) {
+    for (int i=0; i<NUM_MODEL_UNIFORMS; ++i) m->uniforms[i] = -1;
+    unsigned shader = m->program;
+    int loc;
+    if ((loc = glGetUniformLocation(shader, "u_mv")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MV] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "MV")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MV] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_mvp")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MVP] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "MVP")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MVP] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_vp")) >= 0)
+        m->uniforms[MODEL_UNIFORM_VP] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "VP")) >= 0)
+        m->uniforms[MODEL_UNIFORM_VP] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_cam_pos")) >= 0)
+        m->uniforms[MODEL_UNIFORM_CAM_POS] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "cam_pos")) >= 0)
+        m->uniforms[MODEL_UNIFORM_CAM_POS] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_cam_dir")) >= 0)
+        m->uniforms[MODEL_UNIFORM_CAM_DIR] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "cam_dir")) >= 0)
+        m->uniforms[MODEL_UNIFORM_CAM_DIR] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_billboard")) >= 0)
+        m->uniforms[MODEL_UNIFORM_BILLBOARD] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "billboard")) >= 0)
+        m->uniforms[MODEL_UNIFORM_BILLBOARD] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_texlit")) >= 0)
+        m->uniforms[MODEL_UNIFORM_TEXLIT] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "texlit")) >= 0)
+        m->uniforms[MODEL_UNIFORM_TEXLIT] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "M")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MODEL] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "model")) >= 0)
+        m->uniforms[MODEL_UNIFORM_MODEL] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "V")) >= 0)
+        m->uniforms[MODEL_UNIFORM_VIEW] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "view")) >= 0)
+        m->uniforms[MODEL_UNIFORM_VIEW] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0)
+        m->uniforms[MODEL_UNIFORM_INV_VIEW] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "P")) >= 0)
+        m->uniforms[MODEL_UNIFORM_PROJ] = loc;
+    else
+    if ((loc = glGetUniformLocation(shader, "proj")) >= 0)
+        m->uniforms[MODEL_UNIFORM_PROJ] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "SKINNED")) >= 0)
+        m->uniforms[MODEL_UNIFORM_SKINNED] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0)
+        m->uniforms[MODEL_UNIFORM_VS_BONE_MATRIX] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0)
+        m->uniforms[MODEL_UNIFORM_U_MATCAPS] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "has_tex_skysphere")) >= 0)
+        m->uniforms[MODEL_UNIFORM_HAS_TEX_SKYSPHERE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "has_tex_skyenv")) >= 0)
+        m->uniforms[MODEL_UNIFORM_HAS_TEX_SKYENV] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_skysphere")) >= 0)
+        m->uniforms[MODEL_UNIFORM_TEX_SKYSPHERE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "skysphere_mip_count")) >= 0)
+        m->uniforms[MODEL_UNIFORM_SKYSPHERE_MIP_COUNT] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_skyenv")) >= 0)
+        m->uniforms[MODEL_UNIFORM_TEX_SKYENV] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_brdf_lut")) >= 0)
+        m->uniforms[MODEL_UNIFORM_TEX_BRDF_LUT] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0)
+        m->uniforms[MODEL_UNIFORM_FRAME_COUNT] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "resolution")) >= 0)
+        m->uniforms[MODEL_UNIFORM_RESOLUTION] = loc;
+}
+
+void model_shading(model_t *m, int shading) {
+    m->shading = shading;
+    int flags = m->stored_flags;
+
+    // load pbr material if SHADING_PBR was selected
+    if (shading == SHADING_PBR) {
+        for (int i = 0; i < array_count(m->materials); ++i) {
+            model_load_pbr(&m->materials[i]);
+        }
+    }
+
+    // rebind shader
+    // @fixme: app crashes rn
+    // glUseProgram(0);
+    // glDeleteProgram(m->program);
+    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
+    int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
+        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
+        va("%s,%s", shading == SHADING_PBR ? "SHADING_PBR" : "SHADING_PHONG", (flags&MODEL_RIMLIGHT)?"RIM":""));
+    m->program = shaderprog;
+    model_init_uniforms(m);
+}
+
+void model_skybox(model_t *mdl, skybox_t sky, bool load_sh) {
+    if (load_sh) {
+        shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
+    }
+
+    mdl->sky_refl = sky.refl;
+    mdl->sky_env = sky.env;
 }
 
 // static
@@ -3686,10 +4345,10 @@ aabb aabb_transform( aabb A, mat44 M ) {
 
 aabb model_aabb(model_t m, mat44 transform) {
     iqm_t *q = m.iqm;
-    if( q && bounds ) {
-    int f = ( (int)m.curframe ) % (numframes + !numframes);
-    vec3 bbmin = ptr3(bounds[f].bbmin);
-    vec3 bbmax = ptr3(bounds[f].bbmax);
+    if( q && q->bounds ) {
+    int f = ( (int)m.curframe ) % (q->numframes + !q->numframes);
+    vec3 bbmin = ptr3(q->bounds[f].bbmin);
+    vec3 bbmax = ptr3(q->bounds[f].bbmax);
     return aabb_transform(aabb(bbmin,bbmax), transform);
     }
     return aabb(vec3(0,0,0),vec3(0,0,0));
@@ -3704,62 +4363,35 @@ void model_destroy(model_t m) {
 
     iqm_t *q = m.iqm;
 //    if(m.mesh) mesh_destroy(m.mesh);
-    FREE(outframe);
-    FREE(colormaps);
-    FREE(textures);
-    FREE(baseframe);
-    FREE(inversebaseframe);
-    if(animdata != meshdata) FREE(animdata);
-    //FREE(meshdata);
-    FREE(frames);
-    FREE(buf);
+    FREE(q->outframe);
+    FREE(q->colormaps);
+    FREE(q->textures);
+    FREE(q->baseframe);
+    FREE(q->inversebaseframe);
+    if(q->animdata != q->meshdata) FREE(q->animdata);
+    //FREE(q->meshdata);
+    FREE(q->frames);
+    FREE(q->buf);
     FREE(q);
 }
 
-#undef program
-#undef meshdata
-#undef animdata
-#undef nummeshes
-#undef numtris
-#undef numverts
-#undef numjoints
-#undef numframes
-#undef numanims
-#undef meshes
-#undef textures
-#undef joints
-#undef poses
-#undef anims
-#undef baseframe
-#undef inversebaseframe
-#undef outframe
-#undef frames
-#undef vao
-#undef ibo
-#undef vbo
-#undef bonematsoffset
-#undef buf
-#undef bounds
-#undef colormaps
+static unsigned model_renderpass = RENDER_PASS_NORMAL;
+
+unsigned model_getpass() {
+    return model_renderpass;
+}
+
+unsigned model_setpass(unsigned pass) {
+    ASSERT(pass < NUM_RENDER_PASSES);
+    unsigned old_pass = model_renderpass;
+    model_renderpass = pass;
+    return old_pass;
+}
 
 anims_t animations(const char *pathfile, int flags) {
     anims_t a = {0};
-    char *anim_file = vfs_read(strendi(pathfile,".txt") ? pathfile : va("%s@animlist.txt", pathfile));
-    if( anim_file ) {
-        // deserialize anim
-        a.speed = 1.0;
-        for each_substring(anim_file, "\r\n", anim) {
-            int from, to;
-            char anim_name[128] = {0};
-            if( sscanf(anim, "%*s %d-%d %127[^\r\n]", &from, &to, anim_name) != 3) continue;
-            array_push(a.anims, !!strstri(anim_name, "loop") || !strcmpi(anim_name, "idle") ? loop(from, to, 0, 0) : clip(from, to, 0, 0)); // [from,to,flags]
-            array_back(a.anims)->name = strswap(strswap(strswap(STRDUP(anim_name), "Loop", ""), "loop", ""), "()", ""); // @leak
-        }
-    } else {
-        // placeholder
-        array_push(a.anims, clip(0,1,0,0));
-        array_back(a.anims)->name = STRDUP("Error"); // @leak
-    }
+    a.anims = animlist(pathfile);
+    if(a.anims) a.speed = 1.0;
     return a;
 }
 
@@ -3800,10 +4432,6 @@ void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm
     ASSERT(lm->ready);
     // @fixme: use xatlas to UV pack all models, update their UV1 and upload them to GPU.
 
-    GLint cullface=0;
-    glGetIntegerv(GL_CULL_FACE, &cullface);
-    glDisable(GL_CULL_FACE);
-
     int w = lm->w, h = lm->h;
     for (int i = 0; i < array_count(lm->models); i++) {
         model_t *m = lm->models[i];
@@ -3816,6 +4444,8 @@ void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, emissive);
         glBindTexture(GL_TEXTURE_2D, 0);
     }
+
+    unsigned old_pass = model_setpass(RENDER_PASS_LIGHTMAP);
 
     for (int b = 0; b < bounces; b++) {
         for (int i = 0; i < array_count(lm->models); i++) {
@@ -3831,7 +4461,6 @@ void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm
                 LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, texcoord), sizeof(iqm_vertex),
                 m->num_tris*3, LM_UNSIGNED_INT, m->tris);
 
-            glDisable(GL_BLEND);
             int vp[4];
             float view[16], projection[16];
             while (lmBegin(lm->ctx, vp, view, projection))
@@ -3843,6 +4472,8 @@ void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm
                 lmEnd(lm->ctx);
             }
         }
+
+        model_setpass(old_pass);
 
         // postprocess texture
         for (int i = 0; i < array_count(lm->models); i++) {
@@ -3867,7 +4498,5 @@ void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm
             FREE(m->lmdata); m->lmdata = NULL;
         }
     }
-
-    if (cullface) glEnable(GL_CULL_FACE);
 }
 

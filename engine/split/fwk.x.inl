@@ -127,6 +127,9 @@ errno_t fopen_s(
 #undef cast
 #undef G
 //---
+#define LUAFFI_C
+{{FILE:3rd_luaffi.h}}
+//---
 {{FILE:3rd_stb_image.h}}
 {{FILE:3rd_stb_image_write.h}}
 //---

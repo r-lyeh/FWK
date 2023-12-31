@@ -42,6 +42,33 @@ texture_t *LoadTextureRGBA8( const char *pathfile, unsigned flags ) {
 }
 
 // -----------------------------------------------------------------------------
+// pbr materials (kept for backwards compatibility)
+
+typedef struct pbr_material_t {
+    char* name;
+    colormap_t diffuse;
+    colormap_t normals;
+    colormap_t specular;
+    colormap_t albedo;
+    colormap_t roughness;
+    colormap_t metallic;
+    colormap_t ao;
+    colormap_t ambient;
+    colormap_t emissive;
+
+    float specular_shininess;
+} pbr_material_t;
+
+bool pbr_material(pbr_material_t *pbr, const char *material) {
+    pbr->name = STRDUP(material);
+    return true;
+}
+
+void pbr_material_destroy(pbr_material_t *m) {
+
+}
+
+// -----------------------------------------------------------------------------
 // models
 
 typedef struct Mesh {
@@ -58,6 +85,7 @@ typedef struct Mesh {
 } Mesh;
 
 typedef struct Model {
+    model_t m;
     array(Mesh) meshes;
     array(pbr_material_t) materials;
     unsigned shader;
@@ -90,7 +118,8 @@ bool ModelLoad( Model *G, const char *_path ) {
     Model g = {0};
     *G = g;
 
-    model_t m = model(_path, 0);
+    model_t m = model(_path, MODEL_PBR);
+    G->m = m;
 
     int scn_num_meshes = m.num_meshes;
     int scn_num_materials = array_count(m.materials);
@@ -143,12 +172,12 @@ bool ModelLoad( Model *G, const char *_path ) {
         mesh.material_idx = material_index;
 
         // By importing materials before meshes we can investigate whether a mesh is transparent and flag it as such.
-        const pbr_material_t* mtl = G->materials ? &G->materials[mesh.material_idx] : NULL;
-        mesh.transparent = false;
-        if( mtl ) {
-            mesh.transparent |= mtl->albedo .texture ? mtl->albedo .texture->transparent : mtl->albedo .color.a < 1.0f;
-            mesh.transparent |= mtl->diffuse.texture ? mtl->diffuse.texture->transparent : mtl->diffuse.color.a < 1.0f;
-        }
+        // const pbr_material_t* mtl = G->materials ? &G->materials[mesh.material_idx] : NULL;
+        // mesh.transparent = false;
+        // if( mtl ) {
+        //     mesh.transparent |= mtl->albedo .texture ? mtl->albedo .texture->transparent : mtl->albedo .color.a < 1.0f;
+        //     mesh.transparent |= mtl->diffuse.texture ? mtl->diffuse.texture->transparent : mtl->diffuse.color.a < 1.0f;
+        // }
 
         array_push(G->meshes, mesh);
     }
@@ -172,20 +201,31 @@ bool ModelLoad( Model *G, const char *_path ) {
     return true;
 }
 
+static renderstate_t g_renderstate = {0};
+
 void ModelRender( Model *G, const mat44 _worldRootMatrix ) {
     unsigned _shader = G->shader;
     shader_bind( _shader );
 
     shader_vec4("global_ambient", vec4(1,1,1,1)); // unused
 
+    do_once {
+        g_renderstate = renderstate();
+        g_renderstate.cull_face_enabled = 1;
+        g_renderstate.blend_enabled = 1;
+        g_renderstate.blend_src = GL_SRC_ALPHA;
+        g_renderstate.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+    }
+
     // loop thrice: first opaque, then transparent backface, then transparent frontface
     for(int j = 0; j < 3; ++j) {
         bool bTransparentPass = j > 0;
         if(bTransparentPass) {
-            glEnable( GL_BLEND );
-            glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-            glCullFace( j == 1 ? GL_FRONT : GL_BACK ); // glDepthMask( GL_FALSE);
+            g_renderstate.cull_face_mode = j == 1 ? GL_FRONT : GL_BACK;
+            // glCullFace( j == 1 ? GL_FRONT : GL_BACK ); // glDepthMask( GL_FALSE);
         }
+
+        renderstate_apply(&g_renderstate);
 
         mat44 mat_world; copy44(mat_world, _worldRootMatrix); // @fixme mMatrices[ node.mID ] * _worldRootMatrix
         shader_mat44( "mat_world", mat_world );
@@ -196,17 +236,17 @@ void ModelRender( Model *G, const mat44 _worldRootMatrix ) {
             if(mesh->transparent != bTransparentPass)
                 continue;
 
-            const pbr_material_t *material = &G->materials[ mesh->material_idx ];
-            shader_colormap( "map_diffuse", material->diffuse );
-            shader_colormap( "map_normals", material->normals );
-            shader_colormap( "map_specular", material->specular );
-            shader_colormap( "map_albedo", material->albedo );
-            shader_colormap( "map_roughness", material->roughness );
-            shader_colormap( "map_metallic", material->metallic );
-            shader_colormap( "map_ao", material->ao );
-            shader_colormap( "map_ambient", material->ambient );
-            shader_colormap( "map_emissive", material->emissive );
-            shader_float( "specular_shininess", material->specular_shininess ); // unused, basic_specgloss.fs only
+            const material_t *material = &G->m.materials[ mesh->material_idx ];
+            shader_colormap( "map_diffuse", material->layer[MATERIAL_CHANNEL_DIFFUSE].map );
+            shader_colormap( "map_normals", material->layer[MATERIAL_CHANNEL_NORMALS].map );
+            shader_colormap( "map_specular", material->layer[MATERIAL_CHANNEL_SPECULAR].map );
+            shader_colormap( "map_albedo", material->layer[MATERIAL_CHANNEL_ALBEDO].map );
+            shader_colormap( "map_roughness", material->layer[MATERIAL_CHANNEL_ROUGHNESS].map );
+            shader_colormap( "map_metallic", material->layer[MATERIAL_CHANNEL_METALLIC].map );
+            shader_colormap( "map_ao", material->layer[MATERIAL_CHANNEL_AO].map );
+            shader_colormap( "map_ambient", material->layer[MATERIAL_CHANNEL_AMBIENT].map );
+            shader_colormap( "map_emissive", material->layer[MATERIAL_CHANNEL_EMISSIVE].map );
+            // shader_float( "specular_shininess", material->specular_shininess ); // unused, basic_specgloss.fs only
 
             shader_vec2( "resolution", vec2(window_width(),window_height()));
 
@@ -306,7 +346,7 @@ bool SkyboxLoad( Skybox *s, const char **slots ) { // hdr,env,ibl
 
     // Reflection map
     if( reflectionPath ) {
-        if( (s->reflection = LoadTextureRGBA8( reflectionPath, TEXTURE_SRGB )) != NULL ) {
+        if( (s->reflection = LoadTextureRGBA8( reflectionPath, 0 )) != NULL ) {
             glBindTexture( GL_TEXTURE_2D, s->reflection->id );
 
             glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
@@ -316,7 +356,7 @@ bool SkyboxLoad( Skybox *s, const char **slots ) { // hdr,env,ibl
 
     // Irradiance map
     if( envPath ) {
-        if( (s->env = LoadTextureRGBA8( envPath, TEXTURE_SRGB )) != NULL ) {
+        if( (s->env = LoadTextureRGBA8( envPath, 0 )) != NULL ) {
             glBindTexture( GL_TEXTURE_2D, s->env->id );
 
             glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
@@ -613,38 +653,38 @@ int main() {
             ui_panel_end();
         }
 
-        if( ui_panel( "Model", 0 ) ) {
-            ui_label(va("Material count: %d", array_count(gModel.materials)));
-            ui_label(va("Mesh count: %d", array_count(gModel.meshes)));
-            int triCount = 0; for( int i = 0, end = array_count(gModel.meshes); i < end; ++i ) triCount += gModel.meshes[i].num_tris;
-            ui_label(va("Triangle count: %d", triCount));
-            ui_separator();
+        // if( ui_panel( "Model", 0 ) ) {
+        //     ui_label(va("Material count: %d", array_count(gModel.materials)));
+        //     ui_label(va("Mesh count: %d", array_count(gModel.meshes)));
+        //     int triCount = 0; for( int i = 0, end = array_count(gModel.meshes); i < end; ++i ) triCount += gModel.meshes[i].num_tris;
+        //     ui_label(va("Triangle count: %d", triCount));
+        //     ui_separator();
 
-            bool xyzSpace = !do_xzySpace;
-            if( ui_bool( "XYZ space", &xyzSpace ) ) {
-                do_xzySpace = !do_xzySpace;
-            }
-            ui_bool( "XZY space", &do_xzySpace );
-            ui_bool( "invert Y", &do_flipY );
+        //     bool xyzSpace = !do_xzySpace;
+        //     if( ui_bool( "XYZ space", &xyzSpace ) ) {
+        //         do_xzySpace = !do_xzySpace;
+        //     }
+        //     ui_bool( "XZY space", &do_xzySpace );
+        //     ui_bool( "invert Y", &do_flipY );
 
-            ui_separator();
-            for( int i = 0, end = array_count(gModel.materials); i < end; ++i ) {
-                pbr_material_t *it = &gModel.materials[i];
-                ui_label(va("Name: %s", it->name));
-                ui_float( "Specular shininess", &it->specular_shininess );
-                ui_separator(); if(ui_colormap( "Albedo",    &it->albedo    )) colormap(&it->albedo   , app_loadfile(), 1);
-                ui_separator(); if(ui_colormap( "Ambient",   &it->ambient   )) colormap(&it->ambient  , app_loadfile(), 0);
-                ui_separator(); if(ui_colormap( "AO",        &it->ao        )) colormap(&it->ao       , app_loadfile(), 0);
-                ui_separator(); if(ui_colormap( "Diffuse",   &it->diffuse   )) colormap(&it->diffuse  , app_loadfile(), 1);
-                ui_separator(); if(ui_colormap( "Emissive",  &it->emissive  )) colormap(&it->emissive , app_loadfile(), 1);
-                ui_separator(); if(ui_colormap( "Metallic",  &it->metallic  )) colormap(&it->metallic , app_loadfile(), 0);
-                ui_separator(); if(ui_colormap( "Normal",    &it->normals   )) colormap(&it->normals  , app_loadfile(), 0);
-                ui_separator(); if(ui_colormap( "Roughness", &it->roughness )) colormap(&it->roughness, app_loadfile(), 0);
-                ui_separator(); if(ui_colormap( "Specular",  &it->specular  )) colormap(&it->specular , app_loadfile(), 0);
-            }
+        //     ui_separator();
+        //     for( int i = 0, end = array_count(gModel.materials); i < end; ++i ) {
+        //         pbr_material_t *it = &gModel.materials[i];
+        //         ui_label(va("Name: %s", it->name));
+        //         ui_float( "Specular shininess", &it->specular_shininess );
+        //         ui_separator(); if(ui_colormap( "Albedo",    &it->albedo    )) colormap(&it->albedo   , app_loadfile(), 1);
+        //         ui_separator(); if(ui_colormap( "Ambient",   &it->ambient   )) colormap(&it->ambient  , app_loadfile(), 0);
+        //         ui_separator(); if(ui_colormap( "AO",        &it->ao        )) colormap(&it->ao       , app_loadfile(), 0);
+        //         ui_separator(); if(ui_colormap( "Diffuse",   &it->diffuse   )) colormap(&it->diffuse  , app_loadfile(), 1);
+        //         ui_separator(); if(ui_colormap( "Emissive",  &it->emissive  )) colormap(&it->emissive , app_loadfile(), 1);
+        //         ui_separator(); if(ui_colormap( "Metallic",  &it->metallic  )) colormap(&it->metallic , app_loadfile(), 0);
+        //         ui_separator(); if(ui_colormap( "Normal",    &it->normals   )) colormap(&it->normals  , app_loadfile(), 0);
+        //         ui_separator(); if(ui_colormap( "Roughness", &it->roughness )) colormap(&it->roughness, app_loadfile(), 0);
+        //         ui_separator(); if(ui_colormap( "Specular",  &it->specular  )) colormap(&it->specular , app_loadfile(), 0);
+        //     }
 
-            ui_panel_end();
-        }
+        //     ui_panel_end();
+        // }
 
         if( ui_panel("Help", 0)) {
             if( fps_mode ) {

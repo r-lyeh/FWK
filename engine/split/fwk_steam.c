@@ -63,11 +63,13 @@ bool steam_init(unsigned app_id) {
     app_id = app_id ? app_id : STEAM_APPID;
 
     // Steam installed?
+    #if is(win32)
     HKEY hSteamProcess;
     if( RegOpenKeyExA(HKEY_CURRENT_USER,"Software\\Valve\\Steam\\ActiveProcess", 0, KEY_READ, &hSteamProcess) ) {
         return !strcpy(steam.status, "Err: steam not installed");
     }
     RegCloseKey(hSteamProcess);
+    #endif
 
     // dll present?
     if( !file_exist(STEAM_DLL) ) {
@@ -81,14 +83,17 @@ bool steam_init(unsigned app_id) {
     // Initialize
     char *app_id_str = va("%d", app_id);
     //if( !file_exist("steam_appid.txt") ) file_write("steam_appid.txt", app_id_str, strlen(app_id_str));
+    #if is(win32)
     if( !getenv("SteamAppId") ) SetEnvironmentVariableA("SteamAppId", app_id_str);
+    #endif
 
     int started = SteamAPI_Init && SteamAPI_Init();
     if( !started ) {
         return !strcpy(steam.status, "Err: steam not running");
     }
 
-    SteamAPI_RestartAppIfNecessary(app_id);
+    if( SteamAPI_RestartAppIfNecessary(app_id) )
+        exit(0); // restarting app thru Steam client if needed
 
     // Create interfaces
     steam.iclient = (intptr_t)SteamInternal_CreateInterface("SteamClient020");

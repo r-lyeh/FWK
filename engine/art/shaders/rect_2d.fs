@@ -1,5 +1,4 @@
 uniform sampler2D texture0; /*unit0*/
-uniform float u_inv_gamma;
 uniform vec4 u_tint;
 uniform int u_has_tex;
 
@@ -13,5 +12,4 @@ void main() {
     } else {
         fragcolor = u_tint;
     }
-    fragcolor.rgb = pow( fragcolor.rgb, vec3( u_inv_gamma ) ); // defaults: 1.0/2.2 gamma
 }

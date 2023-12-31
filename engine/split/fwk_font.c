@@ -1493,64 +1493,6 @@ static const unsigned short packed_table_japanese[] = { // starts with 0x4E00
 
 // -----------------------------------------------------------------------------
 
-static const char mv_vs_source[] = "//" FILELINE /*#version 330 core\n\*/"\
-\n\
-in vec2 vertexPosition;\n\
-in vec4 instanceGlyph;\n\
-\n\
-uniform sampler2D sampler_font;\n\
-uniform sampler2D sampler_meta;\n\
-\n\
-uniform float offset_firstline; // ascent - descent - linegap/2\n\
-uniform float scale_factor;     // scaling factor proportional to font size\n\
-uniform vec2 string_offset;     // offset of upper-left corner\n\
-\n\
-uniform vec2 res_meta;   // 96x2 \n\
-uniform vec2 res_bitmap; // 512x256\n\
-uniform vec2 resolution; // screen resolution\n\
-\n\
-out vec2 uv;\n\
-out float color_index; // for syntax highlighting\n\
-\n\
-void main() { \
-    // (xoff, yoff, xoff2, yoff2), from second row of texture\n\
-    vec4 q2 = texture(sampler_meta, vec2((instanceGlyph.z + 0.5)/res_meta.x, 0.75))*vec4(res_bitmap, res_bitmap);\n\
-\n\
-    vec2 p = vertexPosition*(q2.zw - q2.xy) + q2.xy; // offset and scale it properly relative to baseline\n\
-    p *= vec2(1.0, -1.0);                            // flip y, since texture is upside-down\n\
-    p.y -= offset_firstline;                         // make sure the upper-left corner of the string is in the upper-left corner of the screen\n\
-    p *= scale_factor;                               // scale relative to font size\n\
-    p += instanceGlyph.xy + string_offset;           // move glyph into the right position\n\
-    p *= 2.0/resolution;                             // to NDC\n\
-    p += vec2(-1.0, 1.0);                            // move to upper-left corner instead of center\n\
-\n\
-    gl_Position = vec4(p, 0.0, 1.0);\n\
-\n\
-    // (x0, y0, x1-x0, y1-y0), from first row of texture\n\
-    vec4 q = texture(sampler_meta, vec2((instanceGlyph.z + 0.5)/res_meta.x, 0.25));\n\
-\n\
-    // send the correct uv's in the font atlas to the fragment shader\n\
-    uv = q.xy + vertexPosition*q.zw;\n\
-    color_index = instanceGlyph.w;\n\
-}\n";
-
-static const char mv_fs_source[] = "//" FILELINE /*#version 330 core\n\*/"\
-\n\
-in vec2 uv;\n\
-in float color_index;\n\
-\n\
-uniform sampler2D sampler_font;\n\
-uniform sampler1D sampler_colors;\n\
-uniform float num_colors;\n\
-\n\
-out vec4 outColor;\n\
-\n\
-void main() {\
-    vec4 col = texture(sampler_colors, (color_index+0.5)/num_colors);\n\
-    float s = texture(sampler_font, uv).r;\n\
-    outColor = vec4(col.rgb, s*col.a);\n\
-}\n";
-
 enum { FONT_MAX_COLORS = 256};
 enum { FONT_MAX_STRING_LEN = 40000 }; // more glyphs than any reasonable person would show on the screen at once. you can only fit 20736 10x10 rects in a 1920x1080 window
 
@@ -1612,6 +1554,9 @@ typedef struct font_t {
     // vbos
     GLuint vbo_quad;      // vec2: simply just a regular [0,1]x[0,1] quad
     GLuint vbo_instances; // vec4: (char_pos_x, char_pos_y, char_index, color_index)
+
+    // render state
+    renderstate_t rs;
 } font_t;
 
 enum { FONTS_MAX = 10 };
@@ -1666,6 +1611,20 @@ void ui_font() {
     }
 }
 
+void font_scale(const char *tag, int s, float v) {
+    font_init();
+
+    if (s < 0 || s >= 10) return;
+
+    unsigned index = *tag - FONT_FACE1[0];
+    if( index > FONTS_MAX ) return;
+
+    font_t *f = &fonts[index];
+    if (!f->initialized) return;
+
+    f->scale[s] = v / f->font_size;
+}
+
 void font_scales(const char *tag, float h1, float h2, float h3, float h4, float h5, float h6) {
     font_init();
 
@@ -1715,9 +1674,8 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     f->scale[5] = 0.3750f; // H5
     f->scale[6] = 0.2500f; // H6
 
-    const char *vs_filename = 0, *fs_filename = 0;
-    const char *vs = vs_filename ? vfs_read(vs_filename) : mv_vs_source;
-    const char *fs = fs_filename ? vfs_read(fs_filename) : mv_fs_source;
+    const char *vs = vfs_read("vs_font.glsl");
+    const char *fs = vfs_read("fs_font.glsl");
     f->program = shader(vs, fs, "vertexPosition,instanceGlyph", "outColor", NULL);
 
     // figure out what ranges we're about to bake
@@ -1861,7 +1819,7 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,0,(void*)0);
     glVertexAttribDivisor(1, 1);
-    //glEnable(GL_FRAMEBUFFER_SRGB);
+    // glEnable(GL_FRAMEBUFFER_SRGB);
 
     // setup and upload font bitmap texture
     glGenTextures(1, &f->texture_fontdata);
@@ -1937,6 +1895,16 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     glUniform2f(glGetUniformLocation(f->program, "res_meta"), f->num_glyphs, 2);
     glUniform1f(glGetUniformLocation(f->program, "num_colors"), FONT_MAX_COLORS);
     (void)flags;
+
+    // set up pipeline
+    f->rs = renderstate();
+    f->rs.blend_enabled = 1;
+    f->rs.blend_func = GL_FUNC_ADD;
+    f->rs.blend_src = GL_SRC_ALPHA;
+    f->rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+    f->rs.scissor_test_enabled = 1;
+    f->rs.depth_test_enabled = 0;
+    f->rs.cull_face_enabled = 0;
 }
 
 void font_face(const char *tag, const char *filename_ttf, float font_size, unsigned flags) {
@@ -1950,7 +1918,7 @@ void font_face(const char *tag, const char *filename_ttf, float font_size, unsig
 }
 
 static
-void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float factor, vec2 offset) {
+void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float factor, vec2 offset, vec4 rect) {
     // Backup GL state
     GLint last_program, last_vertex_array;
     GLint last_texture0, last_texture1, last_texture2;
@@ -1967,20 +1935,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE2);
     glGetIntegerv(GL_TEXTURE_BINDING_1D, &last_texture2);
 
-    glGetIntegerv(GL_BLEND_SRC, &last_blend_src);
-    glGetIntegerv(GL_BLEND_DST, &last_blend_dst);
-    glGetIntegerv(GL_BLEND_EQUATION_RGB,   &last_blend_equation_rgb);
-    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &last_blend_equation_alpha);
-
-    GLboolean last_enable_blend      = glIsEnabled(GL_BLEND);
-    GLboolean last_enable_depth_test = glIsEnabled(GL_DEPTH_TEST);
-
-    // Setup render state: alpha-blending enabled, no depth testing and bind textures
-    glEnable(GL_BLEND);
-    glBlendEquation(GL_FUNC_ADD);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glDisable(GL_DEPTH_TEST);
+    glScissor(rect.x, window_height() - (rect.y+rect.w), rect.z, rect.w);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, f->texture_fontdata);
@@ -2006,6 +1961,9 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glBindBuffer(GL_ARRAY_BUFFER, f->vbo_instances);
     glBufferSubData(GL_ARRAY_BUFFER, 0, 4*4*glyph_idx, glyph_data);
 
+    // setup pipeline
+    renderstate_apply(&f->rs);
+
     // actual drawing
     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, glyph_idx);
 
@@ -2019,19 +1977,14 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_1D, last_texture2);
 
-    glBlendEquationSeparate(last_blend_equation_rgb, last_blend_equation_alpha);
     glBindVertexArray(last_vertex_array);
-    glBlendFunc(last_blend_src, last_blend_dst);
-
-    (last_enable_depth_test ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST));
-    (last_enable_blend ? glEnable(GL_BLEND) : glDisable(GL_BLEND));
 }
 
 // 1. call font_face() if it's the first time it's called.
 // 1. parse the string and update the instance vbo, then upload it
 // 1. draw the string
 static
-vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2)) {
+vec2 font_draw_ex(const char *text, vec2 offset, vec4 rect, const char *col, void (*draw_cmd)(font_t *,const float *,int,float,vec2,vec4)) {
     font_init();
 
     // sanity checks
@@ -2048,7 +2001,7 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
     font_t *f = &fonts[0];
     int S = 3;
     uint32_t color = 0;
-    float X = 0, Y = 0, W = 0, L = f->ascent*f->factor*f->scale[S], LL = L; // LL=largest linedist
+    float X = 0, Y = 0, W = 0, L = f->ascent*f->factor*f->scale[S], LL = 0; // LL=largest linedist
     offset.y = -offset.y; // invert y polarity
 
     // utf8 to utf32
@@ -2064,14 +2017,14 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
             if( X > W ) W = X;
             X = 0.0;
             Y -= f->linedist*f->factor*f->scale[S];
-            if (i+1==end) { //@hack: ensures we terminate the height at the correct position
-                Y -= (f->descent+f->linegap)*f->factor*f->scale[S];
-            }
+            // if (i+1==end) { //@hack: ensures we terminate the height at the correct position
+            //     Y -= (f->descent+f->linegap)*f->factor*f->scale[S];
+            // }
             continue;
         }
         if( ch >= 1 && ch <= 6 ) {
             // flush previous state
-            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
             t = text_glyph_data;
 
             // reposition offset to align new baseline
@@ -2080,6 +2033,7 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
 
             // change size
             S = ch;
+            //@hack: use descent when we use >H4
             L = f->ascent*f->factor*f->scale[S];
             if(L > LL) LL = L;
             continue;
@@ -2091,14 +2045,19 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         if( ch >= 0x10 && ch <= 0x19 ) {
             if( fonts[ ch - 0x10 ].initialized) {
             // flush previous state
-            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+            if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
             t = text_glyph_data;
 
             // change face
             f = &fonts[ ch - 0x10 ];
+            L = f->ascent*f->factor*f->scale[S];
+            if(L > LL) LL = L;
             }
             continue;
         }
+
+        if (!LL)
+            LL = L;
 
         // convert to vbo data
         int cp = ch - f->begin; // f->cp2iter[ch - f->begin];
@@ -2113,10 +2072,237 @@ vec2 font_draw_ex(const char *text, vec2 offset, const char *col, void (*draw_cm
         X += f->cdata[cp].xadvance*f->scale[S];
     }
 
-    if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset);
+    if(draw_cmd) draw_cmd(f, text_glyph_data, (t - text_glyph_data)/4, f->scale[S], offset, rect);
 
     //if(strstr(text, "fps")) printf("(%f,%f) (%f) L:%f LINEDIST:%f\n", X, Y, W, L, f->linedist);
     return abs2(vec2(W*W > X*X ? W : X, Y*Y > LL*LL ? Y : LL));
+}
+
+static vec2 gotoxy = {0};
+
+// Return cursor
+vec2 font_xy() {
+    return gotoxy;
+}
+
+// Relocate cursor
+void font_goto(float x, float y) {
+    gotoxy = vec2(x, y);
+}
+
+// Print and linefeed. Text may include markup code
+vec2 font_clip(const char *text, vec4 rect) {
+    int l=0,c=0,r=0,j=0,t=0,b=0,m=0,B=0;
+
+    while ( text[0] == FONT_LEFT[0] ) {
+        int has_set=0;
+        if (text[1] == FONT_LEFT[1]) l = 1, has_set=1;
+        if (text[1] == FONT_CENTER[1]) c = 1, has_set=1;
+        if (text[1] == FONT_RIGHT[1]) r = 1, has_set=1;
+        if (text[1] == FONT_JUSTIFY[1]) j = 1, has_set=1;
+        if (text[1] == FONT_TOP[1]) t = 1, has_set=1;
+        if (text[1] == FONT_BOTTOM[1]) b = 1, has_set=1;
+        if (text[1] == FONT_MIDDLE[1]) m = 1, has_set=1;
+        if (text[1] == FONT_BASELINE[1]) B = 1, has_set=1;
+        if (!has_set) break;
+        else text += 2;
+    }
+    
+    int num_newlines = 0;
+    for (int i = 0, end = strlen(text); i < end; ++i) {
+        if (text[i] == '\n') ++num_newlines; 
+    }
+
+    if (num_newlines > 1) {
+        vec2 text_dims = font_rect(text);
+        char tags[4] = {0};
+        int t=0;
+        while (*text) {
+            char ch = *text;
+
+            if( (ch >= 1 && ch <= 6) ||
+                (ch >= 0x1a && ch <= 0x1f) ||
+                (ch >= 0x10 && ch <= 0x19)) {
+                if (t < sizeof(tags)) tags[t++] = ch;
+            }
+            else break;
+            ++text;
+        }
+        array(char *) lines = strsplit(text, "\n");
+        if (b) {
+            gotoxy.y += (rect.w - text_dims.y);
+        }
+        if (m) {
+            gotoxy.y += (rect.w/2. - text_dims.y/2.);
+        }
+        if (B) {
+            gotoxy.y += (rect.w/2. - text_dims.y/1.);
+        }
+        for (int i = 0; i < array_count(lines); i++) {
+            char *line = va("%s%s\n", tags, lines[i]);
+            vec2 text_rect = font_rect(line);
+            if( l || c || r ) {
+                gotoxy.x = l ? rect.x : r ? ((rect.x+rect.z) - text_rect.x) : rect.x+rect.z/2. - text_rect.x/2.;
+            } else if (j) {
+                float words_space = 0.0f;
+                array(char *) words = strsplit(lines[i], " ");
+                for (int k = 0; k < array_count(words); ++k) {
+                    words_space += font_rect(words[k]).x;
+                }
+                if (array_count(words) == 0) {
+                    gotoxy.y += text_rect.y;    
+                    continue;
+                }
+                float extra_space = rect.z - words_space;
+                int gaps = array_count(words) - 1;
+                float space_offset = gaps > 0 ? extra_space / (float)gaps : 0;
+                for (int k = 0; k < array_count(words); ++k) {
+                    vec2 dims = font_draw_ex(va("%s%s", tags, words[k]), gotoxy, rect, NULL, font_draw_cmd);
+                    gotoxy.x += dims.x + space_offset;
+                }
+                gotoxy.x = rect.x;
+            } 
+
+            if (!j) {
+                font_draw_ex(line, gotoxy, rect, NULL, font_draw_cmd);
+            }
+
+            gotoxy.y += text_rect.y;
+        }
+        return text_dims;
+    } else {
+        if( l || c || r ) {
+            vec2 text_rect = font_rect(text);
+            gotoxy.x = l ? rect.x : r ? ((rect.x+rect.z) - text_rect.x) : rect.x+rect.z/2. - text_rect.x/2.;
+        }
+        if( t || b || m || B ) {
+            vec2 text_rect = font_rect(text);
+            gotoxy.y = t ? rect.y : b ? ((rect.y+rect.w) - text_rect.y) : m ? rect.y+rect.w/2.-text_rect.y/2. : rect.y+rect.w/2.-text_rect.y/1;
+        }
+        vec2 dims = font_draw_ex(text, gotoxy, rect, NULL, font_draw_cmd);
+        gotoxy.y += strchr(text, '\n') ? dims.y : 0;
+        gotoxy.x += !strchr(text, '\n') ? dims.x : 0;
+        return dims;
+    }
+}
+
+vec2 font_print(const char *text) {
+    vec4 dims = {0, 0, window_width(), window_height()};
+    return font_clip(text, dims);
+}
+
+const char *font_wrap(const char *text, float max_width) {
+    // return early if the text fits the max_width already
+    if (font_rect(text).x <= max_width) {
+        return text;
+    }
+
+    // skip alignment flags and collect tags
+    while ( text[0] == FONT_LEFT[0] ) {
+        int has_set=0;
+        if (text[1] == FONT_LEFT[1]) has_set=1;
+        if (text[1] == FONT_CENTER[1]) has_set=1;
+        if (text[1] == FONT_RIGHT[1]) has_set=1;
+        if (text[1] == FONT_JUSTIFY[1]) has_set=1;
+        if (text[1] == FONT_TOP[1]) has_set=1;
+        if (text[1] == FONT_BOTTOM[1]) has_set=1;
+        if (text[1] == FONT_MIDDLE[1]) has_set=1;
+        if (text[1] == FONT_BASELINE[1]) has_set=1;
+        if (!has_set) break;
+        else text += 2;
+    }
+
+    char tags[4] = {0};
+    int t=0;
+    while (*text) {
+        char ch = *text;
+
+        if( (ch >= 1 && ch <= 6) ||
+            (ch >= 0x1a && ch <= 0x1f) ||
+            (ch >= 0x10 && ch <= 0x19)) {
+            if (t < sizeof(tags)) tags[t++] = ch;
+        }
+        else break;
+        ++text;
+    }
+
+    array(char*) words = strsplit(text, " ");
+    static __thread int slot = 0;
+    static __thread char buf[16][FONT_MAX_STRING_LEN] = {0};
+
+    int len = strlen(text) + array_count(words);
+    slot = (slot+1) % 16;
+    memset(buf[slot], 0, len+1);
+
+    char *out = buf[slot];
+
+    float width = 0.0f;
+    for (int i = 0; i < array_count(words); ++i) {
+        char *word = words[i];
+        float word_width = font_rect(va("%s%s ", tags, word)).x;
+        if (strstr(word, "\n")) {
+            width = word_width;
+            strcat(out, va("%s ", word));
+        } else {
+            if (width+word_width > max_width) {
+                width = 0.0f;
+                strcat(out, "\n");
+            }
+            width += word_width;
+            strcat(out, va("%s ", word));
+        }
+    }
+
+    // get rid of the space added at the end
+    out[strlen(out)] = 0;
+
+    return out;
+}
+
+// Print a code snippet with syntax highlighting
+vec2 font_highlight(const char *text, const void *colors) {
+    vec4 screen_dim = {0, 0, window_width(), window_height()};
+    vec2 dims = font_draw_ex(text, gotoxy, screen_dim, (const char *)colors, font_draw_cmd);
+    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
+    gotoxy.x += !strchr(text, '\n') ? dims.x : 0;
+    return dims;
+}
+
+// Calculate the size of a string, in the pixel size specified. Count stray newlines too.
+vec2 font_rect(const char *str) {
+    vec4 dims = {0, 0, window_width(), window_height()};
+    return font_draw_ex(str, gotoxy, dims, NULL, NULL);
+}
+
+font_metrics_t font_metrics(const char *text) {
+    font_metrics_t m={0};
+    int S = 3;
+    font_t *f = &fonts[0];
+
+    // utf8 to utf32
+    array(uint32_t) unicode = string32(text);
+
+    // parse string
+    for( int i = 0, end = array_count(unicode); i < end; ++i ) {
+        uint32_t ch = unicode[i];
+        if( ch >= 1 && ch <= 6 ) {
+            S = ch;
+            continue;
+        }
+        if( ch >= 0x1a && ch <= 0x1f ) {
+            if( fonts[ ch - 0x1a ].initialized) {
+                // change face
+                f = &fonts[ ch - 0x1a ];
+            }
+            continue;
+        }
+    }
+
+    m.ascent = f->ascent*f->factor*f->scale[S];
+    m.descent = f->descent*f->factor*f->scale[S];
+    m.linegap = f->linegap*f->factor*f->scale[S];
+    m.linedist = f->linedist*f->factor*f->scale[S];
+    return m;
 }
 
 void *font_colorize(const char *text, const char *comma_types, const char *comma_keywords) {
@@ -2341,87 +2527,3 @@ void *font_colorize(const char *text, const char *comma_types, const char *comma
     return col;
 }
 
-static vec2 gotoxy = {0};
-
-// Return cursor
-vec2 font_xy() {
-    return gotoxy;
-}
-
-// Relocate cursor
-void font_goto(float x, float y) {
-    gotoxy = vec2(x, y);
-}
-
-// Print and linefeed. Text may include markup code
-vec2 font_print(const char *text) {
-    // @fixme: remove this hack
-    if( text[0] == FONT_LEFT[0] ) {
-        int l = text[1] == FONT_LEFT[1];
-        int c = text[1] == FONT_CENTER[1];
-        int r = text[1] == FONT_RIGHT[1];
-        if( l || c || r ) {
-            vec2 rect = font_rect(text + 2);
-            gotoxy.x = l ? 0 : r ? (window_width() - rect.x) : window_width()/2 - rect.x/2;
-            return font_print(text + 2);
-        }
-        int t = text[1] == FONT_TOP[1];
-        int b = text[1] == FONT_BOTTOM[1];
-        int m = text[1] == FONT_MIDDLE[1];
-        int B = text[1] == FONT_BASELINE[1];
-        if( t || b || m || B ) {
-            vec2 rect = font_rect(text + 2);
-            gotoxy.y = t ? 0 : b ? (window_height() - rect.y) : m ? window_height()/2-rect.y/2 : window_height()/2-rect.y/1;
-            return font_print(text + 2);
-        }
-    }
-
-    vec2 dims = font_draw_ex(text, gotoxy, NULL, font_draw_cmd);
-    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
-    gotoxy.x =  strchr(text, '\n') ? 0 : gotoxy.x + dims.x;
-    return dims;
-}
-
-// Print a code snippet with syntax highlighting
-vec2 font_highlight(const char *text, const void *colors) {
-    vec2 dims = font_draw_ex(text, gotoxy, (const char *)colors, font_draw_cmd);
-    gotoxy.y += strchr(text, '\n') ? dims.y : 0;
-    gotoxy.x =  strchr(text, '\n') ? 0 : gotoxy.x + dims.x;
-    return dims;
-}
-
-// Calculate the size of a string, in the pixel size specified. Count stray newlines too.
-vec2 font_rect(const char *str) {
-    return font_draw_ex(str, gotoxy, NULL, NULL);
-}
-
-font_metrics_t font_metrics(const char *text) {
-    font_metrics_t m={0};
-    int S = 3;
-    font_t *f = &fonts[0];
-
-    // utf8 to utf32
-    array(uint32_t) unicode = string32(text);
-
-    // parse string
-    for( int i = 0, end = array_count(unicode); i < end; ++i ) {
-        uint32_t ch = unicode[i];
-        if( ch >= 1 && ch <= 6 ) {
-            S = ch;
-            continue;
-        }
-        if( ch >= 0x1a && ch <= 0x1f ) {
-            if( fonts[ ch - 0x1a ].initialized) {
-                // change face
-                f = &fonts[ ch - 0x1a ];
-            }
-            continue;
-        }
-    }
-
-    m.ascent = f->ascent*f->factor*f->scale[S];
-    m.descent = f->descent*f->factor*f->scale[S];
-    m.linegap = f->linegap*f->factor*f->scale[S];
-    m.linedist = f->linedist*f->factor*f->scale[S];
-    return m;
-}

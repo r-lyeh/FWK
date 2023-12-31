@@ -33,6 +33,10 @@
 #define ENABLE_RETAIL           0 // ifdef(retail, 1, 0) ///+
 #endif
 
+#ifndef ENABLE_COOK
+#define ENABLE_COOK             ifdef(retail, 0, 1) ///+
+#endif
+
 #ifndef ENABLE_RPMALLOC
 #define ENABLE_RPMALLOC         0 // ifdef(tcc, 0, 1) // forbidden on tcc because of lacking TLS support
 #endif
@@ -123,6 +127,14 @@
 #define ifdef_retail                   ifdef_false
 #endif
 
+#if ENABLE_COOK
+#define ifdef_cook                     ifdef_true
+#define ifdef_nocook                   ifdef_false
+#else
+#define ifdef_cook                     ifdef_false
+#define ifdef_nocook                   ifdef_true
+#endif
+
 #if   defined NDEBUG && NDEBUG >= 3 // we use NDEBUG=[0,1,2,3] to signal the compiler optimization flags O0,O1,O2,O3
 #define ifdef_O3                       ifdef_true
 #define ifdef_O2                       ifdef_false
@@ -191,7 +203,10 @@
 #define ASSERT(expr, ...)          do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
 #define ASSERT_ONCE(expr, ...)     do { int fool_msvc[] = {0,}; if(!(expr)) { fool_msvc[0]++; static int seen = 0; if(!seen) seen = 1, alert(va("!Expression failed: " #expr " " FILELINE "\n" __VA_ARGS__)), breakpoint(); } } while(0)
 #endif
+
+#ifndef STATIC_ASSERT
 #define STATIC_ASSERT(EXPR)        typedef struct { unsigned macro(static_assert_on_L) : !!(EXPR); } unique(static_assert_on_L)
+#endif
 
 #define FILELINE                   __FILE__ ":" STRINGIZE(__LINE__)
 #define STRINGIZE(x)               STRINGIZ3(x)
@@ -351,7 +366,7 @@
 
 // @fixme workarounds on `tcc0.9.27 -m64` (win) for all functions with ending bool argument. test: 00-anims crashes otherwise
 #undef  bool
-typedef char bool;
+typedef char bool; ///-
 
 // missing libm symbols on tinycc HEAD repo (tcc-x64 pre-0.9.28)
 //#define fabsf fabs

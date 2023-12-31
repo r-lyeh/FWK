@@ -67,41 +67,81 @@
 - [x] [Editors (wip)](https://user-images.githubusercontent.com/35402248/174457347-f787a6a2-aac8-404c-a5da-f44310c3d432.mp4): scene, text editor.
 - [x] [Documentation (wip)](https://bit.ly/fwk2023).
 
-## Roadmap ᕕ(ᐛ)ᕗ (in order of arrival; ✱: partial support)
-- [ ] Editor pass.
-  - [ ] Basic: undo/redo✱, copy/paste, on/off (vis,tick,ddraw,log), vcs.
-  - [ ] Script pass: DLL✱ (module->plugin/sys), Lua✱, Luajit✱, Teal✱ and TypeScript.
-  - [ ] Network pass: netbased + offline rendering + virtual input.
-- [ ] World pass: Worlds and Object✱/component✱/systems. <!-- W/OCS, gameobj, serialization:diff/patch -->
-  - [ ] Spatial partioning. BVH, PVS, occluders, frustum culling✱.
-  - [ ] World streaming and level loading.
-  - [ ] Level: volumes, triggers, platforms, level streaming.
-- [ ] Sub-editors
-  - [ ] Sub-editor: Scene tree✱, properties✱ and gizmos✱.
-    - [ ] Scenenode: node singleton display, node console, node labels, node outlines✱.<!-- node == gameobj ? -->
-    - [ ] Debug: toggles on/off (billboards✱, materials, un/lit, cast shadows, wireframe, skybox✱/mie✱, fog/atmosphere, collide✱, physics).
-  - [ ] Sub-editor: Timeline✱ and data tracks.
-  - [ ] Sub-editor: Node graphs✱. <!-- worthy: will be reused into materials, animgraphs and blueprints -->
-  - [ ] Sub-editor: Procedural content, brushes, noise and CSG.
-  - [ ] Sub-editor: Animgraph, blendshapes, additive anims, head/foot/hand IKs. Math: Quat2
-- [ ] AI pass: actors, waypoints, behavior trees✱ (h/fsm,goap), and navmesh generation.
-- [ ] Network pass. <!-- dead reckoning, interpolation, extrapolation, bandwidth budgets -->
-  - [ ] Message pipeline and replication. <!-- manual/replication channels, node sharding/clustering. -->
-  - [ ] Digital signals, message buffering and event polling.
-  - [ ] Server/client architecture. Hybrid P2P.
-  - [ ] NAT traversal. Socketless API, message API and pub/sub wrappers (enet/websocket).
-- [ ] Render pass: reverse-Z, automatic LODs, impostors, decals.
-  - [ ] Materials: (colors✱, textures✱, matcaps✱, videos✱, shadertoys✱). Shadertoys as post-fx✱. <!--materials as postfx, as they have an update() method -->
-  - [ ] Lighting: Hard/soft shadow mapping (VSM,CCSM). Baked lightmaps. Refl probes. Integrated PBR.
-- [ ] Tools pass
-  - [ ] Extend shaders + bindings. Per-platform✱, per-type✱, per-asset options. GIF, PKM.
-  - [ ] Extend atlas (sprite/lightmaps). Fit packing (sprites).
-  - [ ] Extend bindings and messaging: parse C headers during cooking stage. <!-- msgs,docs,refl,meta,lua -- (*.c, *.h) as .proto/.pbc maybe, free reflection+automatic bindings -->
-- [ ] API pass
-  - [ ] Discuss API and freeze it.
-  - [ ] Document everything.
+## Roadmap ᕕ(ᐛ)ᕗ
+- [x] Editor:
+  - [ ] 00 World: world/entity/component/systems (W/OCS). <!-- W/OCS, gameobj, serialization:diff/patch -->
+  - [ ] 01 World.BVH: 2D/3D spatial tree (grid? octree?), spatial queries.
+  - [ ] 02 Scene v2: scenegraph, toggleviews (billboards, materials, un/lit, cast shadows, wireframe, skybox/mie, collide, physics).
+  - [ ] 03 Editor: scene tree, property editor. <!-- node == gameobj -->
+  - [ ] 04 Editor.Core: load/save, undo/redo, copy/paste, on/off (vis,tick,ddraw,log). <!-- toggles on/off (billboards, materials, un/lit, cast shadows, wireframe, skybox/mie, fog/atmosphere, collide, physics).-->
+  - [ ] 05 Editor.Basic: volumes, collisions, triggers.
+  - [ ] 06 Editor.Debug: object singleton display, object console, object labels, object outlines.
+  - [ ] 07 Editor.SubMode: Node graphs. <!-- worthy: will be reused into materials, animgraphs and blueprints -->
+  - [ ] 08 Tools: Extend asset pipeline (per-platform, per-asset options). GIF, PKM.
+  - [ ] 09 Script: Pure Lua FFI bindings.
+  - [ ] 10 fwkPlugins/fwkModules: DLL (module->plugin/sys), Lua, Luajit, Teal and TypeScript. 
+  - [ ] 11 fwkAnimation: playlists, blendshapes, additive, ik/bones, animgraph/controllers, track/events. Also 2D skeletal sprites (Spine).
+  - [ ] 12 fwkAI: h/fsm state, behavior trees, planning (goap), actors, navpaths/waypoints, navmesh generation.
+- [x] Renderer:
+  - [ ] 00 Render: integrate reii2 or any other renderstate abstraction. renderbuckets.
+  - [ ] 01 Render: glslcc + shader variants compilation
+  - [ ] 02 Material v2: colors, textures, matcaps, videos, shadertoys. Shadertoys as post-fx. <!-- material: fixed color, texture or script that returns colors. may be static (disk, procedural script) or change every frame (shadertoys, videos) -->
+  - [ ] 03 Lighting: hard/soft shadow mapping, spotlights (VSM), omnilights (VSMCube), CSM.
+  - [ ] 04 Lighting: baked lightmaps (xatlas). Refl probes.
+  - [ ] 05 Render: LODs, object instancing, billboards, impostors, reverse-z.
+  - [ ] 06 FX: particles and emitters (TLFX2json), trails, paths.
+- [x] Engine:
+  - [ ] 00 Audio: 3D audio, HRTF, FFT, filtering, sound effects (reverb etc) and sound occlusion.
+  - [ ] 01 Physics: immediate-mode physics wrapper API design
+  - [ ] 02 Collisions: collision improvements + (room for cols resolution maybe?)
+  - [ ] 03 Math: quat2, bezier, catmull
+  - [ ] 04 GUI: api improvements - new widgets, improved positioning etc
+  - [ ] 05 Netsync: improvements (data prediction, compression, encryption)
+  - [ ] 06 Platform: Mobile iOS/Android, Web/WASM/Emscripten, RaspberryPi, VR/AR.
+  - [ ] 07 OS: cpu usage, device orientation
+  - [ ] 08 Social: Achievements, Scores, Rankings, Friends, Invites, Store integrations.
+  - [ ] 09 Input: mouse clip, mouse wrap, touch input, touch gestures.
 
 <!--
+## Roadmap (2025) ᕕ(ᐛ)ᕗ
+- [x] Editor:
+  - [ ] Scene: add more objv2 coverage for low-level components (MeshRenderer, AudioSource, ...)
+  - [ ] Editor.Gizmo v2
+    - [ ] Editor.SubMode: Procedural content, voxels, brushes, noise and CSG.
+  - [ ] Tools: VCS integrations.
+  - [ ] Editor.SubMode: Timeline and data tracks.
+  - [ ] World.BVH: PVS, occluders, frustum culling.
+    - [ ] World: level streaming and async loading.
+  - [ ] Editor.Network: server + sharded db + offline rendering + virtual input.
+  - [ ] World: auto/VM replication. manual/replication channels, node sharding/clustering (p2p FS).
+- [x] Renderer:
+  - [ ] FX: kawaii physics, decals, clothes, breakables.
+  - [ ] Text: Layout and shaping, underlining, soft/hard shadows, outlines. M/SDF. Subtitles and unicode. 
+- [x] Engine:
+  - [ ] Network: NAT traversal. Socketless API, message API and pub/sub wrappers (enet/websocket).
+    - [ ] Network pass: dead reckoning, interpolation, extrapolation, bandwidth budgets
+      - [ ] Message pipeline and replication: manual/replication channels, node sharding/clustering.
+      - [ ] Digital signals, message buffering and event polling.
+      - [ ] Server/client architecture. Hybrid P2P.
+  - [ ] Data quantization: half, quant, microfloat. zigzag, vle. rle, compress, crypt.
+  - [ ] VFS: zip0 seek-vfs optimization. vfs_reload(). zip_append_file is suboptimal, and requires tons of contiguous memory for giant files.
+  - [ ] Tools: Docs/Refl/Meta binding tool (at cook time).
+  - [ ] Cleanup: docs, leaks and todos.
+- [x] Data-driven Game Engines:
+  - [ ] Text  Adventure (70) (z)
+  - [ ] 2DY   Pong (70)
+  - [ ] 2DXY  Platformer (80) (dizzy, rick dangerous) screens
+  - [ ] 2DXY+ Platformer (80) (megaman) scroll
+  - [ ] 2DXY  Arcade (80) (snowbros, bomberman) screens
+  - [ ] 2DXZ  Racing (outrun)
+  - [ ] 2DXYZ Isometric adventure (knight lore, diablo)
+  - [ ] AGI/Scumm (maniac)
+  - [ ] First person shooter (80-90) (wolf3d > doom > hl1)
+  - [ ] First person adventure (bloodwych)
+  - [ ] Dialogue, quests and inventory (rpg).
+  - [ ] Input gestures and combos, hitboxes (fight engine).
+  - [ ] Integrated cinematics QTE.
+
 ## Rationale
 - Fun, direct, minimalist API style
 - Focused on eliminating dev friction at the cost of hidding implementation details.
@@ -173,68 +213,9 @@ Nice to have/extend (engine dependant):
 - Render pass: Lighting: hard/soft shadow mapping, spotlights (VSM), omnilights (VSMCube), CSM and baked lightmaps.
 // lightmaps: https://blackpawn.com/texts/lightmaps/default.html 
 // https://github.com/jpcy/xatlas
-- Render pass: Material: colors, textures, matcaps, videos, shadertoys. Shadertoys as post-fx.
-- Render pass: Render: LODs, object instancing, billboards, impostors, decals, reflection probes.
 // lod: https://github.com/songrun/SeamAwareDecimater
-- Render pass: Skydomes.
-- Render pass: Voxels
-- Render pass: VR.
-- Script pass: Refl/Meta binding tool (during cook stage).
-- System pass: Mobile iOS/Android, HTML5✱, Web/WASM, RaspberryPi.
-- Social pass: Achievements, Scores, Rankings, Friends, Invites, Steam/Itchio 1st-party store integrations, etc.
-- UI pass: HUD, UI Widgets, touch input, touch gestures.
-- UI pass: Font text layout and shaping, underlining, soft/hard shadows, outlines.
 // font: M/SDF https://github.com/WilliamBundy/wiggle https://github.com/Chlumsky/msdf-atlas-gen
-- UI pass: Game flow and game UI.
-- UI pass: Subtitles and unicode.
 
-Engine types:
-- 2DY   Pong (70)
-- 2DXY  Platformer (80) (dizzy, rick dangerous) screens
-- 2DXY+  Platformer (80) (megaman) scroll
-- 2DXY  Arcade (80) (snowbros, bomberman) screens
-- 2DXZ  Racing (outrun)
-- 2DXYZ Isometric adventure (knight lore, diablo)
-- AGI (maniac)
-- First person shooter (80-90) (wolf3d > doom > hl1)
-- First person adventure (bloodwych)
-- Text adventure (z)
-
-Nice to have:
-- [ ] fix leaks and todos
-- [ ] fwk_app: cpu usage, orientation
-- [ ] fwk_input: mouse clip, mouse wrap,
-- [ ] zip0 seek-vfs optimization. zip_append_file is suboptimal, and requires tons of contiguous memory for giant files.
-
-Almost done:
-- [x] shadertoy textures
-- [*] billboards (follow sprite API? state instead? ie, billboard(true); before rendering?)
-
-- Docs pass: API, functions, samples, examples, pipeline.
-
-// plan:
-//[ ] cam: projections (dimetric, isometric, ...)
-//[ ] Render: Materials (textures, matcaps, videos, shadertoys).
-//    material: fixed color, texture or script that returns color
-//    animated textures (shadertoys, videos)
-// 8) vm/ocs core + engines: custom frontends & backends
-//    vm: ram, workqueues, threading, priorities, load/save
-//    service protocols: websocket bqqbarbhg/bq_websocket, https, handshake
-//    databases, services, quotas, black/whitelists, etc
-// 7) network replication & messaging
-//    network: replication, dead reckoning, interpolation, extrapolation, bandwidth
-//    network: messaging: un/reliable, fragmentation, priority, etc
-//    network: topologies: bus, star, p2p, pubsub, etc
-//    network: filesystem
-//    int send_game_state(void *ptr, int len, int flags); PROTOCOL_V1|QUANTIZE|COMPRESS|RLE
-//    int recv_game_state(); compensate, extrapolate, intrapolate(); lerp();
-// 9) render+
-//    2d: billboards
-//    IBL/materials (from Foxotron+sgorsten) + shading models
-//    lightmapping/xatlas (demos), reflection probes
-//    renderbuckets
-//    tessellation
-//    2d: particles (tlfx2)
 //    reverse-z {
 //    fbo attach format D16_UNORM -> D32_SFLOAT
 //    pipeline depth compare LEQUAL -> GEQUAL
@@ -309,7 +290,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 
 ## Cook
 - Assets need to be cooked before being consumed in your application. The [tools/](tools/) folder contains all the related binaries to perform any asset processing plus the [cookbook](tools/cook.ini) to do so.
-- Your game will cook all your assets as long as the [`tools/`](tools/) folder is next to your executable. Alternatively, cook them all just by invoking supplied [`tools/cook` standalone binary](tools/). 
+- Your game will cook your assets on demand as long as the [`tools/`](tools/) folder is next to your executable. Alternatively, cook them all just by invoking supplied [`tools/cook` standalone binary](tools/). 
 - In both cases, assets will be cooked and packed into .zipfiles next to your executable, then mounted before entering game loop. These .zipfiles plus your executable are the only required files when releasing your game.
 - Optionally, you could also run `MAKE.bat fuse` and merge your binaries and their .zipfiles all together. Redist ready.
 
@@ -319,7 +300,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 - Dropped files into game window will be imported & saved into [`import/`](engine/art/import/) folder.
 - Update the gamepad controller database by upgrading the [`gamecontrollerdb.txt`](engine/art/input/) file.
 - Depending on your IDE, you might need to browse to [`engine/split/`](engine/split/) sources when debugging FWK.
-- Cook assets on demand, as opposed to cook all existing assets on depot, by using `--cook-on-demand` flag.
+- Cook all existing assets on depot, as opposed to cook assets on demand, by using `--cook-on-demand=0` flag.
 - Linux/OSX users can optionally install wine and use the Windows tools instead (by using `--cook-wine` flag).
 - Disable automatic cooking by using `--cook-jobs=0` flag (not recommended).
 - Generate a project solution by dropping `engine/fwk.h, fwk.c and fwk` files into it.
@@ -355,9 +336,9 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Imagination](https://developer.imaginationtech.com/pvrtextool/ "for pvrtextoolcli (ITL)"),
 [Krzysztof Gabis](https://github.com/kgabis/ape "for split.py/join.py (MIT)"),
 [Lee Salzman](https://github.com/lsalzman/iqm/tree/5882b8c32fa622eba3861a621bb715d693573420/demo "for iqm.cpp (PD)"),
+[Leon Bottou](https://github.com/facebookresearch/CParser "for lcpp (MIT)"),
 [Martín Lucas Golini](https://github.com/SpartanJ/eepp/commit/8552941da19380d7a629c4da80a976aec5d39e5c "for emscripten-fs.html (CC0)"),
 [Mattias Gustavsson](https://github.com/mattiasgustavsson/libs "for mid.h (PD)"),
-[Michael Schmoock](http://github.com/willsteel/lcpp "for lcpp (MIT)"),
 [Morgan McGuire](https://casual-effects.com/markdeep/ "for markdeep (BSD2)"),
 [Olivier Lapicque, Konstanty Bialkowski](https://github.com/Konstanty/libmodplug "for libmodplug (PD)"),
 [Polyglot Team](https://docs.google.com/spreadsheets/d/17f0dQawb-s_Fd7DHgmVvJoEGDMH_yoSd8EYigrb0zmM/edit "for polyglot gamedev (CC0)"),
@@ -386,6 +367,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 [Haruhiko Okumura](https://oku.edu.mie-u.ac.jp/~okumura/compression/ "for lzss (PD)"),
 [Igor Pavlov](https://www.7-zip.org/ "for LZMA (PD)"),
 [Ilya Muravyov](https://github.com/encode84 "for bcm, balz, crush, ulz, lz4x (PD)"),
+[James R. McKaskill](https://github.com/jmckaskill/luaffi "for luaffi (MIT)"),
 [Jon Olick](https://www.jonolick.com/ "for jo_mp1 and jo_mpeg (PD)"),
 [Joonas Pihlajamaa](https://github.com/jokkebk/JUnzip "for JUnzip library (PD)"),
 [Juliette Focault](https://github.com/juliettef/IconFontCppHeaders/blob/main/IconsMaterialDesign.h "for the generated MD header (ZLIB)"),
@@ -429,4 +411,4 @@ This software is released into the [public domain](https://unlicense.org/). Also
 ## Links
 Still looking for alternatives? [amulet](https://github.com/ianmaclarty/amulet), [aroma](https://github.com/leafo/aroma/), [astera](https://github.com/tek256/astera), [blendelf](https://github.com/jesterKing/BlendELF), [bullordengine](https://github.com/MarilynDafa/Bulllord-Engine), [candle](https://github.com/EvilPudding/candle), [cave](https://github.com/kieselsteini/cave), [chickpea](https://github.com/ivansafrin/chickpea), [corange](https://github.com/orangeduck/Corange), [cute](https://github.com/RandyGaul/cute_framework), [dos-like](https://github.com/mattiasgustavsson/dos-like), [ejoy2d](https://github.com/ejoy/ejoy2d), [exengine](https://github.com/exezin/exengine), [gunslinger](https://github.com/MrFrenik/gunslinger), [hate](https://github.com/excessive/hate), [island](https://github.com/island-org/island), [juno](https://github.com/rxi/juno), [l](https://github.com/Lyatus/L), [lgf](https://github.com/Planimeter/lgf), [limbus](https://github.com/redien/limbus), [love](https://github.com/love2d/love/), [lovr](https://github.com/bjornbytes/lovr), [mini3d](https://github.com/mini3d/mini3d), [mintaro](https://github.com/mackron/mintaro), [mio](https://github.com/ccxvii/mio), [olive.c](https://github.com/tsoding/olive.c), [opensource](https://github.com/w23/OpenSource), [ouzel](https://github.com/elnormous/ouzel/), [pez](https://github.com/prideout/pez), [pixie](https://github.com/mattiasgustavsson/pixie), [punity](https://github.com/martincohen/Punity), [r96](https://github.com/badlogic/r96), [ricotech](https://github.com/dbechrd/RicoTech), [rizz](https://github.com/septag/rizz), [tigr](https://github.com/erkkah/tigr), [yourgamelib](https://github.com/duddel/yourgamelib)
 
-<a href="https://github.com/r-lyeh/FWK/issues"><img alt="Issues" src="https://img.shields.io/github/issues-raw/r-lyeh/FWK.svg"/></a> <a href="https://discord.gg/vu6Vt9d"><img alt="Discord" src="https://img.shields.io/discord/270565488365535232?color=5865F2&label=chat&logo=discord&logoColor=white"/></a>
+<a href="https://github.com/r-lyeh/FWK/issues"><img alt="Issues" src="https://img.shields.io/github/issues-raw/r-lyeh/FWK.svg"/></a> <a href="https://discord.gg/UpB7nahEFU"><img alt="Discord" src="https://img.shields.io/discord/270565488365535232?color=5865F2&label=chat&logo=discord&logoColor=white"/></a>

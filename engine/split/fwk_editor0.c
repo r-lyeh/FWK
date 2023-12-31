@@ -139,16 +139,18 @@ int engine_send(const char *cmd, const char *optional_value) {
 }
 
 int engine_tick() {
-    enum { engine_hz = 60 };
-    enum { engine_hz_mid = 18 };
-    enum { engine_hz_low = 5 };
+    enum { engine_hz_mid = 30 };
+    enum { engine_hz_low = 10 };
+    static double old_hz = 0.0;
     if( *engine_geti("powersave") ) {
         // adaptive framerate
         int app_on_background = !window_has_focus();
         int hz = app_on_background ? engine_hz_low : engine_hz_mid;
-        window_fps_lock( hz < 5 ? 5 : hz );
-    } else {
-        // window_fps_lock( editor_hz );
+        if (!old_hz) old_hz = window_fps_target();
+        window_fps_lock( hz );
+    } else if( old_hz && old_hz != window_fps_target() ) {
+        window_fps_lock( old_hz );
+        old_hz = 0.0;
     }
 
     return 0;
