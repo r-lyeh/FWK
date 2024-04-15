@@ -40,7 +40,7 @@ static void fwk_post_init(float refresh_rate) {
     glfwShowWindow(window);
     glfwGetFramebufferSize(window, &w, &h); //glfwGetWindowSize(window, &w, &h);
 
-    randset(time_ns());
+    randset(time_ns() * !tests_captureframes());
     boot_time = -time_ss(); // measure boot time, this is continued in window_stats()
 
     // clean any errno setup by cooking stage
@@ -51,6 +51,11 @@ static void fwk_post_init(float refresh_rate) {
 
     // preload brdf LUT early
     (void)brdf_lut();
+
+    uint64_t fps = optioni("--fps", 0);
+    if( fps ) {
+        window_fps_lock(fps);
+    }
 }
 
 // ----------------------------------------------------------------------------

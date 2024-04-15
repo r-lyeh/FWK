@@ -1,4 +1,12 @@
 //-----------------------------------------------------------------------------
+// capture tests
+static
+uint64_t tests_captureframes() {
+    static uint64_t capture_target; do_once capture_target = optioni("--capture", 0);
+    return capture_target;
+}
+
+//-----------------------------------------------------------------------------
 // fps locking
 
 static volatile float framerate = 0;
@@ -65,6 +73,7 @@ int fps_wait() {
 }
 static
 void window_vsync(float hz) {
+    if( tests_captureframes() ) return;
     if( hz <= 0 ) return;
     do_once fps_locker(1);
     framerate = hz;
@@ -260,6 +269,8 @@ void glNewFrame() {
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 }
 
+static bool cook_done = false;
+
 bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     // abort run if any test suite failed in unit-test mode
     ifdef(debug, if( flag("--test") ) exit( test_errors ? -test_errors : 0 ));
@@ -283,6 +294,13 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     scale = (scale > 100 ? 100 : scale) / 100.f;
     int winWidth = window_canvas().w * scale;
     int winHeight = window_canvas().h * scale;
+
+/*
+    if (tests_captureframes()) {
+        winWidth = 1280;
+        winHeight = 720;
+    }
+*/
 
     window_hints(flags);
 
@@ -448,6 +466,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     }
 
     if(cook_cancelling) cook_stop(), exit(-1);
+    cook_done = true;
 
     fwk_post_init(mode->refreshRate);
     return true;
@@ -655,6 +674,21 @@ int window_swap() {
         window_shutdown();
         return 0;
     }
+
+    static uint64_t capture_frame = 0;
+    if( cook_done && ++capture_frame == tests_captureframes() ) {
+        mkdir( "tests/out", 0777 );
+        const char *screenshot_file = va("tests/out/%s.png", app_name());
+
+        int n = 3;
+        void *rgb = screenshot(n);
+        stbi_flip_vertically_on_write(true);
+        if(!stbi_write_png(screenshot_file, w, h, n, rgb, n * w) ) {
+            PANIC("!could not write screenshot file `%s`\n", screenshot_file);
+        }
+        return 0;
+    }
+
     return 1;
 }
 

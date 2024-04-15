@@ -18,7 +18,6 @@
 #define BASE64_C                              // base64.c
 #define COMPRESS_C                            // compress.c
 #define ENET_IMPLEMENTATION                   // enet
-#define GJK_C                                 // gjk
 #define _GLFW_IMPLEMENTATION                  // glfw337
 #define GLFW_INCLUDE_NONE                     // glfw337
 #define HTTPS_IMPLEMENTATION                  // https
@@ -127,8 +126,10 @@ errno_t fopen_s(
 #undef cast
 #undef G
 //---
+#if !is(ems)
 #define LUAFFI_C
 {{FILE:3rd_luaffi.h}}
+#endif
 //---
 {{FILE:3rd_stb_image.h}}
 {{FILE:3rd_stb_image_write.h}}
@@ -151,7 +152,6 @@ static char *ui_filter = 0;
 //#pragma comment(lib, "3rd/3rd_assimp/x64/assimp")
 #endif
 {{FILE:3rd_json5.h}}
-{{FILE:3rd_gjk.h}}
 {{FILE:3rd_compress.h}}
 {{FILE:3rd_archive.h}}
 #if is(win32)

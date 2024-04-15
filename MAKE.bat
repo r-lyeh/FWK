@@ -373,6 +373,11 @@ if "%1"=="run" (
     for %%i in (*.exe) do start /wait %%i
     exit /b
 )
+rem test all generated executables
+if "%1"=="test" (
+    call tools\TEST.bat
+    exit /b
+)
 
 rem generate single-header distribution
 if "%1"=="joint" (

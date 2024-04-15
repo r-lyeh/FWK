@@ -518,37 +518,6 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
 void ddraw_cylinder(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
 }
-void ddraw_diamond(vec3 from, vec3 to, float size) {
-    poly p = diamond(from, to, size);
-    vec3 *dmd = p.verts;
-
-    vec3 *a = dmd + 0;
-    vec3 *b = dmd + 1;
-    vec3 *c = dmd + 2;
-    vec3 *d = dmd + 3;
-    vec3 *t = dmd + 4;
-    vec3 *f = dmd + 5;
-
-    /* draw vertices */
-    ddraw_line(*a, *b);
-    ddraw_line(*b, *c);
-    ddraw_line(*c, *d);
-    ddraw_line(*d, *a);
-
-    /* draw roof */
-    ddraw_line(*a, *t);
-    ddraw_line(*b, *t);
-    ddraw_line(*c, *t);
-    ddraw_line(*d, *t);
-
-    /* draw floor */
-    ddraw_line(*a, *f);
-    ddraw_line(*b, *f);
-    ddraw_line(*c, *f);
-    ddraw_line(*d, *f);
-
-    poly_free(&p);
-}
 void ddraw_cone(vec3 center, vec3 top, float radius) {
     vec3 diff3 = sub3(top, center);
     ddraw_prism(center, radius ? radius : 1, len3(diff3), norm3(diff3), 24);

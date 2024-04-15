@@ -14,6 +14,9 @@ typedef struct renderstate_t {
     // Clear color
     float clear_color[4];
 
+    // Color mask
+    bool color_mask[4];
+
     // Clear depth
     double clear_depth;
 
@@ -21,6 +24,11 @@ typedef struct renderstate_t {
     bool depth_test_enabled;
     bool depth_write_enabled;
     unsigned depth_func;
+    
+    // Polygon offset
+    bool polygon_offset_enabled;
+    float polygon_offset;
+    float polygon_offset_factor;
 
     // Blending
     bool blend_enabled;
@@ -35,8 +43,10 @@ typedef struct renderstate_t {
     // Stencil test
     bool stencil_test_enabled;
     unsigned stencil_func;
+    unsigned stencil_op_fail, stencil_op_zfail, stencil_op_zpass;
     int stencil_ref;
-    unsigned stencil_mask;
+    unsigned stencil_read_mask;
+    unsigned stencil_write_mask;
 
     // Face culling direction
     unsigned front_face; // GL_CW or GL_CCW
@@ -747,7 +757,9 @@ API int      fx_enabled(int pass);
 API void     fx_enable_all(int enabled);
 API char *   fx_name(int pass);
 API int      fx_find(const char *name);
+API void     fx_setparam(int pass, const char *name, float value);
 API void     fx_order(int pass, unsigned priority);
+API unsigned fx_program(int pass);
 
 API int      ui_fx(int pass);
 API int      ui_fxs();

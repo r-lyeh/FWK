@@ -32,7 +32,7 @@
 - [x] Platform: Windows, Linux and OSX. [Partial](https://github.com/r-lyeh/FWK/blob/main/demos/html5/README.md) HTML5/Web support.
 - [x] DS: hash, sort, array/vector, map, set.
 - [x] Math: rand, noise, ease, vec2/3/4, mat33/34/44, quat.
-- [x] Geometry: ray, line, plane, aabb, sphere, capsule, triangle, poly and frustum.
+- [x] Geometry: ray, line, plane, aabb, sphere, capsule, triangle and frustum.
 - [x] Window: windowed, soft/hard fullscreen, msaa, icon, cursor handling.
 - [x] Input: keyboard, mouse and gamepads. input bindings.
 - [x] Script: Lua scripting, Luajit/Python bindings.
@@ -104,6 +104,14 @@
 
 <!--
 ## Roadmap (2025) ᕕ(ᐛ)ᕗ
+- [x] Net
+  Every struct:
+  1-byte field type + 4-byte size field + [contents]
+  Every channel:
+  When connection is established, first thing you send is a VersionNumber message. 
+  Warn:
+  Focus on NAT punching and reconnection stability, because if your devices are mobile, they will almost 100% be behind carrier NAT, have their IP addresses change without notice, app being put to sleep, etc.
+
 - [x] Editor:
   - [ ] Scene: add more objv2 coverage for low-level components (MeshRenderer, AudioSource, ...)
   - [ ] Editor.Gizmo v2

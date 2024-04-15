@@ -1035,7 +1035,6 @@ static bool win_debug_visible = true;
 
 static
 void ui_render() {
-
     // draw queued menus
     ui_notify_render();
     ui_menu_render();

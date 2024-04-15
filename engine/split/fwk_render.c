@@ -62,6 +62,12 @@ renderstate_t renderstate() {
     state.clear_color[2] = 0.0f; // Blue
     state.clear_color[3] = 1.0f; // Alpha
 
+    // Set default color mask to GL_TRUE
+    state.color_mask[0] = GL_TRUE;
+    state.color_mask[1] = GL_TRUE;
+    state.color_mask[2] = GL_TRUE;
+    state.color_mask[3] = GL_TRUE;
+
     // Set default clear depth to maximum distance
     state.clear_depth = 1.0;
 
@@ -69,6 +75,11 @@ renderstate_t renderstate() {
     state.depth_test_enabled = GL_TRUE;
     state.depth_write_enabled = GL_TRUE;
     state.depth_func = GL_LEQUAL;
+    
+    // Disable polygon offset by default
+    state.polygon_offset_enabled = GL_FALSE;
+    state.polygon_offset_factor = 0.0f;
+    state.polygon_offset = 0.0f;
 
     // Disable blending by default
     state.blend_enabled = GL_FALSE;
@@ -83,8 +94,12 @@ renderstate_t renderstate() {
     // Disable stencil test by default
     state.stencil_test_enabled = GL_FALSE;
     state.stencil_func = GL_ALWAYS;
+    state.stencil_op_fail = GL_KEEP;
+    state.stencil_op_zfail = GL_KEEP;
+    state.stencil_op_zpass = GL_KEEP;
     state.stencil_ref = 0;
-    state.stencil_mask = 0xFFFFFFFF;
+    state.stencil_read_mask = 0xFFFFFFFF;
+    state.stencil_write_mask = 0xFFFFFFFF;
 
     // Set default front face to counter-clockwise
     state.front_face = GL_CCW;
@@ -126,6 +141,9 @@ void renderstate_apply(const renderstate_t *state) {
         // Apply clear color
         glClearColor(state->clear_color[0], state->clear_color[1], state->clear_color[2], state->clear_color[3]);
 
+        // Apply color mask
+        glColorMask(state->color_mask[0], state->color_mask[1], state->color_mask[2], state->color_mask[3]);
+
         // Apply clear depth
         glClearDepth(state->clear_depth);
 
@@ -136,6 +154,14 @@ void renderstate_apply(const renderstate_t *state) {
         } else {
             glDisable(GL_DEPTH_TEST);
         }
+
+        // Apply polygon offset
+        if (state->polygon_offset_enabled) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(state->polygon_offset_factor, state->polygon_offset);
+        } else {
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }        
 
         // Apply depth write
         glDepthMask(state->depth_write_enabled);
@@ -160,7 +186,9 @@ void renderstate_apply(const renderstate_t *state) {
         // Apply stencil test
         if (state->stencil_test_enabled) {
             glEnable(GL_STENCIL_TEST);
-            glStencilFunc(state->stencil_func, state->stencil_ref, state->stencil_mask);
+            glStencilMask(state->stencil_write_mask);
+            glStencilFunc(state->stencil_func, state->stencil_ref, state->stencil_read_mask);
+            glStencilOp(state->stencil_op_fail, state->stencil_op_zfail, state->stencil_op_zpass);
         } else {
             glDisable(GL_STENCIL_TEST);
         }
@@ -178,6 +206,7 @@ void renderstate_apply(const renderstate_t *state) {
             glDisable(GL_LINE_SMOOTH);
         }
 
+#if !is(ems)
         // Apply point size
         if (state->point_size_enabled) {
             glEnable(GL_PROGRAM_POINT_SIZE);
@@ -188,6 +217,7 @@ void renderstate_apply(const renderstate_t *state) {
 
         // Apply polygon mode
         glPolygonMode(state->polygon_mode_face, state->polygon_mode_draw);
+#endif
 
         // Apply scissor test
         if (state->scissor_test_enabled) {
@@ -2564,6 +2594,10 @@ void postfx_clear(postfx *fx) {
     }
     fx->enabled = 0;
 }
+unsigned postfx_program(postfx *fx, int pass) {
+    if( pass < 0 || pass >= array_count(fx->pass) ) return 0;
+    return fx->pass[pass].program;
+}
 
 int ui_postfx(postfx *fx, int pass) {
     if (pass < 0 || pass >= array_count(fx->pass)) return 0;
@@ -2652,7 +2686,7 @@ bool postfx_end(postfx *fx) {
         postfx_rs.depth_test_enabled = 0;
         postfx_rs.cull_face_enabled = 0;
         postfx_rs.blend_enabled = 1;
-        postfx_rs.blend_src = GL_SRC_ALPHA;
+        postfx_rs.blend_src = GL_ONE;
         postfx_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
     }
 
@@ -2767,6 +2801,16 @@ int fx_find(const char *name) {
 }
 void fx_order(int pass, unsigned priority) {
     postfx_order(&fx, pass, priority);
+}
+unsigned fx_program(int pass) {
+    return postfx_program(&fx, pass);
+}
+void fx_setparam(int pass, const char *name, float value) {
+    unsigned program = fx_program(pass);
+    if( !program ) return;
+    unsigned oldprogram = shader_bind(program);
+    shader_float(name, value);
+    shader_bind(oldprogram);
 }
 int ui_fx(int pass) {
     return ui_postfx(&fx, pass);
@@ -3308,6 +3352,14 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0) {
         glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
     }
+    
+    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0) {
+        glUniform1i(loc, (unsigned)window_frame());
+    }
+
+    if ((loc = glGetUniformLocation(shader, "frame_time")) >= 0) {
+        glUniform1f(loc, (float)window_time());
+    }
 
     if (m.shading == SHADING_PBR) {
         handle old_shader = last_shader;
@@ -3327,7 +3379,6 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
             shader_texture( "tex_skyenv", m.sky_env );
         }
         shader_texture( "tex_brdf_lut", brdf_lut() );
-        shader_uint( "frame_count", (unsigned)window_frame() );
         shader_bind(old_shader);
     }
 }
@@ -4125,7 +4176,9 @@ void model_draw_call(model_t m, int shader) {
     handle old_shader = last_shader;
     shader_bind(shader);
 
-    renderstate_apply(&m.rs[model_getpass()]);
+    renderstate_t *rs = &m.rs[RENDER_PASS_NORMAL];
+
+    renderstate_apply(rs);
 
     glBindVertexArray( q->vao );
 

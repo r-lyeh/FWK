@@ -103,16 +103,16 @@ if "%1"=="3rd" (
     echo #endif >> 3rd_luaffi.h
     echo. >> 3rd_luaffi.h
 
-    ..\fart -- 3rd_luaffi.h "#pragma once" "//#pragma once"
-    ..\fart -- 3rd_luaffi.h "#include \"" "//#include \""
-    ..\fart -- 3rd_luaffi.h "# include" "//# include"
-    ..\fart -- 3rd_luaffi.h "dasm_State*" "struct dasm_State*"
-    ..\fart -- 3rd_luaffi.h "EXPORT" "LUAFFI_EXPORT"
-    ..\fart -- 3rd_luaffi.h "ALIGN_UP" "LUAFFI_ALIGN_UP"
-    ..\fart -- 3rd_luaffi.h "get_int" "LUAFFI_get_int"
+    fart -- 3rd_luaffi.h "#pragma once" "//#pragma once"
+    fart -- 3rd_luaffi.h "#include \"" "//#include \""
+    fart -- 3rd_luaffi.h "# include" "//# include"
+    fart -- 3rd_luaffi.h "dasm_State*" "struct dasm_State*"
+    fart -- 3rd_luaffi.h "EXPORT" "LUAFFI_EXPORT"
+    fart -- 3rd_luaffi.h "ALIGN_UP" "LUAFFI_ALIGN_UP"
+    fart -- 3rd_luaffi.h "get_int" "LUAFFI_get_int"
 )
 
-if not exist "..\fart.exe"  echo ..\fart.exe not found && exit /b
+where /q fart.exe ||        echo Error: cannot find `fart.exe` tool && exit /b
 if not exist "call_x86.h"   call make dll
 if not exist "3rd_luaffi.h" call make 3rd
 if exist "3rd_luaffi.h"     move /y 3rd_luaffi.h ..\..\engine\split && call make tidy

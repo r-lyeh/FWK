@@ -2243,7 +2243,6 @@ static bool win_debug_visible = true;
 
 static
 void ui_render() {
-
     // draw queued menus
     ui_notify_render();
     ui_menu_render();
@@ -4717,54 +4716,9 @@ int ui_audio() {
 #line 0
 
 #line 1 "fwk_collide.c"
-/* poly */
-poly poly_alloc(int cnt) {
-    poly p = {0};
-    p.cnt = cnt;
-    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * cnt); // array_resize(p.verts, cnt);
-    return p;
-}
-
-void poly_free(poly *p) {
-    REALLOC(p->verts, 0); // array_free(p->verts);
-    poly z = {0};
-    *p = z;
-}
-
 /* plane */
 vec4 plane4(vec3 p, vec3 n) {
     return vec34(n, -dot3(n,p));
-}
-
-/* pyramid */
-poly pyramid(vec3 from, vec3 to, float size) {
-    /* calculate axis */
-    vec3 up, right, forward = norm3( sub3(to, from) );
-    ortho3(&right, &up, forward);
-
-    /* calculate extend */
-    vec3 xext = scale3(right, size);
-    vec3 yext = scale3(up, size);
-    vec3 nxext = scale3(right, -size);
-    vec3 nyext = scale3(up, -size);
-
-    /* calculate base vertices */
-    poly p = {0};
-    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * (5+1)); p.cnt = 5; /*+1 for diamond case*/ // array_resize(p.verts, 5+1); p.cnt = 5;
-    p.verts[0] = add3(add3(from, xext), yext); /*a*/
-    p.verts[1] = add3(add3(from, xext), nyext); /*b*/
-    p.verts[2] = add3(add3(from, nxext), nyext); /*c*/
-    p.verts[3] = add3(add3(from, nxext), yext); /*d*/
-    p.verts[4] = to; /*r*/
-    return p;
-}
-
-/* pyramid */
-poly diamond(vec3 from, vec3 to, float size) {
-    vec3 mid = add3(from, scale3(sub3(to, from), 0.5f));
-    poly p = pyramid(mid, to, size);
-    p.verts[5] = from; p.cnt = 6;
-    return p;
 }
 
 // ---
@@ -5077,9 +5031,6 @@ hit *sphere_hit_capsule(sphere s, capsule c) {
         return h;
 #endif
 }
-int sphere_test_poly(sphere s, poly p) {
-    return poly_test_sphere(p, s);
-}
 void aabb_rebalance_transform(aabb *b, aabb a, mat33 m, vec3 t) {
     for (int i = 0; i < 3; ++i) {
         i[&b->min.x] = i[&b->max.x] = i[&t.x];
@@ -5220,9 +5171,6 @@ hit *aabb_hit_capsule(aabb a, capsule c) {
     m->contact_point = ap;
     return m;
 }
-int aabb_test_poly(aabb a, poly p) {
-    return poly_test_aabb(p, a);
-}
 float capsule_distance2_point(capsule c, vec3 p) {
     float d2 = line_distance2_point(line(c.a,c.b), p);
     return d2 - (c.r*c.r);
@@ -5321,229 +5269,6 @@ hit *capsule_hit_aabb(capsule c, aabb a) {
     m->contact_point = cp;
     return m;
 }
-int capsule_test_poly(capsule c, poly p) {
-    return poly_test_capsule(p, c);
-}
-int line_support(vec3 *support, vec3 d, vec3 a, vec3 b) {
-    int i = 0;
-    float adot = dot3(a, d);
-    float bdot = dot3(b, d);
-    if (adot < bdot) {
-        *support = b;
-        i = 1;
-    } else *support = a;
-    return i;
-}
-int poly_support(vec3 *support, vec3 d, poly p) {
-    int imax = 0;
-    float dmax = dot3(*p.verts, d);
-    for (int i = 1; i < p.cnt; ++i) {
-        /* find vertex with max dot product in direction d */
-        float dot = dot3(p.verts[i], d);
-        if (dot < dmax) continue;
-        imax = i, dmax = dot;
-    } *support = p.verts[imax];
-    return imax;
-}
-int poly_hit_sphere(struct gjk_result *res,
-    poly p,
-    sphere s) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support gs = {0};
-    gs.a = *p.verts;
-    gs.b = s.c;
-    d = sub3(gs.b, gs.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &gs, &d)) {
-        vec3 n = scale3(d, -1);
-        gs.aid = poly_support(&gs.a, n, p);
-        d = sub3(gs.b, gs.a);
-    }
-    /* check distance between closest points */
-    *res = gjk_analyze(&gsx);
-    return res->distance_squared <= s.r*s.r;
-}
-int poly_hit_sphere_transform(struct gjk_result *res, poly p, vec3 pos3, mat33 rot33, sphere s) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support gs = {0};
-    gs.a = *p.verts;
-    gs.b = s.c;
-    transformS(&gs.a, rot33, pos3);
-    d = sub3(gs.b, gs.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &gs, &d)) {
-        vec3 n = scale3(d, -1);
-        vec3 da; transformT(&da, n, rot33, pos3);
-
-        gs.aid = poly_support(&gs.a, da, p);
-        transformS(&gs.a, rot33, pos3);
-        d = sub3(gs.b, gs.a);
-    }
-    /* check distance between closest points */
-    *res = gjk_analyze(&gsx);
-    return res->distance_squared <= s.r*s.r;
-}
-int poly_test_sphere(poly p, sphere s) {
-    struct gjk_result res;
-    return poly_hit_sphere(&res, p, s);
-}
-int poly_test_sphere_transform(poly p, vec3 pos3, mat33 rot33, sphere s) {
-    struct gjk_result res;
-    return poly_hit_sphere_transform(&res, p, pos3, rot33, s);
-}
-int poly_hit_capsule(struct gjk_result *res, poly p, capsule c) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support s = {0};
-    s.a = *p.verts;
-    s.b = c.a;
-    d = sub3(s.b, s.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &s, &d)) {
-        vec3 n = scale3(d, -1);
-        s.aid = poly_support(&s.a, n, p);
-        s.bid = line_support(&s.b, d, c.a, c.b);
-        d = sub3(s.b, s.a);
-    }
-    /* check distance between closest points */
-    assert(gsx.iter < gsx.max_iter);
-    *res = gjk_analyze(&gsx);
-    return res->distance_squared <= c.r*c.r;
-}
-int poly_test_capsule(poly p, capsule c) {
-    struct gjk_result res;
-    return poly_hit_capsule(&res, p, c);
-}
-int poly_hit_capsule_transform(struct gjk_result *res, poly p, vec3 pos3, mat33 rot33, capsule c) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support gs = {0};
-    gs.a = *p.verts;
-    gs.b = c.a;
-    transformS(&gs.a, rot33, pos3);
-    d = sub3(gs.b, gs.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &gs, &d)) {
-        vec3 n = scale3(d, -1);
-        vec3 da; transformT(&da, n, rot33, pos3);
-
-        gs.aid = poly_support(&gs.a, da, p);
-        gs.bid = line_support(&gs.b, d, c.a, c.b);
-        transformS(&gs.a, rot33, pos3);
-        d = sub3(gs.b, gs.a);
-    }
-    /* check distance between closest points */
-    *res = gjk_analyze(&gsx);
-    return res->distance_squared <= c.r*c.r;
-}
-int poly_test_capsule_transform(poly p, vec3 pos3, mat33 rot33, capsule c) {
-    struct gjk_result res;
-    return poly_hit_capsule_transform(&res, p, pos3, rot33, c);
-}
-int poly_hit_poly_transform(struct gjk_result *res,
-    poly a, vec3 at3, mat33 ar33,
-    poly b, vec3 bt3, mat33 br33) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support gs = {0};
-    gs.a = *a.verts;
-    gs.b = *b.verts;
-    transformS(&gs.a, ar33, at3);
-    transformS(&gs.b, br33, bt3);
-    d = sub3(gs.b, gs.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &gs, &d)) {
-        /* transform direction */
-        vec3 n = scale3(d, -1);
-        vec3 da; transformT(&da, n, ar33, at3);
-        vec3 db; transformT(&db, d, br33, bt3);
-        /* run support function on tranformed directions  */
-        gs.aid = poly_support(&gs.a, da, a);
-        gs.bid = poly_support(&gs.b, db, b);
-        /* calculate distance vector on transformed points */
-        transformS(&gs.a, ar33, at3);
-        transformS(&gs.b, br33, bt3);
-        d = sub3(gs.b, gs.a);
-    }
-    *res = gjk_analyze(&gsx);
-    return gsx.hit;
-}
-int poly_hit_poly(struct gjk_result *res,
-    poly a,
-    poly b) {
-    /* initial guess */
-    vec3 d = {0};
-    gjk_support gs = {0};
-    gs.a = *a.verts;
-    gs.b = *b.verts;
-    d = sub3(gs.b, gs.a);
-
-    /* run gjk algorithm */
-    gjk_simplex gsx = {0};
-    while (gjk(&gsx, &gs, &d)) {
-        vec3 n = scale3(d, -1);
-        gs.aid = poly_support(&gs.a, n, a);
-        gs.bid = poly_support(&gs.b, d, b);
-        d = sub3(gs.b, gs.a);
-    }
-    *res = gjk_analyze(&gsx);
-    return gsx.hit;
-}
-int poly_test_poly(poly a, poly b) {
-    struct gjk_result res;
-    return poly_hit_poly(&res, a, b);
-}
-int poly_test_poly_transform(poly a, vec3 apos3, mat33 arot33,
-    poly b, vec3 bpos3, mat33 brot33) {
-    struct gjk_result res;
-    return poly_hit_poly_transform(&res, a, apos3, arot33, b, bpos3, brot33);
-}
-int poly_hit_aabb(struct gjk_result *res, poly p, aabb a) {
-    vec3 box[8];
-    box[0] = vec3(a.min.x, a.min.y, a.min.z),
-    box[1] = vec3(a.min.x, a.min.y, a.max.z);
-    box[2] = vec3(a.min.x, a.max.y, a.min.z);
-    box[3] = vec3(a.min.x, a.max.y, a.max.z);
-    box[4] = vec3(a.max.x, a.min.y, a.min.z);
-    box[5] = vec3(a.max.x, a.min.y, a.max.z);
-    box[6] = vec3(a.max.x, a.max.y, a.min.z);
-    box[7] = vec3(a.max.x, a.max.y, a.max.z);
-    return poly_hit_poly(res, p, poly(&box[0], 8));
-}
-int poly_hit_aabb_transform(struct gjk_result *res, poly p, vec3 pos3, mat33 rot33, aabb a) {
-    vec3 zero = {0};
-    vec3 id[3] = {{1,0,0},{0,1,0},{0,0,1}};
-    vec3 box[8];
-    box[0] = vec3(a.min.x, a.min.y, a.min.z),
-    box[1] = vec3(a.min.x, a.min.y, a.max.z);
-    box[2] = vec3(a.min.x, a.max.y, a.min.z);
-    box[3] = vec3(a.min.x, a.max.y, a.max.z);
-    box[4] = vec3(a.max.x, a.min.y, a.min.z);
-    box[5] = vec3(a.max.x, a.min.y, a.max.z);
-    box[6] = vec3(a.max.x, a.max.y, a.min.z);
-    box[7] = vec3(a.max.x, a.max.y, a.max.z);
-    return poly_hit_poly_transform(res, p, pos3, rot33, poly(&box[0], 8), zero, id[0].v3);
-}
-int poly_test_aabb(poly p, aabb a) {
-    struct gjk_result res;
-    return poly_hit_aabb(&res, p, a);
-}
-int poly_test_aabb_transform(poly p, vec3 apos3, mat33 arot33, aabb a) {
-    struct gjk_result res;
-    return poly_hit_aabb_transform(&res, p, apos3, arot33, a);
-}
 
 /* ============================================================================
  *
@@ -5630,7 +5355,7 @@ int frustum_test_aabb(frustum f, aabb a) {
     return 1;
 }
 
-void collide_demo() { // debug draw collisions // @fixme: fix leaks: poly_free()
+void collide_demo() { // debug draw collisions
 
     // animation
     static float dx = 0, dy = 0;
@@ -5977,169 +5702,6 @@ void collide_demo() { // debug draw collisions // @fixme: fix leaks: poly_free()
 
         ddraw_capsule(vec3(x,y-1.0f,z), vec3(x,y+1.0f,z-1.0f), 0.2f);
         ddraw_box(vec3(0,0,-8.0f), vec3(1,1,1));
-    }
-    {
-        // poly(Pyramid)-Sphere (GJK) intersection*/
-        sphere s = sphere(vec3(-10+0.6f*sin(dx), 3.0f*cos(dy),-8), 1);
-        poly pyr = pyramid(vec3(-10.5f,-0.5f,-7.5f), vec3(-10.5f,1.0f,-7.5f), 1.0f);
-
-        gjk_result gjk;
-        if (poly_hit_sphere(&gjk, pyr, s))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_sphere(s.c, 1);
-        ddraw_pyramid(vec3(-10.5f,-0.5f,-7.5f), 0.5f/*vec3(-10.5f,1.0f,-7.5f)*/, 1.0f);
-
-        poly_free(&pyr);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-    {
-        // poly(Diamond)-Sphere (GJK) intersection*/
-
-        sphere s = sphere(vec3(-20+0.6f*sin(dx), 3.0f*cos(dy),-8), 1);
-        poly dmd = diamond(vec3(-20.5f,-0.5f,-7.5f), vec3(-20.5f,1.0f,-7.5f), 0.5f);
-
-        gjk_result gjk;
-        if (poly_hit_sphere(&gjk, dmd, s))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_sphere(s.c, 1);
-        ddraw_diamond(vec3(-20.5f,-0.5f,-7.5f), vec3(-20.5f,1.0f,-7.5f), 0.5f);
-
-        poly_free(&dmd);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-    {
-        // poly(Pyramid)-Capsule (GJK) intersection*/
-
-        const float x = 0.4f*sin(dx);
-        const float y = 3.0f*cos(dy);
-        const float z = -15;
-
-        capsule c = capsule(vec3(x,y-1.0f,z), vec3(x,y+1.0f,z), 0.2f);
-        poly pyr = pyramid(vec3(-0.5f,-0.5f,-15.5f), vec3(-0.5f,1.0f,-15.5f), 1.0f);
-
-        gjk_result gjk;
-        if (poly_hit_capsule(&gjk, pyr, c))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_capsule(c.a, c.b, c.r);
-        ddraw_pyramid(vec3(-0.5f,-0.5f,-15.5f), 0.5f/*vec3(-0.5f,1.0f,-15.5f)*/, 1.0f);
-
-        poly_free(&pyr);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-
-    {
-        // poly(Diamond)-Capsule (GJK) intersection*/
-
-        const float x = -10 + 0.4f*sin(dx);
-        const float y = 3.0f*cos(dy);
-        const float z = -15;
-
-        capsule c = capsule(vec3(x,y-1.0f,z), vec3(x,y+1.0f,z), 0.2f);
-        poly dmd = diamond(vec3(-10.5f,-0.5f,-15.5f), vec3(-10.5f,1.0f,-15.5f), 0.5f);
-
-        gjk_result gjk;
-        if (poly_hit_capsule(&gjk, dmd, c))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_capsule(c.a, c.b, c.r);
-        ddraw_diamond(vec3(-10.5f,-0.5f,-15.5f), vec3(-10.5f,1.0f,-15.5f), 0.5f);
-
-        poly_free(&dmd);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-
-    {
-        // poly(Diamond)-poly(Pyramid) (GJK) intersection*/
-
-        const float x = -20 + 0.4f*sin(dx);
-        const float y = 3.0f*cos(dy);
-        const float z = -15;
-
-        poly pyr = pyramid(vec3(x,y-0.5f,z), vec3(x,y+1,z), 0.8f);
-        poly dmd = diamond(vec3(-20.5f,-0.5f,-15.5f), vec3(-20.5f,1.0f,-15.5f), 0.5f);
-
-        gjk_result gjk;
-        if (poly_hit_poly(&gjk, dmd, pyr))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_pyramid(vec3(x,y-0.5f,z), 1/*vec3(x,y+1,z)*/, 1/*0.8f*/);
-        ddraw_diamond(vec3(-20.5f,-0.5f,-15.5f), vec3(-20.5f,1.0f,-15.5f), 0.5f);
-
-        poly_free(&dmd);
-        poly_free(&pyr);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-    {
-        // poly(Pyramid)-poly(Diamond) (GJK) intersection*/
-
-        const float x = 10 + 0.4f*sin(dx);
-        const float y = 3.0f*cos(dy);
-        const float z = -15;
-
-        poly dmd = diamond(vec3(x,y-0.5f,z), vec3(x,y+1,z), 0.5f);
-        poly pyr = pyramid(vec3(10.5f,-0.5f,-15.5f), vec3(10.5f,1.0f,-15.5f), 1.0f);
-
-        gjk_result gjk;
-        if (poly_hit_poly(&gjk, dmd, pyr))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        ddraw_diamond(vec3(x,y-0.5f,z), vec3(x,y+1,z), 0.5f);
-        ddraw_pyramid(vec3(10.5f,-0.5f,-15.5f), 0.5f/*vec3(10.5f,1.0f,-15.5f)*/, 1.0f);
-
-        poly_free(&dmd);
-        poly_free(&pyr);
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
-    }
-    {
-        // poly(Diamond)-AABB (GJK) intersection*/
-
-        const float x = 20 + 0.4f*sin(dx);
-        const float y = 3.0f*cos(dy);
-        const float z = -15;
-
-        poly dmd = diamond(vec3(x,y-0.5f,z), vec3(x,y+1,z), 0.5f);
-        aabb a = aabb(vec3(19.5f,-0.5f,-14.5f), vec3(20.5f,0.5f,-15.5f));
-
-        gjk_result gjk;
-        if (poly_hit_aabb(&gjk, dmd, a))
-            ddraw_color(RED);
-        else ddraw_color(WHITE);
-
-        poly_free(&dmd);
-
-        ddraw_diamond(vec3(x,y-0.5f,z), vec3(x,y+1,z), 0.5f);
-        ddraw_box(vec3(20,0,-15), vec3(1,1,1));
-
-        ddraw_box(gjk.p0, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_box(gjk.p1, vec3(0.05f, 0.05f, 0.05f));
-        ddraw_line(gjk.p0, gjk.p1);
     }
 }
 #line 0
@@ -7446,8 +7008,10 @@ void script_init() {
         luaopen_string(L);
         luaopen_math(L);
 
+#if !is(ems)
         // enable ffi (via luaffi)
         luaopen_ffi(L);
+#endif
 
         // @fixme: workaround that prevents script binding on lua 5.4.3 on top of luajit 2.1.0-beta3 on linux. lua_setglobal() crashing when accessing null L->l_G
         if(L->l_G) {
@@ -17099,6 +16663,12 @@ renderstate_t renderstate() {
     state.clear_color[2] = 0.0f; // Blue
     state.clear_color[3] = 1.0f; // Alpha
 
+    // Set default color mask to GL_TRUE
+    state.color_mask[0] = GL_TRUE;
+    state.color_mask[1] = GL_TRUE;
+    state.color_mask[2] = GL_TRUE;
+    state.color_mask[3] = GL_TRUE;
+
     // Set default clear depth to maximum distance
     state.clear_depth = 1.0;
 
@@ -17106,6 +16676,11 @@ renderstate_t renderstate() {
     state.depth_test_enabled = GL_TRUE;
     state.depth_write_enabled = GL_TRUE;
     state.depth_func = GL_LEQUAL;
+    
+    // Disable polygon offset by default
+    state.polygon_offset_enabled = GL_FALSE;
+    state.polygon_offset_factor = 0.0f;
+    state.polygon_offset = 0.0f;
 
     // Disable blending by default
     state.blend_enabled = GL_FALSE;
@@ -17120,8 +16695,12 @@ renderstate_t renderstate() {
     // Disable stencil test by default
     state.stencil_test_enabled = GL_FALSE;
     state.stencil_func = GL_ALWAYS;
+    state.stencil_op_fail = GL_KEEP;
+    state.stencil_op_zfail = GL_KEEP;
+    state.stencil_op_zpass = GL_KEEP;
     state.stencil_ref = 0;
-    state.stencil_mask = 0xFFFFFFFF;
+    state.stencil_read_mask = 0xFFFFFFFF;
+    state.stencil_write_mask = 0xFFFFFFFF;
 
     // Set default front face to counter-clockwise
     state.front_face = GL_CCW;
@@ -17163,6 +16742,9 @@ void renderstate_apply(const renderstate_t *state) {
         // Apply clear color
         glClearColor(state->clear_color[0], state->clear_color[1], state->clear_color[2], state->clear_color[3]);
 
+        // Apply color mask
+        glColorMask(state->color_mask[0], state->color_mask[1], state->color_mask[2], state->color_mask[3]);
+
         // Apply clear depth
         glClearDepth(state->clear_depth);
 
@@ -17173,6 +16755,14 @@ void renderstate_apply(const renderstate_t *state) {
         } else {
             glDisable(GL_DEPTH_TEST);
         }
+
+        // Apply polygon offset
+        if (state->polygon_offset_enabled) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(state->polygon_offset_factor, state->polygon_offset);
+        } else {
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }        
 
         // Apply depth write
         glDepthMask(state->depth_write_enabled);
@@ -17197,7 +16787,9 @@ void renderstate_apply(const renderstate_t *state) {
         // Apply stencil test
         if (state->stencil_test_enabled) {
             glEnable(GL_STENCIL_TEST);
-            glStencilFunc(state->stencil_func, state->stencil_ref, state->stencil_mask);
+            glStencilMask(state->stencil_write_mask);
+            glStencilFunc(state->stencil_func, state->stencil_ref, state->stencil_read_mask);
+            glStencilOp(state->stencil_op_fail, state->stencil_op_zfail, state->stencil_op_zpass);
         } else {
             glDisable(GL_STENCIL_TEST);
         }
@@ -17215,6 +16807,7 @@ void renderstate_apply(const renderstate_t *state) {
             glDisable(GL_LINE_SMOOTH);
         }
 
+#if !is(ems)
         // Apply point size
         if (state->point_size_enabled) {
             glEnable(GL_PROGRAM_POINT_SIZE);
@@ -17225,6 +16818,7 @@ void renderstate_apply(const renderstate_t *state) {
 
         // Apply polygon mode
         glPolygonMode(state->polygon_mode_face, state->polygon_mode_draw);
+#endif
 
         // Apply scissor test
         if (state->scissor_test_enabled) {
@@ -19601,6 +19195,10 @@ void postfx_clear(postfx *fx) {
     }
     fx->enabled = 0;
 }
+unsigned postfx_program(postfx *fx, int pass) {
+    if( pass < 0 || pass >= array_count(fx->pass) ) return 0;
+    return fx->pass[pass].program;
+}
 
 int ui_postfx(postfx *fx, int pass) {
     if (pass < 0 || pass >= array_count(fx->pass)) return 0;
@@ -19689,7 +19287,7 @@ bool postfx_end(postfx *fx) {
         postfx_rs.depth_test_enabled = 0;
         postfx_rs.cull_face_enabled = 0;
         postfx_rs.blend_enabled = 1;
-        postfx_rs.blend_src = GL_SRC_ALPHA;
+        postfx_rs.blend_src = GL_ONE;
         postfx_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
     }
 
@@ -19804,6 +19402,16 @@ int fx_find(const char *name) {
 }
 void fx_order(int pass, unsigned priority) {
     postfx_order(&fx, pass, priority);
+}
+unsigned fx_program(int pass) {
+    return postfx_program(&fx, pass);
+}
+void fx_setparam(int pass, const char *name, float value) {
+    unsigned program = fx_program(pass);
+    if( !program ) return;
+    unsigned oldprogram = shader_bind(program);
+    shader_float(name, value);
+    shader_bind(oldprogram);
 }
 int ui_fx(int pass) {
     return ui_postfx(&fx, pass);
@@ -20345,6 +19953,14 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
     if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0) {
         glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
     }
+    
+    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0) {
+        glUniform1i(loc, (unsigned)window_frame());
+    }
+
+    if ((loc = glGetUniformLocation(shader, "frame_time")) >= 0) {
+        glUniform1f(loc, (float)window_time());
+    }
 
     if (m.shading == SHADING_PBR) {
         handle old_shader = last_shader;
@@ -20364,7 +19980,6 @@ void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view,
             shader_texture( "tex_skyenv", m.sky_env );
         }
         shader_texture( "tex_brdf_lut", brdf_lut() );
-        shader_uint( "frame_count", (unsigned)window_frame() );
         shader_bind(old_shader);
     }
 }
@@ -21162,7 +20777,9 @@ void model_draw_call(model_t m, int shader) {
     handle old_shader = last_shader;
     shader_bind(shader);
 
-    renderstate_apply(&m.rs[model_getpass()]);
+    renderstate_t *rs = &m.rs[RENDER_PASS_NORMAL];
+
+    renderstate_apply(rs);
 
     glBindVertexArray( q->vao );
 
@@ -22059,37 +21676,6 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
 }
 void ddraw_cylinder(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
-}
-void ddraw_diamond(vec3 from, vec3 to, float size) {
-    poly p = diamond(from, to, size);
-    vec3 *dmd = p.verts;
-
-    vec3 *a = dmd + 0;
-    vec3 *b = dmd + 1;
-    vec3 *c = dmd + 2;
-    vec3 *d = dmd + 3;
-    vec3 *t = dmd + 4;
-    vec3 *f = dmd + 5;
-
-    /* draw vertices */
-    ddraw_line(*a, *b);
-    ddraw_line(*b, *c);
-    ddraw_line(*c, *d);
-    ddraw_line(*d, *a);
-
-    /* draw roof */
-    ddraw_line(*a, *t);
-    ddraw_line(*b, *t);
-    ddraw_line(*c, *t);
-    ddraw_line(*d, *t);
-
-    /* draw floor */
-    ddraw_line(*a, *f);
-    ddraw_line(*b, *f);
-    ddraw_line(*c, *f);
-    ddraw_line(*d, *f);
-
-    poly_free(&p);
 }
 void ddraw_cone(vec3 center, vec3 top, float radius) {
     vec3 diff3 = sub3(top, center);
@@ -26725,6 +26311,14 @@ void record_frame() {
 
 #line 1 "fwk_window.c"
 //-----------------------------------------------------------------------------
+// capture tests
+static
+uint64_t tests_captureframes() {
+    static uint64_t capture_target; do_once capture_target = optioni("--capture", 0);
+    return capture_target;
+}
+
+//-----------------------------------------------------------------------------
 // fps locking
 
 static volatile float framerate = 0;
@@ -26791,6 +26385,7 @@ int fps_wait() {
 }
 static
 void window_vsync(float hz) {
+    if( tests_captureframes() ) return;
     if( hz <= 0 ) return;
     do_once fps_locker(1);
     framerate = hz;
@@ -26986,6 +26581,8 @@ void glNewFrame() {
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 }
 
+static bool cook_done = false;
+
 bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     // abort run if any test suite failed in unit-test mode
     ifdef(debug, if( flag("--test") ) exit( test_errors ? -test_errors : 0 ));
@@ -27009,6 +26606,13 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     scale = (scale > 100 ? 100 : scale) / 100.f;
     int winWidth = window_canvas().w * scale;
     int winHeight = window_canvas().h * scale;
+
+/*
+    if (tests_captureframes()) {
+        winWidth = 1280;
+        winHeight = 720;
+    }
+*/
 
     window_hints(flags);
 
@@ -27174,6 +26778,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     }
 
     if(cook_cancelling) cook_stop(), exit(-1);
+    cook_done = true;
 
     fwk_post_init(mode->refreshRate);
     return true;
@@ -27381,6 +26986,21 @@ int window_swap() {
         window_shutdown();
         return 0;
     }
+
+    static uint64_t capture_frame = 0;
+    if( cook_done && ++capture_frame == tests_captureframes() ) {
+        mkdir( "tests/out", 0777 );
+        const char *screenshot_file = va("tests/out/%s.png", app_name());
+
+        int n = 3;
+        void *rgb = screenshot(n);
+        stbi_flip_vertically_on_write(true);
+        if(!stbi_write_png(screenshot_file, w, h, n, rgb, n * w) ) {
+            PANIC("!could not write screenshot file `%s`\n", screenshot_file);
+        }
+        return 0;
+    }
+
     return 1;
 }
 
@@ -30099,7 +29719,7 @@ static void fwk_post_init(float refresh_rate) {
     glfwShowWindow(window);
     glfwGetFramebufferSize(window, &w, &h); //glfwGetWindowSize(window, &w, &h);
 
-    randset(time_ns());
+    randset(time_ns() * !tests_captureframes());
     boot_time = -time_ss(); // measure boot time, this is continued in window_stats()
 
     // clean any errno setup by cooking stage
@@ -30110,6 +29730,11 @@ static void fwk_post_init(float refresh_rate) {
 
     // preload brdf LUT early
     (void)brdf_lut();
+
+    uint64_t fps = optioni("--fps", 0);
+    if( fps ) {
+        window_fps_lock(fps);
+    }
 }
 
 // ----------------------------------------------------------------------------
