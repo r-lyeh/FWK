@@ -2,7 +2,7 @@
 #define MAX_BONES 110
 #endif
 uniform mat3x4 vsBoneMatrix[MAX_BONES];
-uniform bool SKINNED = false;
+uniform bool SKINNED; /// set:0
 uniform mat4 M; // RIM
 uniform mat4 VP;
 uniform mat4 P;
@@ -44,7 +44,7 @@ sg_image blend_shapes = mesh->num_blend_shapes > 0 ? mesh->blend_shape_image : v
 #endif
 uniform vec4 blend_weights[MAX_BLENDSHAPES]; // @todo: implement me
 uniform float f_num_blend_shapes; // @todo: implement me
-uniform sampler2DArray blend_shapes; // @todo: implement me
+uniform MEDIUMP sampler2DArray blend_shapes; // @todo: implement me
 
 
 in vec3 att_position; // @todo: reorder ass2iqe to emit p3 n3 u2 t3 b3 c4B i4 w4 instead

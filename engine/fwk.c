@@ -3402,7 +3402,7 @@ int ui_unsigned2(const char *label, unsigned *v) {
     ui_label_(label, NK_TEXT_LEFT);
 
     char *buffer = ui_num_signs ?
-        --ui_num_signs, va("%+2u %+2u", v[0], v[1]) :
+        --ui_num_signs, va("+%2u +%2u", v[0], v[1]) :
         va("%2u, %2u", v[0], v[1]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -3421,7 +3421,7 @@ int ui_unsigned3(const char *label, unsigned *v) {
     ui_label_(label, NK_TEXT_LEFT);
 
     char *buffer = ui_num_signs ?
-        --ui_num_signs, va("%+2u %+2u %+2u", v[0], v[1], v[2]) :
+        --ui_num_signs, va("+%2u +%2u +%2u", v[0], v[1], v[2]) :
         va("%2u, %2u, %2u", v[0], v[1], v[2]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -9860,8 +9860,8 @@ void font_color(const char *tag, uint32_t color) {
             font_t *f = &fonts[i];
             if( f->initialized ) {
                 glActiveTexture(GL_TEXTURE2);
-                glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
+                glBindTexture(GL_TEXTURE_2D, f->texture_colors);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, FONT_MAX_COLORS, 1, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
             }
         }
     }
@@ -10148,11 +10148,11 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     // setup color texture
     glGenTextures(1, &f->texture_colors);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glBindTexture(GL_TEXTURE_2D, f->texture_colors);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FONT_MAX_COLORS, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 
     // upload constant uniforms
     glUseProgram(f->program);
@@ -10211,7 +10211,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, f->texture_offsets);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, f->texture_colors);
+    glBindTexture(GL_TEXTURE_2D, f->texture_colors);
 
     // update bindings
     glBindVertexArray(f->vao);
@@ -10244,7 +10244,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, last_texture1);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, last_texture2);
+    glBindTexture(GL_TEXTURE_2D, last_texture2);
 
     glBindVertexArray(last_vertex_array);
 }
@@ -13059,7 +13059,7 @@ int download_file( FILE *out, const char *url ) {
     DWORD response_size = 0;
 
     if( out )
-    for( HINTERNET session = InternetOpenA("fwk.download_file", PRE_CONFIG_INTERNET_ACCESS, NULL, INTERNET_INVALID_PORT_NUMBER, 0); session; InternetCloseHandle(session), session = 0 )
+    for( HINTERNET session = InternetOpenA("fwk.download_file", PRE_CONFIG_INTERNET_ACCESS, NULL, INTERNET_INVALID_PORT_NUMBER, 0); session; InternetCloseHandle(session), session = 0 ) // @fixme: download_file
     for( HINTERNET request = InternetOpenUrlA(session, url, NULL, 0, INTERNET_FLAG_RELOAD, 0); request; InternetCloseHandle(request), request = 0 )
     for(; InternetReadFile(request, buffer, sizeof(buffer), &response_size) != FALSE && response_size > 0; ) {
         ok = (fwrite(buffer, response_size, 1, out) == 1);
@@ -16875,13 +16875,22 @@ static inline
 char *shader_preprocess(const char *src, const char *defines) {
     if (!src) return NULL;
 
-    const char *glsl_version = va("#version %s", ifdef(ems, "300 es", "150"));
+    const char *gles = "#version 300 es\n"
+                       "#define textureQueryLod(t,uv) vec2(0.,0.)\n" // "#extension GL_EXT_texture_query_lod : enable\n"
+                       "#define MEDIUMP mediump\n"
+                       "precision MEDIUMP float;\n";
+    const char *desktop = strstr(src, "textureQueryLod") ? "#version 400\n#define MEDIUMP\n" : "#version 330\n#define MEDIUMP\n";
+    const char *glsl_version = ifdef(ems, gles, desktop);
 
     // detect GLSL version if set
     if (src[0] == '#' && src[1] == 'v') {
+        #if 0
         const char *end = strstri(src, "\n");
         glsl_version = va("%.*s", (int)(end-src), src);
         src = end+1;
+        #else
+        PANIC("!ERROR: shader with #version specified on it. we do not support this anymore.");
+        #endif
     }
 
     return va("%s\n%s\n%s", glsl_version, defines ? defines : "", src);
@@ -16901,16 +16910,6 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
     gs = shader_preprocess(gs, glsl_defines);
     vs = shader_preprocess(vs, glsl_defines);
     fs = shader_preprocess(fs, glsl_defines);
-
-#if is(ems)
-    {
-        char *vs_ = REALLOC( 0, strlen(vs) + 512 ); strcpy(vs_, vs);
-        char *fs_ = REALLOC( 0, strlen(fs) + 512 ); strcpy(fs_, fs);
-        char *gs_ = 0; if (gs) REALLOC( 0, strlen(gs) + 512 ); strcpy(gs_, gs);
-        strrepl(&fs_, "#version 300 es\n", "#version 300 es\nprecision mediump float;\n");
-        vs = vs_; fs = fs_; gs = gs_;
-    }
-#endif
 
     GLuint vert = shader_compile(GL_VERTEX_SHADER, vs);
     GLuint frag = shader_compile(GL_FRAGMENT_SHADER, fs);
@@ -17322,7 +17321,6 @@ static inline void shader_cubemap_(int sampler, unsigned texture) {
 static inline void shader_bool_(int uniform, bool x) { glUniform1i(uniform, x); }
 static inline void shader_uint_(int uniform, unsigned x ) { glUniform1ui(uniform, x); }
 static inline void shader_texture_unit_(int sampler, unsigned id, unsigned unit) {
-    // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(sampler, unit);
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_2D, id);
@@ -17347,7 +17345,6 @@ void shader_bool(const char *uniform, bool x) { glUniform1i(shader_uniform(unifo
 void shader_uint(const char *uniform, unsigned x ) { glUniform1ui(shader_uniform(uniform), x); }
 void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, texture_unit()); }
 void shader_texture_unit(const char *sampler, unsigned id, unsigned unit) {
-    // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(shader_uniform(sampler), unit);
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_2D, id);
@@ -24640,20 +24637,27 @@ static char **backtrace_symbols(void *const *sym,int num) { return 0; }
 #endif
 
 char *callstack( int traces ) {
-    static __thread char *output = 0;
-    if(!output ) output = SYS_MEM_REALLOC( 0, 128 * (64+2) );
-    if( output ) output[0] = '\0';
-    char *ptr = output;
+#if is(tcc) && is(linux)
+    return "";
+#endif
+#if is(ems) // there is a stack overflow failure somewhere in the impl below
+    static char empty[1]; return empty[0] = '\0', empty;
+#endif
 
     enum { skip = 1 }; /* exclude 1 trace from stack (this function) */
-    enum { maxtraces = 128 };
+    enum { maxtraces = 96 };
+
+    static __thread char *output = 0;
+    if(!output ) output = SYS_MEM_REALLOC( 0, maxtraces * (128+2) );
+    if( output ) output[0] = '\0';
+    char *ptr = output;
 
     int inc = 1;
     if( traces < 0 ) traces = -traces, inc = -1;
     if( traces == 0 ) return "";
     if( traces > maxtraces ) traces = maxtraces;
 
-    void* stacks[maxtraces/* + 1*/]; // = { 0 };
+    void* stacks[maxtraces + 1]; stacks[maxtraces] = NULL; // = { 0 };
     traces = backtrace( stacks, traces );
     char **symbols = backtrace_symbols( stacks, traces ); // @todo: optimization: map(void*,char*) cache; and retrieve only symbols not in cache
 
@@ -24685,10 +24689,11 @@ char *callstack( int traces ) {
                  ifdef(cpp, __cxa_demangle(info.dli_sname, NULL, 0, NULL), info.dli_sname);
             strcpy( demangled, dmgbuf ? dmgbuf : info.dli_sname );
             symbols[i] = demangled;
-            if( dmgbuf ) free( (void*)dmgbuf );
+            ifdef(cpp, dmgbuf && free( (void*)dmgbuf ) );
         }
 #endif
-        ptr += sprintf(ptr, "%03d: %#016llx %s\n", ++L, (unsigned long long)(uintptr_t)stacks[i], symbols[i]); // format gymnastics because %p is not standard when printing pointers
+        if( symbols[i] )
+        ptr += sprintf(ptr, "%03d: %p %s\n", ++L, (void*)(uintptr_t)stacks[i], symbols[i]); // format gymnastics because %p is not standard when printing pointers
     }
 
 #if is(linux) || is(osx)
@@ -27046,7 +27051,7 @@ void window_loop(void (*user_function)(void* loopArg), void* loopArg ) {
 #else
     g->keep_running = true;
     while (g->keep_running)
-        user_function(loopArg);
+        window_swap(), user_function(loopArg);
 #endif /* __EMSCRIPTEN__ */
 }
 
@@ -27902,7 +27907,7 @@ void *obj_setmeta(void *o, const char *key, const char *value) {
     void *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
-        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        int *q = map_find_or_add(oms, intern(va("%p-%s",(void*)obj_id((obj*)o),key)), 0);
         if(!*q && !value[0]) {} else *q = intern(value);
         quark(*q), ret = o;
     }
@@ -27912,7 +27917,7 @@ const char* obj_meta(const void *o, const char *key) {
     const char *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
-        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        int *q = map_find_or_add(oms, intern(va("%p-%s",(void*)obj_id((obj*)o),key)), 0);
         ret = quark(*q);
     }
     return ret;
@@ -28018,10 +28023,10 @@ void test_obj_exact(void *o1, void *o2) {
 bool obj_hexdump(const void *oo) {
     const obj *o = (const obj *)oo;
     int header = 1 * sizeof(obj);
-    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %llx\n",
+    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %p\n",
         obj_name(o), obj_type(o),
         (int)o->objid>>16, (int)o->objid&0xffff, (int)o->objunused,
-        obj_sizeof(o), o->objheader);
+        obj_sizeof(o), (void*)o->objheader);
     return hexdump(obj_datac(o) - header, obj_size(o) + header), 1;
 }
 int obj_print(const void *o) {
@@ -28069,7 +28074,7 @@ const char *p2s(const char *type, void *p) {
     else if( !strcmp(type, "unsigned") ) return itoa1(*(unsigned*)p);
     else if( !strcmp(type, "float") ) return ftoa1(*(float*)p);
     else if( !strcmp(type, "double") ) return ftoa1(*(double*)p);
-    else if( !strcmp(type, "uintptr_t") ) return va("%08llx", *(uintptr_t*)p);
+    else if( !strcmp(type, "uintptr_t") ) return va("%p", (void*)*(uintptr_t*)p);
     else if( !strcmp(type, "vec2i") ) return itoa2(*(vec2i*)p);
     else if( !strcmp(type, "vec3i") ) return itoa3(*(vec3i*)p);
     else if( !strcmp(type, "vec2") ) return ftoa2(*(vec2*)p);
@@ -30394,7 +30399,7 @@ void editor_frame( void (*game)(unsigned, float, double) ) {
         UI_MENU_ITEM(ICON_SKIP, editor_send(window_has_pause() ? "frame" : "slomo")) \
         UI_MENU_ITEM(ICON_MDI_STOP, editor_send("stop")) \
         UI_MENU_ITEM(ICON_MDI_EJECT, editor_send("eject")) \
-        UI_MENU_ITEM(STATS, stats_mode = (++stats_mode) % 3) \
+        UI_MENU_ITEM(STATS, stats_mode = (stats_mode+1) % 3) \
         UI_MENU_ALIGN_RIGHT(32+32+32+32+32+32+32 + 32*2*is_borderless + 10, clicked_titlebar = time_ms()) \
         if(ingame) ui_disable(); \
         UI_MENU_ITEM(ICON_MD_FOLDER_SPECIAL, editor_send("browser")) \

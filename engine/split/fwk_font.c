@@ -1591,8 +1591,8 @@ void font_color(const char *tag, uint32_t color) {
             font_t *f = &fonts[i];
             if( f->initialized ) {
                 glActiveTexture(GL_TEXTURE2);
-                glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-                glTexSubImage1D(GL_TEXTURE_1D, 0, 0, FONT_MAX_COLORS, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
+                glBindTexture(GL_TEXTURE_2D, f->texture_colors);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, FONT_MAX_COLORS, 1, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
             }
         }
     }
@@ -1879,11 +1879,11 @@ void font_face_from_mem(const char *tag, const void *ttf_data, unsigned ttf_len,
     // setup color texture
     glGenTextures(1, &f->texture_colors);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, f->texture_colors);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, FONT_MAX_COLORS, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glBindTexture(GL_TEXTURE_2D, f->texture_colors);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FONT_MAX_COLORS, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, font_palette);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 
     // upload constant uniforms
     glUseProgram(f->program);
@@ -1942,7 +1942,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, f->texture_offsets);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, f->texture_colors);
+    glBindTexture(GL_TEXTURE_2D, f->texture_colors);
 
     // update bindings
     glBindVertexArray(f->vao);
@@ -1975,7 +1975,7 @@ void font_draw_cmd(font_t *f, const float *glyph_data, int glyph_idx, float fact
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, last_texture1);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_1D, last_texture2);
+    glBindTexture(GL_TEXTURE_2D, last_texture2);
 
     glBindVertexArray(last_vertex_array);
 }

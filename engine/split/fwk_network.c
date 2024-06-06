@@ -10,7 +10,7 @@ int download_file( FILE *out, const char *url ) {
     DWORD response_size = 0;
 
     if( out )
-    for( HINTERNET session = InternetOpenA("fwk.download_file", PRE_CONFIG_INTERNET_ACCESS, NULL, INTERNET_INVALID_PORT_NUMBER, 0); session; InternetCloseHandle(session), session = 0 )
+    for( HINTERNET session = InternetOpenA("fwk.download_file", PRE_CONFIG_INTERNET_ACCESS, NULL, INTERNET_INVALID_PORT_NUMBER, 0); session; InternetCloseHandle(session), session = 0 ) // @fixme: download_file
     for( HINTERNET request = InternetOpenUrlA(session, url, NULL, 0, INTERNET_FLAG_RELOAD, 0); request; InternetCloseHandle(request), request = 0 )
     for(; InternetReadFile(request, buffer, sizeof(buffer), &response_size) != FALSE && response_size > 0; ) {
         ok = (fwrite(buffer, response_size, 1, out) == 1);

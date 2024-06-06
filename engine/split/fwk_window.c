@@ -734,7 +734,7 @@ void window_loop(void (*user_function)(void* loopArg), void* loopArg ) {
 #else
     g->keep_running = true;
     while (g->keep_running)
-        user_function(loopArg);
+        window_swap(), user_function(loopArg);
 #endif /* __EMSCRIPTEN__ */
 }
 

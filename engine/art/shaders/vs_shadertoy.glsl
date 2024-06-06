@@ -1,4 +1,4 @@
-#version 130
+//version 130
 
 uniform vec2 iResolution; // viewport resolution (in pixels)
 out vec2 texCoord;

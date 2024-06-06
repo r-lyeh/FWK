@@ -111,7 +111,7 @@ void DrawModel(mesh_t *m) {
     static mat44 VP; multiply44x2(VP, camera_get_active()->proj, camera_get_active()->view);
 
     static const char *vs =
-    "#version 130\n"
+    "//version 130\n"
     "//" FILELINE "\n"
     "uniform mat4 M,VP;\n"
     "in vec3 att_position;\n"
@@ -122,7 +122,7 @@ void DrawModel(mesh_t *m) {
     "   gl_Position = M * VP * vec4( att_position, 1.0 );\n"
     "}\n";
     static const char *fs =
-    "#version 130\n"
+    "//version 130\n"
     "//" FILELINE "\n"
     "in vec3 v_normal;\n"
     "out vec4 fragcolor;\n"

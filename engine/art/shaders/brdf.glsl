@@ -1,4 +1,3 @@
-#version 400
 const float PI = 3.1415926536;
 
 in vec2 uv;

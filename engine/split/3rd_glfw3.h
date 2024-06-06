@@ -26034,8 +26034,9 @@ GLFWAPI RROutput glfwGetX11Monitor(GLFWmonitor* handle)
 // It is fine to use C99 in this file because it will not be built with VS
 //========================================================================
 
+#ifndef _GNU_SOURCE //< @r-lyeh: add missing guard
 #define _GNU_SOURCE
-
+#endif
 
 
 

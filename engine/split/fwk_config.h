@@ -301,7 +301,7 @@
     static void fn(void)
 #elif defined __TINYC__ // tcc...
 #define AUTORUN_(fn) \
-    __attribute__((constructor)) \
+    __attribute((constructor)) \
     static void fn(void)
 #else // gcc,clang,clang-cl...
 #define AUTORUN_(fn) \

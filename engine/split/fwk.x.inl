@@ -127,6 +127,9 @@ errno_t fopen_s(
 #undef G
 //---
 #if !is(ems)
+#ifdef I
+#undef I // complex.h
+#endif
 #define LUAFFI_C
 {{FILE:3rd_luaffi.h}}
 #endif
@@ -161,6 +164,9 @@ static char *ui_filter = 0;
 {{FILE:3rd_plmpeg.h}}
 {{FILE:3rd_jo_mpeg.h}}
 //#define _RTL_RUN_ONCE _RTL_RUN_ONCE2 // __MINGW64__
+#ifdef I
+#undef I // complex.h
+#endif
 {{FILE:3rd_https.h}}
 #undef F2
 #undef F3

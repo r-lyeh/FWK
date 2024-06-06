@@ -613,7 +613,7 @@ void editor_frame( void (*game)(unsigned, float, double) ) {
         UI_MENU_ITEM(ICON_SKIP, editor_send(window_has_pause() ? "frame" : "slomo")) \
         UI_MENU_ITEM(ICON_MDI_STOP, editor_send("stop")) \
         UI_MENU_ITEM(ICON_MDI_EJECT, editor_send("eject")) \
-        UI_MENU_ITEM(STATS, stats_mode = (++stats_mode) % 3) \
+        UI_MENU_ITEM(STATS, stats_mode = (stats_mode+1) % 3) \
         UI_MENU_ALIGN_RIGHT(32+32+32+32+32+32+32 + 32*2*is_borderless + 10, clicked_titlebar = time_ms()) \
         if(ingame) ui_disable(); \
         UI_MENU_ITEM(ICON_MD_FOLDER_SPECIAL, editor_send("browser")) \

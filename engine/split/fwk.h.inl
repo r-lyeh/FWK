@@ -88,6 +88,10 @@
 #ifndef FWK_H
 #define FWK_H
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -184,6 +188,12 @@ extern "C" {
     #ifndef GLAD_GL_H_
     #include "fwk"
     #endif
+#endif
+
+#if defined __TINYC__ && defined __linux
+#ifndef __builtin_alloca
+#define __builtin_alloca alloca
+#endif
 #endif
 
 #endif // FWK_H

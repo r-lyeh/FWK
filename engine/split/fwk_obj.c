@@ -466,7 +466,7 @@ void *obj_setmeta(void *o, const char *key, const char *value) {
     void *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
-        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        int *q = map_find_or_add(oms, intern(va("%p-%s",(void*)obj_id((obj*)o),key)), 0);
         if(!*q && !value[0]) {} else *q = intern(value);
         quark(*q), ret = o;
     }
@@ -476,7 +476,7 @@ const char* obj_meta(const void *o, const char *key) {
     const char *ret = 0;
     do_threadlock(oms_lock) {
         if(!oms) map_init_int(oms);
-        int *q = map_find_or_add(oms, intern(va("%llu-%s",obj_id((obj*)o),key)), 0);
+        int *q = map_find_or_add(oms, intern(va("%p-%s",(void*)obj_id((obj*)o),key)), 0);
         ret = quark(*q);
     }
     return ret;
@@ -582,10 +582,10 @@ void test_obj_exact(void *o1, void *o2) {
 bool obj_hexdump(const void *oo) {
     const obj *o = (const obj *)oo;
     int header = 1 * sizeof(obj);
-    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %llx\n",
+    printf("; name[%s] type[%s] id[%d..%d] unused[%08x] sizeof[%02d] %p\n",
         obj_name(o), obj_type(o),
         (int)o->objid>>16, (int)o->objid&0xffff, (int)o->objunused,
-        obj_sizeof(o), o->objheader);
+        obj_sizeof(o), (void*)o->objheader);
     return hexdump(obj_datac(o) - header, obj_size(o) + header), 1;
 }
 int obj_print(const void *o) {
@@ -633,7 +633,7 @@ const char *p2s(const char *type, void *p) {
     else if( !strcmp(type, "unsigned") ) return itoa1(*(unsigned*)p);
     else if( !strcmp(type, "float") ) return ftoa1(*(float*)p);
     else if( !strcmp(type, "double") ) return ftoa1(*(double*)p);
-    else if( !strcmp(type, "uintptr_t") ) return va("%08llx", *(uintptr_t*)p);
+    else if( !strcmp(type, "uintptr_t") ) return va("%p", (void*)*(uintptr_t*)p);
     else if( !strcmp(type, "vec2i") ) return itoa2(*(vec2i*)p);
     else if( !strcmp(type, "vec3i") ) return itoa3(*(vec3i*)p);
     else if( !strcmp(type, "vec2") ) return ftoa2(*(vec2*)p);

@@ -2194,7 +2194,7 @@ int ui_unsigned2(const char *label, unsigned *v) {
     ui_label_(label, NK_TEXT_LEFT);
 
     char *buffer = ui_num_signs ?
-        --ui_num_signs, va("%+2u %+2u", v[0], v[1]) :
+        --ui_num_signs, va("+%2u +%2u", v[0], v[1]) :
         va("%2u, %2u", v[0], v[1]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
@@ -2213,7 +2213,7 @@ int ui_unsigned3(const char *label, unsigned *v) {
     ui_label_(label, NK_TEXT_LEFT);
 
     char *buffer = ui_num_signs ?
-        --ui_num_signs, va("%+2u %+2u %+2u", v[0], v[1], v[2]) :
+        --ui_num_signs, va("+%2u +%2u +%2u", v[0], v[1], v[2]) :
         va("%2u, %2u, %2u", v[0], v[1], v[2]);
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
