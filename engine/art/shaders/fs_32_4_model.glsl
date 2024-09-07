@@ -1,26 +1,27 @@
-#version 400
+//version 400
+
 uniform mat4 model, view;
 uniform sampler2D u_texture2d;
 uniform vec3 u_coefficients_sh[9];
-uniform bool u_textured = true;
-uniform bool u_lit = false;
-uniform bool u_matcaps = false;
-uniform vec4 u_diffuse = vec4(1.0,1.0,1.0,1.0);
+uniform bool u_textured; /// set:1
+uniform bool u_lit; /// set:0
+uniform bool u_matcaps; /// set:0
+uniform vec4 u_diffuse; /// set:1,1,1,1
 
 // lightmapping
 uniform sampler2D u_lightmap;
 uniform bool u_texlit;
-uniform bool u_texmod = true;
-uniform float u_litboost = 1.0;
+uniform bool u_texmod; /// set:1
+uniform float u_litboost; /// set:1
 
 in vec3 v_position;
 in vec3 v_position_ws;
 #ifdef RIM
 uniform mat4 M; // RIM
-uniform vec3 u_rimcolor = vec3(0.05,0.05,0.05);
-uniform vec3 u_rimrange = vec3(0.11,0.98,0.5);
-uniform vec3 u_rimpivot = vec3(0,0,0);
-uniform bool u_rimambient = true;
+uniform vec3 u_rimcolor; /// set:0.05,0.05,0.05
+uniform vec3 u_rimrange; /// set:0.11,0.98,0.5
+uniform vec3 u_rimpivot; /// set:0,0,0
+uniform bool u_rimambient; /// set:1
 #endif
 in vec3 v_normal, v_normal_ws;
 in vec2 v_texcoord, v_texcoord2;
@@ -109,7 +110,7 @@ vec3 shading_phong(light_t l) {
 #endif
 
 #ifdef SHADING_PBR
-uniform vec2 resolution = vec2(640.0,480.0);    // debug options below use this (USE_MAP_DEBUGGING, USE_AMBIENT_DEBUGGING)
+uniform vec2 resolution; /// set:640,480        // debug options below use this (USE_MAP_DEBUGGING, USE_AMBIENT_DEBUGGING)
 
 #define USE_BRUTEFORCE_IRRADIANCE false         // Samples irradiance from tex_skysphere when enabled.
 #define USE_WRAPAROUND_SPECULAR true            // Makes silhouettes more reflective to avoid black pixels.
@@ -140,9 +141,9 @@ uniform ColorMap map_emissive;  uniform sampler2D map_emissive_tex;
 #define sample_colormap(ColorMap_, uv_) \
     (ColorMap_.has_tex ? texture( ColorMap_##_tex, uv_ ) : ColorMap_.color)
 
-uniform float skysphere_rotation=0;
+uniform float skysphere_rotation; /// set:0
 uniform float skysphere_mip_count;
-uniform float exposure=1;
+uniform float exposure; /// set:1
 uniform uint frame_count;
 uniform float specular_shininess;
 

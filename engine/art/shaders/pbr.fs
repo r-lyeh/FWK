@@ -1,10 +1,10 @@
-#version 400
+//version 400
 
 // original PBR shader by @seece (Public Domain). link: https://github.com/Gargaj/Foxotron/pull/12
 
-//#define textureQueryLod(t,c) vec2(0.0,0.0)    // #version 400 required
+//#define textureQueryLod(t,c) vec2(0.0,0.0)    // version 400 required
 
-uniform vec2 resolution = vec2(640.0,480.0);    // debug options below use this (USE_MAP_DEBUGGING, USE_AMBIENT_DEBUGGING)
+uniform vec2 resolution; /// set:640,480        // debug options below use this (USE_MAP_DEBUGGING, USE_AMBIENT_DEBUGGING)
 
 #define USE_BRUTEFORCE_IRRADIANCE false         // Samples irradiance from tex_skysphere when enabled.
 #define USE_WRAPAROUND_SPECULAR true            // Makes silhouettes more reflective to avoid black pixels.

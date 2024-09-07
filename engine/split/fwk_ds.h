@@ -391,7 +391,7 @@ API void  (set_clear)(set* m);
 // aliases:
 
 #ifndef map_init_int
-#define map_init_int(m)     map_init((m), less_int, hash_64) // hash_int
+#define map_init_int(m)     map_init((m), less_int, hash_int) // hash_64
 #define map_init_str(m)     map_init((m), less_str, hash_str)
 #define map_init_ptr(m)     map_init((m), less_ptr, hash_ptr)
 #endif

@@ -274,13 +274,22 @@ static inline
 char *shader_preprocess(const char *src, const char *defines) {
     if (!src) return NULL;
 
-    const char *glsl_version = va("#version %s", ifdef(ems, "300 es", "150"));
+    const char *gles = "#version 300 es\n"
+                       "#define textureQueryLod(t,uv) vec2(0.,0.)\n" // "#extension GL_EXT_texture_query_lod : enable\n"
+                       "#define MEDIUMP mediump\n"
+                       "precision MEDIUMP float;\n";
+    const char *desktop = strstr(src, "textureQueryLod") ? "#version 400\n#define MEDIUMP\n" : "#version 330\n#define MEDIUMP\n";
+    const char *glsl_version = ifdef(ems, gles, desktop);
 
     // detect GLSL version if set
     if (src[0] == '#' && src[1] == 'v') {
+        #if 0
         const char *end = strstri(src, "\n");
         glsl_version = va("%.*s", (int)(end-src), src);
         src = end+1;
+        #else
+        PANIC("!ERROR: shader with #version specified on it. we do not support this anymore.");
+        #endif
     }
 
     return va("%s\n%s\n%s", glsl_version, defines ? defines : "", src);
@@ -300,16 +309,6 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
     gs = shader_preprocess(gs, glsl_defines);
     vs = shader_preprocess(vs, glsl_defines);
     fs = shader_preprocess(fs, glsl_defines);
-
-#if is(ems)
-    {
-        char *vs_ = REALLOC( 0, strlen(vs) + 512 ); strcpy(vs_, vs);
-        char *fs_ = REALLOC( 0, strlen(fs) + 512 ); strcpy(fs_, fs);
-        char *gs_ = 0; if (gs) REALLOC( 0, strlen(gs) + 512 ); strcpy(gs_, gs);
-        strrepl(&fs_, "#version 300 es\n", "#version 300 es\nprecision mediump float;\n");
-        vs = vs_; fs = fs_; gs = gs_;
-    }
-#endif
 
     GLuint vert = shader_compile(GL_VERTEX_SHADER, vs);
     GLuint frag = shader_compile(GL_FRAGMENT_SHADER, fs);
@@ -721,7 +720,6 @@ static inline void shader_cubemap_(int sampler, unsigned texture) {
 static inline void shader_bool_(int uniform, bool x) { glUniform1i(uniform, x); }
 static inline void shader_uint_(int uniform, unsigned x ) { glUniform1ui(uniform, x); }
 static inline void shader_texture_unit_(int sampler, unsigned id, unsigned unit) {
-    // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(sampler, unit);
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_2D, id);
@@ -746,7 +744,6 @@ void shader_bool(const char *uniform, bool x) { glUniform1i(shader_uniform(unifo
 void shader_uint(const char *uniform, unsigned x ) { glUniform1ui(shader_uniform(uniform), x); }
 void shader_texture(const char *sampler, texture_t t) { shader_texture_unit(sampler, t.id, texture_unit()); }
 void shader_texture_unit(const char *sampler, unsigned id, unsigned unit) {
-    // @todo. if tex.h == 1 ? GL_TEXTURE_1D : GL_TEXTURE_2D
     glUniform1i(shader_uniform(sampler), unit);
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_2D, id);

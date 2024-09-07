@@ -1,6 +1,6 @@
 //  uniform mat4 view = mat4(1.0);
-uniform vec3 lightPos = vec3(1.0);
-uniform float doTexture = 1.;
+uniform vec3 lightPos; /// set:1,1,1
+uniform float doTexture; /// set:1
 #ifdef VSMCUBE
 uniform samplerCube shadowMap; // VSMCUBE
 #else
@@ -16,7 +16,7 @@ struct light {
     };
     
     light light0 = light(
-    lightPos,
+    vec3(1,1,1),   // lightPos
     vec4(1,1,1,1), // diffuse
     vec4(1,1,1,1), // specular
     1.0, 0.0, 0.0  // attenuation (const, linear, quad)

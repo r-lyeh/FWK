@@ -33,10 +33,30 @@ fi
 # shortcuts for split & join scripts
 if [ "$1" = "split" ]; then
     sh tools/split.bat
+    sh MAKE.bat joint
     exit
 fi
 if [ "$1" = "join" ]; then
     sh tools/join.bat
+    sh MAKE.bat joint
+    exit
+fi
+if [ "$1" = "joint" ]; then
+    echo // This file is intended to be consumed by a compiler. Do not read.  > engine/joint/fwk.h
+    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine/joint/fwk.h
+    echo // ---------------------------------------------------------------- >> engine/joint/fwk.h
+    echo // \#define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine/joint/fwk.h
+    echo // implementation. The symbol must be defined in a C \(not C++\) file>> engine/joint/fwk.h
+    echo // ---------------------------------------------------------------- >> engine/joint/fwk.h
+    echo \#pragma once                                                       >> engine/joint/fwk.h
+     cat engine/split/3rd_icon_md.h                                          >> engine/joint/fwk.h
+     cat engine/split/3rd_glad.h                                             >> engine/joint/fwk.h
+     cat engine/fwk.h                                                        >> engine/joint/fwk.h
+    echo \#ifdef FWK_IMPLEMENTATION                                          >> engine/joint/fwk.h
+    echo \#define FWK_3RD                                                    >> engine/joint/fwk.h
+     cat engine/fwk                                                          >> engine/joint/fwk.h
+     cat engine/fwk.c                                                        >> engine/joint/fwk.h
+    echo \#endif // FWK_IMPLEMENTATION                                       >> engine/joint/fwk.h
     exit
 fi
 # cook
@@ -125,7 +145,7 @@ done
 if [ "$(uname)" != "Darwin" ]; then
 
     # setup (ArchLinux)
-    [ ! -f ".setup" ] && sudo pacman -S --noconfirm tcc && echo>.setup
+    [ ! -f ".setup" ] && sudo pacman -Sy && sudo pacman -Sy --noconfirm tcc gcc && echo>.setup
     # setup (Debian, Ubuntu, etc)
     [ ! -f ".setup" ] && sudo apt-get -y update
     [ ! -f ".setup" ] && sudo apt-get -y install tcc libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev && echo>.setup       # absolute minimum
@@ -381,22 +401,21 @@ if "%1"=="test" (
 
 rem generate single-header distribution
 if "%1"=="joint" (
-    echo // This file is intended to be consumed by a compiler. Do not read.  > fwk.h
-    echo // **Browse to any of the sources in engine/split/ folder instead** >> fwk.h
-    echo // ---------------------------------------------------------------- >> fwk.h
-    echo // #define FWK_IMPLEMENTATION early in **one** C file to unroll the >> fwk.h
-    echo // implementation. The symbol must be defined in a C (not C++^) file>> fwk.h
-    echo // ---------------------------------------------------------------- >> fwk.h
-    echo #pragma once                                                        >> fwk.h
-    type engine\split\3rd_icon_md.h                                          >> fwk.h
-    type engine\split\3rd_glad.h                                             >> fwk.h
-    type engine\fwk.h                                                        >> fwk.h
-    echo #ifdef FWK_IMPLEMENTATION                                           >> fwk.h
-    echo #define FWK_3RD                                                     >> fwk.h
-    type engine\fwk                                                          >> fwk.h
-    type engine\fwk.c                                                        >> fwk.h
-    echo #endif // FWK_IMPLEMENTATION                                        >> fwk.h
-    move /y fwk.h engine\joint
+    echo // This file is intended to be consumed by a compiler. Do not read.  > engine\joint\fwk.h
+    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine\joint\fwk.h
+    echo // ---------------------------------------------------------------- >> engine\joint\fwk.h
+    echo // #define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine\joint\fwk.h
+    echo // implementation. The symbol must be defined in a C (not C++^) file>> engine\joint\fwk.h
+    echo // ---------------------------------------------------------------- >> engine\joint\fwk.h
+    echo #pragma once                                                        >> engine\joint\fwk.h
+    type engine\split\3rd_icon_md.h                                          >> engine\joint\fwk.h
+    type engine\split\3rd_glad.h                                             >> engine\joint\fwk.h
+    type engine\fwk.h                                                        >> engine\joint\fwk.h
+    echo #ifdef FWK_IMPLEMENTATION                                           >> engine\joint\fwk.h
+    echo #define FWK_3RD                                                     >> engine\joint\fwk.h
+    type engine\fwk                                                          >> engine\joint\fwk.h
+    type engine\fwk.c                                                        >> engine\joint\fwk.h
+    echo #endif // FWK_IMPLEMENTATION                                        >> engine\joint\fwk.h
     exit /b
 )
 

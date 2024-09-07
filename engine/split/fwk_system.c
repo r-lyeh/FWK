@@ -243,20 +243,27 @@ static char **backtrace_symbols(void *const *sym,int num) { return 0; }
 #endif
 
 char *callstack( int traces ) {
-    static __thread char *output = 0;
-    if(!output ) output = SYS_MEM_REALLOC( 0, 128 * (64+2) );
-    if( output ) output[0] = '\0';
-    char *ptr = output;
+#if is(tcc) && is(linux)
+    return "";
+#endif
+#if is(ems) // there is a stack overflow failure somewhere in the impl below
+    static char empty[1]; return empty[0] = '\0', empty;
+#endif
 
     enum { skip = 1 }; /* exclude 1 trace from stack (this function) */
-    enum { maxtraces = 128 };
+    enum { maxtraces = 96 };
+
+    static __thread char *output = 0;
+    if(!output ) output = SYS_MEM_REALLOC( 0, maxtraces * (128+2) );
+    if( output ) output[0] = '\0';
+    char *ptr = output;
 
     int inc = 1;
     if( traces < 0 ) traces = -traces, inc = -1;
     if( traces == 0 ) return "";
     if( traces > maxtraces ) traces = maxtraces;
 
-    void* stacks[maxtraces/* + 1*/]; // = { 0 };
+    void* stacks[maxtraces + 1]; stacks[maxtraces] = NULL; // = { 0 };
     traces = backtrace( stacks, traces );
     char **symbols = backtrace_symbols( stacks, traces ); // @todo: optimization: map(void*,char*) cache; and retrieve only symbols not in cache
 
@@ -288,10 +295,11 @@ char *callstack( int traces ) {
                  ifdef(cpp, __cxa_demangle(info.dli_sname, NULL, 0, NULL), info.dli_sname);
             strcpy( demangled, dmgbuf ? dmgbuf : info.dli_sname );
             symbols[i] = demangled;
-            if( dmgbuf ) free( (void*)dmgbuf );
+            ifdef(cpp, dmgbuf && free( (void*)dmgbuf ) );
         }
 #endif
-        ptr += sprintf(ptr, "%03d: %#016llx %s\n", ++L, (unsigned long long)(uintptr_t)stacks[i], symbols[i]); // format gymnastics because %p is not standard when printing pointers
+        if( symbols[i] )
+        ptr += sprintf(ptr, "%03d: %p %s\n", ++L, (void*)(uintptr_t)stacks[i], symbols[i]); // format gymnastics because %p is not standard when printing pointers
     }
 
 #if is(linux) || is(osx)

@@ -9,14 +9,15 @@
 - [x] No gamepads (fixed)
 - [x] No multi-touch (fixed)
 - [x] No threads (fixed)
+- [x] No glTexture1D()
+- [x] Shaders: `uniform float var = 1.0f; // ERROR: 'uniform' :  cannot initialize this type of qualifier`
+- [ ] Shaders: `vec2 iResolution = vec2(iWidth, iHeight); // ERROR: '=' : global variable initializers must be constant expressions`
 - [ ] Scaling artifacts on high DPI + fullscreen combo (via FS button only)
 - [ ] No audio
+- [ ] No callstacks
 - [ ] No file writing (untested)
-- [ ] No glTexture1D()
 - [ ] No network
 - [ ] No fbos
-- [ ] No callstacks
 - [ ] No pbos
-- [ ] Shaders require (automated?) GL->GLES translation (No postfxs, models, skyboxes, pbrs, ...) (@todo: embed Spir-v/glslcross tools?)
-- [ ] Shaders: `vec2 iResolution = vec2(iWidth, iHeight); // ERROR: '=' : global variable initializers must be constant expressions`
-- [ ] Shaders: `uniform float var = 1.0f; // ERROR: 'uniform' :  cannot initialize this type of qualifier`
+- [ ] No postfxs
+- [ ] Shaders require (automated?) GL->GLES translation (pbrs, ...) (@todo: embed Spir-v/glslcross tools?)

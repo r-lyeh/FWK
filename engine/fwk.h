@@ -88,6 +88,10 @@
 #ifndef FWK_H
 #define FWK_H
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -399,7 +403,7 @@ extern "C" {
     static void fn(void)
 #elif defined __TINYC__ // tcc...
 #define AUTORUN_(fn) \
-    __attribute__((constructor)) \
+    __attribute((constructor)) \
     static void fn(void)
 #else // gcc,clang,clang-cl...
 #define AUTORUN_(fn) \
@@ -907,7 +911,7 @@ API void  (set_clear)(set* m);
 // aliases:
 
 #ifndef map_init_int
-#define map_init_int(m)     map_init((m), less_int, hash_64) // hash_int
+#define map_init_int(m)     map_init((m), less_int, hash_int) // hash_64
 #define map_init_str(m)     map_init((m), less_str, hash_str)
 #define map_init_ptr(m)     map_init((m), less_ptr, hash_ptr)
 #endif
@@ -4938,6 +4942,12 @@ API int    ui_engine();
     #ifndef GLAD_GL_H_
     #include "fwk"
     #endif
+#endif
+
+#if defined __TINYC__ && defined __linux
+#ifndef __builtin_alloca
+#define __builtin_alloca alloca
+#endif
 #endif
 
 #endif // FWK_H

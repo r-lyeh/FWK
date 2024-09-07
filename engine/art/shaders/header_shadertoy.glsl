@@ -1,4 +1,4 @@
-#version 130
+//version 130
 #define texture2D texture
 uniform float      iGlobalTime;           // shader playback time (in seconds)
 uniform float      iGlobalDelta;          // ??
