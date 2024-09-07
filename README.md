@@ -46,7 +46,11 @@
 - [x] Audio: WAV/FLAC, OGG/MP1/MP3, FUR, MOD/XM/S3M/IT, SFXR and MID+SF2/SF3.
 - [x] Video: MP4, MPG, OGV, MKV, WMV and AVI. Also, MP4 recording with MPEG-1 fallback.
 - [x] Model: IQM/E, GLTF/2, GLB, FBX, OBJ, DAE, BLEND, MD3/5, MS3D, SMD, X, 3DS, BVH, DXF, LWO.
-- [x] Render: PBR (metallic-roughness) workflow. <!-- @todo: merge demo_pbr.c rendering code into fwk_render.c -->
+- [x] Render: Renderstate driven rendering.
+- [x] Render: Global frustum culling and scene mesh render sorting.
+- [x] Render: Light probes. Environmental probe generation.
+- [x] Render: PBR (metallic-roughness) workflow. <!-- @todo: merge demo_pbr.c rendering code into v4k_render.c -->
+- [x] Render: Soft shadows, Cascaded shadowmaps, Variance shadowmaps.
 - [x] Render: Cubemaps, panoramas and spherical harmonics. Rayleigh/Mie scattering.
 - [x] Render: Post-effects (SSAO,FXAA1/3,CRT,Contrast,Grain,Outline,Vignette...).
 - [x] Render: 3D Anims, skeletal anims, hardware skinning and instanced rendering.

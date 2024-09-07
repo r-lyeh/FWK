@@ -111,13 +111,13 @@ void move_players() {
     do_once
         player[0] = (struct player_t)
             { "PLAYER-1", model("kgirls01.fbx", 0), loop(0,60,0.25,0), loop(66,85,0.25,0), // idle anim [0..60], run anim [66..85]
-                {KEY_UP,KEY_DOWN,KEY_LEFT,KEY_RIGHT}, 2, {0.90,0.80}, {-100}, {3, 0.30, 30}, {0}, {1} },
+                {KEY_UP,KEY_DOWN,KEY_LEFT,KEY_RIGHT}, 2, {0.90,0.80}, {0,90,-90}, {3, 0.30, 30}, {0}, {1} },
         player[1] = (struct player_t)
             { "PLAYER-2", model("george.fbx", 0), loop(0,100,0.25,0), loop(372,396,0.25,0), // idle anim [0..100], run anim [372..396]
-                {KEY_I,KEY_K,KEY_J,KEY_L}, 1, {0.95,0.90}, {-90,-90}, {1.75, 0.25, 24}, {-5}, {1} },
+                {KEY_I,KEY_K,KEY_J,KEY_L}, 1, {0.95,0.90}, {0,90}, {1.75, 0.25, 24}, {-5}, {1} },
         player[2] = (struct player_t)
             { "PLAYER-3", model("alien.fbx", 0), loop(110,208,0.25,0), loop(360,380,0.25,0), // idle anim [110..208], run anim [360..380]
-                {KEY_W,KEY_S,KEY_A,KEY_D}, 0.85, {0.85,0.75}, {-90,-90}, {3.5, 0.35, 60}, {5}, {1} };
+                {KEY_W,KEY_S,KEY_A,KEY_D}, 0.85, {0.85,0.75}, {0,90}, {3.5, 0.35, 60}, {5}, {1} };
 
     static camera_t cam; do_once cam = camera();
     static skybox_t sky; do_once sky = skybox("cubemaps/stardust", 0);
@@ -224,8 +224,8 @@ void move_players() {
         model_animate_blends(p->mdl, primary, secondary, window_delta() * p->speed.z);
 
         // render model. transforms on top of initial pivot and scale
-        mat44 M; compose44(M, p->pos, eulerq(add3(p->pivot,vec3(atan2(p->dir.z,p->dir.x)*180/C_PI,0,0))),vec3(p->scale,p->scale,p->scale));
-        model_render(p->mdl, cam.proj, cam.view, M, 0);
+        mat44 M; compose44(M, p->pos, eulerq(add3(p->pivot,vec3(0,-atan2(p->dir.z,p->dir.x)*180/C_PI,0))),vec3(p->scale,p->scale,p->scale));
+        model_render(p->mdl, cam.proj, cam.view, M);
 
         // ui
         if( yaw||fwd ) if( !p->notified ) p->notified = 1, ui_notify(0, va(ICON_MD_GAMEPAD " %s joined the game.", p->name));

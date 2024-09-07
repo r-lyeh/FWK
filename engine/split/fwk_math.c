@@ -78,6 +78,19 @@ float simplex4( vec4 v ) { return snoise4(v.x,v.y,v.z,v.w); }
 float deg      (float radians)      { return radians / C_PI * 180.0f; }
 float rad      (float degrees)      { return degrees * C_PI / 180.0f; }
 
+float cycle180 (float angle) {
+    angle = fmod(angle, 360.0f);
+    if (angle > 180.0f) angle -= 360.0f;
+    if (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+float cycle360 (float angle) {
+    angle = fmod(angle, 360.0f);
+    if (angle < 0.0f) angle += 360.0f;
+    return angle;
+}
+
 int   mini     (int    a, int    b) { return a < b ? a : b; }
 int   maxi     (int    a, int    b) { return a > b ? a : b; }
 int   absi     (int    a          ) { return a < 0 ? -a : a; }
@@ -226,7 +239,7 @@ vec4 clamp4f(vec4 v,float a,float b){ return vec4(maxf(minf(b,v.x),a),maxf(minf(
 
 // ----------------------------------------------------------------------------
 
-quat  idq      (                  ) { return quat(1,0,0,0); } // 0,0,0,1?
+quat  idq      (                  ) { return quat(0,0,0,1); }
 quat  ptrq     (const float *a    ) { return quat(a[0],a[1],a[2],a[3]); }
 quat  vec3q    (vec3   a, float w ) { return quat(a.x,a.y,a.z,w); }
 quat  vec4q    (vec4   a          ) { return quat(a.x,a.y,a.z,a.w); }
@@ -292,27 +305,20 @@ vec3 rotate3q(vec3 v, quat r) { // rotate vec3 by quat @testme
 }
 
 // euler <-> quat
-vec3  euler    (quat q) { // bugs? returns PitchYawRoll (PYR) in degrees. ref: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
-    float sr_cp = 2*(q.x*q.y + q.z*q.w), cr_cp = 1-2*(q.y*q.y + q.z*q.z);
-    float sy_cp = 2*(q.x*q.w + q.y*q.z), cy_cp = 1-2*(q.z*q.z + q.w*q.w), sp = 2*(q.x*q.z-q.w*q.y);
-    float p = fabs(sp) >= 1 ? copysignf(C_PI / 2, sp) : asinf(sp);
-    float y = atan2f(sy_cp, cy_cp);
-    float r = atan2f(sr_cp, cr_cp);
-    return scale3(vec3(p, y, r), TO_DEG);
+vec3  euler    (quat q) { // returns YawPitchRoll (YPR) in degrees. ref: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    float sr_cy = 2*(q.z*q.w + q.x*q.y), cr_cy = 1-2*(q.y*q.y + q.z*q.z);
+    float sp_cy = 2*(q.y*q.w - q.x*q.z), cp_cy = 1-2*(q.z*q.z + q.w*q.w), sy = 2*(q.x*q.w+q.y*q.z);
+    float y = fabs(sy) >= 1 ? copysignf(C_PI / 2, sy) : asinf(sy);
+    float p = atan2f(sp_cy, cp_cy);
+    float r = atan2f(sr_cy, cr_cy);
+    return scale3(vec3(y, p, r), TO_DEG);
 }
 
-quat  eulerq   (vec3 pyr_degrees) { // bugs?
-#if 0
-    quat x = vec3q(vec3(1,0,0),rad(pyr_degrees.x)); // x, not pitch
-    quat y = vec3q(vec3(0,1,0),rad(pyr_degrees.y)); // y, not yaw
-    quat z = vec3q(vec3(0,0,1),rad(pyr_degrees.z)); // z, not row
-    return normq(mulq(mulq(x, y), z));
-#else
+quat  eulerq   (vec3 pyr_degrees) {
     float p = rad(pyr_degrees.x), y = rad(pyr_degrees.y), r = rad(pyr_degrees.z);
-    float ha = p * 0.5f, hb = r * 0.5f, hc = y * 0.5f;
+    float ha = y * 0.5f, hb = r * 0.5f, hc = p * 0.5f;
     float cp = cosf(ha), sp = sinf(ha), cr = cosf(hb), sr = sinf(hb), cy = cosf(hc), sy = sinf(hc);
-    return quat(cy*cr*cp + sy*sr*sp, cy*sr*cp - sy*cr*sp, cy*cr*sp + sy*sr*cp, sy*cr*cp - cy*sr*sp);
-#endif
+    return quat(cy*sr*cp - sy*cr*sp, cy*cr*sp + sy*sr*cp, sy*cr*cp - cy*sr*sp, cy*cr*cp + sy*sr*sp);
 }
 
 // ----------------------------------------------------------------------------
@@ -521,6 +527,20 @@ void lookat44(mat44 m, vec3 eye, vec3 center, vec3 up) {
     m[ 4] = r.y;           m[ 5] = u.y;           m[ 6] = -f.y;         m[ 7] = 0;
     m[ 8] = r.z;           m[ 9] = u.z;           m[10] = -f.z;         m[11] = 0;
     m[12] = -dot3(r, eye); m[13] = -dot3(u, eye); m[14] = dot3(f, eye); m[15] = 1;
+}
+vec3 pos44(mat44 m) {
+    vec3 position;
+    
+    // The camera position is the negation of the translation vector
+    // transformed by the inverse of the rotation matrix.
+    // Since the upper-left 3x3 part of the view matrix is orthogonal,
+    // its inverse is equal to its transpose.
+    
+    position.x = -(m[0] * m[12] + m[1] * m[13] + m[2] * m[14]);
+    position.y = -(m[4] * m[12] + m[5] * m[13] + m[6] * m[14]);
+    position.z = -(m[8] * m[12] + m[9] * m[13] + m[10] * m[14]);
+    
+    return position;
 }
 // ---
 void translation44(mat44 m, float x, float y, float z) { // identity4 + translate4

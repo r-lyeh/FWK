@@ -1,6 +1,6 @@
 // [ref] https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html
 
-uniform int colorblind_mode; /// set:2 min:0 max:4 tip:"off, achromatopsia, protanomaly, deuteranomaly, tritanomaly"
+uniform int colorblind_mode; /// set:0 min:0 max:4 tip:"off, achromatopsia, protanomaly, deuteranomaly, tritanomaly"
 uniform mat3 colorblind_matrices[5] = mat3[5](
     mat3(1.000,0.000,0.000,  0.000,1.000,0.000,  0.000,0.000,1.000), // 0 no colorblind
     mat3(0.299,0.587,0.114,  0.299,0.587,0.114,  0.299,0.587,0.114), // 1 achromatopsia (luma)

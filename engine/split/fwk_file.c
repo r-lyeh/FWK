@@ -22,6 +22,36 @@ wchar_t *widen(const char *utf8) { // wide strings (win only)
 #define stat8_t           ifdef(win, _stat                             ,  stat_t           ) // struct _stati64
 #endif
 
+static inline
+char *file_preprocess(const char *src, const char *path, char* (*fs_read)(const char *fname), const char *parent_function) { // must FREE() after use
+    if (!src) return NULL;
+
+    char *includes = NULL;
+    for each_substring(src, "\n", line) {
+        if (line[0] == '#' && strstri(line, "#include")) {
+            const char *start = strstri(line, "\"");
+            const char *end = strstri(start+1, "\"");
+            if (start && end) {
+                char *filename = va("%s%.*s", path ? path : "", (int)(end-start-1), start+1);
+                char *included = fs_read(filename);
+                if (included) {
+                    char *nested_includes = file_preprocess(included, path, fs_read, parent_function);
+                    includes = strcatf(&includes, "%s\n", nested_includes ? nested_includes : ""); //@leak
+                } else {
+                    PANIC("!ERROR: %s: Include file not found: %s\n", parent_function, filename);
+                }
+            } else {
+                PANIC("!ERROR: %s: Invalid #include directive: %s\n", parent_function, line);
+            }
+        } else 
+        {
+            includes = strcatf(&includes, "\n%s", line); //@leak
+        }
+    }
+
+    return includes;
+}
+
 char *file_name(const char *pathfile) {
     char *s = strrchr(pathfile, '/'), *t = strrchr(pathfile, '\\');
     return va("%s", s > t ? s+1 : t ? t+1 : pathfile);
@@ -571,8 +601,8 @@ typedef struct archive_dir {
 static archive_dir *dir_mount;
 static archive_dir *dir_cache;
 
-#ifndef MAX_CACHED_FILES    // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
-#define MAX_CACHED_FILES 32 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
+#ifndef MAX_CACHED_FILES     // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
+#define MAX_CACHED_FILES 256 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
 #endif
 
 struct vfs_entry {

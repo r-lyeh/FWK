@@ -1,5 +1,3 @@
-//version 330 core
-
 in vec3 out_worldpos;
 
 uniform float texture_lod;

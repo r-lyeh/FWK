@@ -100,7 +100,7 @@ array(nearby_boid_t) get_nearby_boids(const swarm_t *self, const boid_t *b) {
 }
 
 static
-void update_boid(swarm_t *self, boid_t *b) {
+void update_boid(swarm_t *self, boid_t *b, float delta) {
     vec3 separation_sum = {0};
     vec3 heading_sum = {0};
     vec3 position_sum = {0};
@@ -149,10 +149,10 @@ void update_boid(swarm_t *self, boid_t *b) {
 
     // calculate boid acceleration
     vec3 acceleration;
-    acceleration = scale3(separation, self->separation_weight);
-    acceleration = add3(acceleration, scale3(alignment, self->alignment_weight));
-    acceleration = add3(acceleration, scale3(cohesion, self->cohesion_weight));
-    acceleration = add3(acceleration, scale3(steering, self->steering_weight));
+    acceleration = scale3(separation, self->separation_weight*delta);
+    acceleration = add3(acceleration, scale3(alignment, self->alignment_weight*delta));
+    acceleration = add3(acceleration, scale3(cohesion, self->cohesion_weight*delta));
+    acceleration = add3(acceleration, scale3(steering, self->steering_weight*delta));
     b->acceleration = clamplen3(acceleration, self->max_acceleration);
 }
 
@@ -182,7 +182,7 @@ swarm_t swarm() {
     return self;
 }
 
-void swarm_update_acceleration_only(swarm_t *self) {
+void swarm_update_acceleration_only(swarm_t *self, float delta) {
     self->perception_radius += !self->perception_radius; // 0->1
 
     // build voxel cache
@@ -199,17 +199,17 @@ void swarm_update_acceleration_only(swarm_t *self) {
     // update all boids
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
-        update_boid(self, b);
+        update_boid(self, b, delta);
     }
 }
 
 void swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta) {
     self->blindspot_angledeg_compare_value_ = cosf(C_PI * 2 * self->blindspot_angledeg / 360.0f);
-    swarm_update_acceleration_only(self);
+    swarm_update_acceleration_only(self, delta);
 
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
-        b->velocity = clamplen3(add3(b->velocity, scale3(b->acceleration, delta)), self->max_velocity);
+        b->velocity = clamplen3(add3(b->velocity, b->acceleration), self->max_velocity);
     }
 }
 
@@ -219,7 +219,7 @@ void swarm_update(swarm_t *self, float delta) {
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
         b->prev_position = b->position;
-        b->position = add3(b->position, scale3(b->velocity, delta));
+        b->position = add3(b->position, b->velocity);
     }
 }
 

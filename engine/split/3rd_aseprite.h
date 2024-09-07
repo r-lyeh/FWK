@@ -937,7 +937,10 @@ ase_t* cute_aseprite_load_from_memory(const void* memory, int size, void* mem_ct
 
 	s_skip(s, sizeof(uint32_t)); // File size.
 	int magic = (int)s_read_uint16(s);
-	if (magic != 0xA5E0) return CUTE_ASEPRITE_FREE(ase, mem_ctx), 0; // CUTE_ASEPRITE_ASSERT(magic == 0xA5E0); //< r-lyeh: soft abort
+	if (magic != 0xA5E0) {
+		CUTE_ASEPRITE_FREE(ase, mem_ctx); // CUTE_ASEPRITE_ASSERT(magic == 0xA5E0); //< r-lyeh: soft abort
+		return NULL;
+	}
 
 	ase->frame_count = (int)s_read_uint16(s);
 	ase->w = s_read_uint16(s);

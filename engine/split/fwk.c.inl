@@ -128,6 +128,8 @@
 
 {{FILE:fwk_gui.c}}
 
+{{FILE:fwk_hash.c}}
+
 {{FILE:fwk_input.c}}
 
 {{FILE:fwk_math.c}}

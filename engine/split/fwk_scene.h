@@ -6,9 +6,11 @@
 
 typedef struct camera_t {
     mat44 view, proj;
-    vec3 position, updir, lookdir;
+    vec3 position, updir, lookdir, rightdir;
     float yaw, pitch, roll; // mirror of (x,y) lookdir in deg;
-    float speed, fov; // fov in deg(45)
+    float speed, accel, fov; // fov in deg(45)
+    float near_clip, far_clip;
+    float frustum_fov_multiplier;
 
     float move_friction, move_damping;
     float look_friction, look_damping;
@@ -30,6 +32,8 @@ API void camera_fps2(camera_t *cam, float yaw, float pitch, float roll);
 API void camera_orbit(camera_t *cam, float yaw, float pitch, float inc_distance);
 API void camera_lookat(camera_t *cam, vec3 target);
 API void camera_enable(camera_t *cam);
+API void camera_freefly(camera_t *cam);
+API frustum camera_frustum_build(camera_t *cam);
 API camera_t *camera_get_active();
 
 API int  ui_camera(camera_t *cam);
@@ -42,22 +46,38 @@ typedef struct object_t {
     mat44 transform;
     quat rot;
     vec3 sca, pos, euler, pivot;
-    array(handle) textures;
+    array(texture_t) textures;
     model_t model;
     anim_t anim;
     float anim_speed;
     aabb bounds;
     unsigned billboard; // [0..7] x(4),y(2),z(1) masks
+    bool disable_frustum_check;
+    bool cast_shadows;
+    bool fullbright;
+    bool batchable;
+
+    // internal states
+    array(handle) old_texture_ids;
+    array(texture_t) old_textures;
+    float distance;
+    bool skip_draw;
     bool light_cached; //< used by scene to update light data
+    bool was_batched;
+    array(mat44) instances;
+    array(unsigned) pair_instance;
+    uint32_t checksum;
 } object_t;
 
 API object_t object();
+API bool object_compare(object_t *obj1, object_t *obj2);
 API void object_rotate(object_t *obj, vec3 euler);
 API void object_pivot(object_t *obj, vec3 euler);
 API void object_teleport(object_t *obj, vec3 pos);
 API void object_move(object_t *obj, vec3 inc);
 API vec3 object_position(object_t *obj);
 API void object_scale(object_t *obj, vec3 sca);
+API void object_batchable(object_t *obj, bool batchable);
 //
 API void object_model(object_t *obj, model_t model);
 API void object_anim(object_t *obj, anim_t anim, float speed);
@@ -68,46 +88,6 @@ API void object_billboard(object_t *obj, unsigned mode);
 
 // object_pose(transform); // @todo
 
-
-// light
-enum LIGHT_TYPE {
-    LIGHT_DIRECTIONAL,
-    LIGHT_POINT,
-    LIGHT_SPOT,
-};
-
-enum LIGHT_FLAGS {
-    LIGHT_CAST_SHADOWS = 1,
-};
-
-typedef struct light_t {
-    char type;
-    vec3 diffuse, specular, ambient;
-    vec3 pos, dir;
-    struct {
-        float constant, linear, quadratic;
-    } falloff;
-    float specularPower;
-    float innerCone, outerCone;
-    //@todo: cookie, flare
-
-    // internals
-    bool cached; //< used by scene to invalidate cached light data
-} light_t;
-
-API light_t light();
-// API void    light_flags(int flags);
-API void    light_type(light_t* l, char type);
-API void    light_diffuse(light_t* l, vec3 color);
-API void    light_specular(light_t* l, vec3 color);
-API void    light_ambient(light_t* l, vec3 color);
-API void    light_teleport(light_t* l, vec3 pos);
-API void    light_dir(light_t* l, vec3 dir);
-API void    light_power(light_t* l, float power);
-API void    light_falloff(light_t* l, float constant, float linear, float quadratic);
-API void    light_cone(light_t* l, float innerCone, float outerCone);
-API void    light_update(unsigned num_lights, light_t *lv);
-
 // scene
 
 enum SCENE_FLAGS {
@@ -116,6 +96,8 @@ enum SCENE_FLAGS {
     SCENE_BACKGROUND = 4,
     SCENE_FOREGROUND = 8,
     SCENE_UPDATE_SH_COEF = 16,
+    SCENE_CAST_SHADOWS = 32,
+    // SCENE_DISABLE_BATCHING = 64,
 };
 
 typedef struct scene_t {
@@ -125,6 +107,7 @@ typedef struct scene_t {
     // special objects below:
     skybox_t skybox;
     int u_coefficients_sh;
+    shadowmap_t shadowmap;
 } scene_t;
 
 API scene_t*  scene_push();
@@ -139,5 +122,7 @@ API unsigned  scene_count();
 API object_t* scene_index(unsigned index);
 
 API light_t*  scene_spawn_light();
+API void      scene_merge_lights(const char *source);
 API unsigned  scene_count_light();
 API light_t*  scene_index_light(unsigned index);
+API void      scene_skybox(skybox_t sky);

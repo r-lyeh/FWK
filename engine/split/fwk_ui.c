@@ -2020,7 +2020,7 @@ int ui_color3f(const char *label, float *color) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, 1.0f }, before = after;
     struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), ui_alpha };
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
@@ -2234,13 +2234,42 @@ int ui_short(const char *label, short *v) {
     return *v = (short)i, ret;
 }
 
-int ui_float(const char *label, float *v) {
+static inline
+float ui_float_adjust_step(float step) {
+    if ((input(KEY_LSHIFT) || input(KEY_RSHIFT))&&(input(KEY_LCTRL) || input(KEY_RCTRL))) step *= 100.0f;
+    else if (input(KEY_LSHIFT) || input(KEY_RSHIFT)) step *= 10.0f;
+    else if (input(KEY_LCTRL) || input(KEY_RCTRL)) step *= 0.1f;
+    else if (input(KEY_LALT) || input(KEY_RALT)) step *= 0.01f;
+    return step;
+}
+
+int ui_float_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, 0.01f,0.005f);
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, step, inc_per_pixel);
+    return prev != v[0];
+}
+
+int ui_float(const char *label, float *v) {
+    return ui_float_(label, v, 0.01f);
+}
+
+int ui_double_(const char *label, double *v, double step) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    double prev = v[0]; v[0] = nk_propertyd(ui_ctx, "#", -DBL_MAX, v[0], DBL_MAX, step, inc_per_pixel);
     return prev != v[0];
 }
 
@@ -2254,21 +2283,30 @@ int ui_double(const char *label, double *v) {
     return prev != v[0];
 }
 
-int ui_clampf(const char *label, float *v, float minf, float maxf) {
+int ui_clampf_(const char *label, float *v, float minf, float maxf, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
 
     if( minf > maxf ) return ui_clampf(label, v, maxf, minf);
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, 0.1f,0.05f);
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, step, inc_per_pixel);
     return prev != v[0];
 }
 
-int ui_float2(const char *label, float *v) {
+int ui_clampf(const char *label, float *v, float minf, float maxf) {
+    return ui_clampf_(label, v, minf, maxf, 0.1f);
+}
+
+int ui_float2_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -2278,17 +2316,23 @@ int ui_float2(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1];
     }
     return 0;
 }
 
-int ui_float3(const char *label, float *v) {
+int ui_float2(const char *label, float *v) {
+    return ui_float2_(label, v, 1.0f);
+}
+
+int ui_float3_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -2298,18 +2342,25 @@ int ui_float3(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
     }
     return 0;
 }
 
-int ui_float4(const char *label, float *v) {
+
+int ui_float3(const char *label, float *v) {
+    return ui_float3_(label, v, 1.0f);
+}
+
+int ui_float4_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -2319,15 +2370,19 @@ int ui_float4(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
-        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, step, inc_per_pixel);
+        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1] || prev2 != v[2] || prev3 != v[3];
     }
 
     return 0;
+}
+
+int ui_float4(const char *label, float *v) {
+    return ui_float4_(label, v, 1.0f);
 }
 
 int ui_mat33(const char *label, float M[9]) {

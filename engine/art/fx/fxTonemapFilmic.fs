@@ -27,11 +27,12 @@ vec3 tonemapFilmic_hejl2015(vec3 hdr, float whitePoint) {
     return vf.rgb / vf.www;
 }
 
+
 out vec4 color;
 
 void main(void) {
     vec2 uv = TEXCOORD.st;
     vec4 src = texture2D(iChannel0, uv);
-    color = vec4( tonemapFilmic_hejl2015(src.xyz, 0.5), src.a);
-    // ccolor = vec4( tonemapFilmic(src.xyz), src.a);
+    // color = vec4( tonemapFilmic_hejl2015(src.xyz, 1.0), src.a);
+    color = vec4( tonemapFilmic(src.xyz), src.a);
 }

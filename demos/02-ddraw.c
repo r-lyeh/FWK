@@ -37,7 +37,7 @@ int main() {
                 vec2 filtered_rpad = input_filter_deadzone(input2(GAMEPAD_RPAD), 0.15f/*do_gamepad_deadzone*/ + 1e-3 );
                 vec2 mouse = scale2(vec2(filtered_rpad.x, filtered_rpad.y), 1.0f);
                 vec3 wasdec = scale3(vec3(filtered_lpad.x, input(GAMEPAD_LT) - input(GAMEPAD_RT), filtered_lpad.y), 1.0f);
-                camera_moveby(&cam, wasdec);
+                camera_moveby(&cam, scale3(wasdec, window_delta() * 60));
                 camera_fps(&cam, mouse.x,mouse.y);
                 window_cursor( true );
             } else {
@@ -45,7 +45,7 @@ int main() {
                 if( active ) cam.speed = clampf(cam.speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
                 vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
                 vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam.speed);
-                camera_moveby(&cam, wasdecq);
+                camera_moveby(&cam, scale3(wasdecq, window_delta() * 60));
                 camera_fps(&cam, mouse.x,mouse.y);
                 window_cursor( !active );
             }
@@ -63,11 +63,11 @@ int main() {
             do_once sw = swarm();
             do_once array_push(sw.steering_targets, vec3(0,0,0));
             do_once for(int i = 0; i < 100; ++i)
-                array_push(sw.boids, boid(scale3(rnd3(),10), rnd3())); // pos,vel
+                array_push(sw.boids, boid(scale3(rnd3(),10), scale3(rnd3(),.10))); // pos,vel
 
             // move
             sw.steering_targets[0] = cam.position;
-            swarm_update(&sw, window_delta());
+            swarm_update(&sw, window_delta()/60);
 
             // draw
             for (int j = 0, end = array_count(sw.boids); j < end; ++j) {

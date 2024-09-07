@@ -76,7 +76,7 @@ typedef struct swarm_t {
 
 API swarm_t swarm();
 API void    swarm_update(swarm_t *self, float delta); // acc,vel,pos
-API void    swarm_update_acceleration_only(swarm_t *self); // acc
+API void    swarm_update_acceleration_only(swarm_t *self, float delta); // acc
 API void    swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta); // acc,vel
 
 API int     ui_swarm(swarm_t *self);

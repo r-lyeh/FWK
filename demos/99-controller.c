@@ -8,6 +8,10 @@
 #include "fwk.h"
 
 int main() {
+    // whether modern locomotion controller (mario 3d)
+    // or old fashioned locomotion controller (boat controller)
+    bool modern_controller = 1;
+
     // 75% window, MSAAx2 flag
     window_create(75, WINDOW_MSAA2);
 
@@ -20,12 +24,12 @@ int main() {
 
     // config 3d model #1
     model_t witch = model("witch/witch.obj", 0);
-    model_set_texture(witch, texture("witch/witch_diffuse.tga.png", 0));
-    mat44 witch_pivot; vec3 witch_p = {-5,0,-5}, witch_r={-180,180,0}, witch_s={0.1,-0.1,0.1};
+    model_set_texture(&witch, texture("witch/witch_diffuse.tga.png", 0));
+    mat44 witch_pivot; vec3 witch_p = {-5,0,-5}, witch_r={0,0,-90}, witch_s={0.1,-0.1,0.1};
 
     // config 3d model #2
     model_t girl = model("kgirl/kgirls01.fbx", 0);
-    mat44 girl_pivot; vec3 girl_p = {0,0,0}, girl_r = {270,0,0}, girl_s = {2,2,2};
+    mat44 girl_pivot; vec3 girl_p = {0,0,0}, girl_r = {0,0,-90}, girl_s = {2,2,2};
 
     // skybox
     skybox_t sky = skybox("cubemaps/stardust", 0);
@@ -63,10 +67,10 @@ int main() {
 
             // models
             compose44(girl.pivot, girl_p, eulerq(girl_r), girl_s);
-            model_render(girl, cam.proj, cam.view, girl.pivot, 0);
+            model_render(girl, cam.proj, cam.view, girl.pivot);
 
             compose44(witch.pivot, witch_p, eulerq(witch_r), witch_s);
-            model_render(witch, cam.proj, cam.view, witch.pivot, 0);
+            model_render(witch, cam.proj, cam.view, witch.pivot);
 
         // render end (postfx)
         fx_end();
@@ -129,7 +133,6 @@ int main() {
             }
             }
 
-            int modern_controller = 1;
             int running = 0;
 
             // girl controller
@@ -144,15 +147,11 @@ int main() {
                 if(!modern_controller) {
                     running = GAME_AXISY > 0;
 
-                    girl_r.x -= 170;
-                        quat q = eulerq(girl_r); // += custom.pivot
-                        vec3 rgt = rotate3q(vec3(1,0,0), q);
-                        vec3 up  = rotate3q(vec3(0,1,0), q);
-                        vec3 fwd = rotate3q(vec3(0,0,1), q);
-                        vec3 dir = scale3(fwd, speed * GAME_AXISY * (GAME_AXISY > 0 ? 2.0 : 0.5));
-                        girl_r.x += speed * 20.0 * yaw_boost * GAME_AXISX; // yaw
-                        girl_p = add3(girl_p, dir);
-                    girl_r.x += 170;
+                    quat q = eulerq(girl_r);
+                    vec3 fwd = rotate3q(vec3(0,-1,0), q);
+                    vec3 dir = scale3(fwd, speed * GAME_AXISY * (GAME_AXISY > 0 ? 2.0 : 0.5));
+                    girl_r.y -= speed * 20.0 * yaw_boost * GAME_AXISX; // yaw
+                    girl_p = add3(girl_p, dir);
                 }
 
                 // modern locomotion controller (mario 3d)
@@ -175,26 +174,25 @@ int main() {
                     olddir = dir;
 
                     // vis
-                    // ddraw_arrow(girl_p, add3(girl_p,scale3(dir,10)));
+                    ddraw_arrow(girl_p, add3(girl_p,scale3(dir,8)));
 
                     // apply direction
                     girl_p = add3(girl_p, scale3(dir, speed * 2));
 
                     // apply rotation
                     {
-                        girl_r.x -= 170;
                         quat q = eulerq(girl_r);
-                        vec3 fwdg = rotate3q(vec3(0,0,1), q);
-                        girl_r.x += 170;
+                        vec3 fwdg = rotate3q(vec3(0,-1,0), q);
+                        ddraw_arrow(girl_p, add3(girl_p,scale3(fwdg,4)));
 
                         //float cosAngle = dot3(dir,fwdg);
                         //float angle = acos(cosAngle) * TO_DEG;
-                        float angle = TO_DEG * ( atan2(fwdg.z, fwdg.x) - atan2(dir.z, dir.x));
+                        float angle = -TO_DEG * ( atan2(fwdg.z, fwdg.x) - atan2(dir.z, dir.x) );
 
                         if( !isnan(angle) ) {
-                            girl_r.x -= angle;
-                            while(girl_r.x> 180) girl_r.x-=360;
-                            while(girl_r.x<-180) girl_r.x+=360;
+                            girl_r.y -= angle;
+                            while(girl_r.y> 180) girl_r.y-=360;
+                            while(girl_r.y<-180) girl_r.y+=360;
                         }
                     }
                 }

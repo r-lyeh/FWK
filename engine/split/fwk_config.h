@@ -41,6 +41,26 @@
 #define ENABLE_RPMALLOC         0 // ifdef(tcc, 0, 1) // forbidden on tcc because of lacking TLS support
 #endif
 
+#ifndef GLOBAL_FRUSTUM_ENABLED
+#define GLOBAL_FRUSTUM_ENABLED 0 ///+
+#endif
+
+#ifndef GLOBAL_FRUSTUM_DEBUG_DRAW
+#define GLOBAL_FRUSTUM_DEBUG_DRAW 0 ///+
+#endif
+
+#ifndef GLOBAL_FRUSTUM_FOV_MULTIPLIER
+#define GLOBAL_FRUSTUM_FOV_MULTIPLIER 1.0f ///+
+#endif
+
+#ifndef DEFAULT_VSYNC
+#define DEFAULT_VSYNC WINDOW_VSYNC // 0, WINDOW_VSYNC, WINDOW_VSYNC_ADAPTIVE
+#endif
+
+#ifndef DEFAULT_COOK_ON_DEMAND
+#define DEFAULT_COOK_ON_DEMAND ifdef(tcc,1,0) // 0 // 1
+#endif
+
 // -----------------------------------------------------------------------------
 // if/n/def hell
 

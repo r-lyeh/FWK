@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// naive rendering framework
+// (likely) naive rendering framework
 // - rlyeh, public domain
 //
 // IQM skeletal meshes by @lsalzman (public domain) - https://bit.ly/2OQh0Me
@@ -65,10 +65,17 @@ typedef struct renderstate_t {
 
     // Scissor test
     bool scissor_test_enabled;
+
+    // Seamless cubemap
+    bool seamless_cubemap;
+
+    // Depth clamp
+    bool depth_clamp_enabled;
 } renderstate_t;
 
 API renderstate_t renderstate();
 API bool            renderstate_compare(const renderstate_t *stateA, const renderstate_t *stateB);
+API uint32_t        renderstate_checksum(const renderstate_t *state);
 API void            renderstate_apply(const renderstate_t *state);
 
 // -----------------------------------------------------------------------------
@@ -223,12 +230,25 @@ typedef struct colormap_t {
 API bool colormap( colormap_t *cm, const char *texture_name, bool load_as_srgb );
 
 // -----------------------------------------------------------------------------
+// Occlusion queries
+
+API unsigned query_test_point(mat44 proj, mat44 view, vec3 pos, float size);
+
+// -----------------------------------------------------------------------------
 // fullscreen quads
 
+API void fullscreen_quad_rgb_gamma( texture_t texture_rgb, float gamma );
+API void fullscreen_quad_rgb_flipped_gamma( texture_t texture_rgb, float gamma );
 API void fullscreen_quad_rgb( texture_t texture_rgb );
 API void fullscreen_quad_rgb_flipped( texture_t texture );
 API void fullscreen_quad_ycbcr( texture_t texture_YCbCr[3] );
 API void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3] );
+
+// -----------------------------------------------------------------------------
+// 2D quad drawing
+
+API void quad_render_id( int texture_type, int texture_id, vec2 dims, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
+API void quad_render( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
 
 // -----------------------------------------------------------------------------
 // cubemaps
@@ -236,12 +256,29 @@ API void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3] );
 typedef struct cubemap_t {
     unsigned id;    // texture id
     vec3 sh[9];     // precomputed spherical harmonics coefficients
+
+    // bake data
+    int framebuffers[6];
+    int textures[6];
+    int depth_buffers[6];
+    unsigned width, height;
+    float *pixels;
+    int step;
+    vec3 pos;
 } cubemap_t;
 
 API cubemap_t  cubemap( const image_t image, int flags ); // 1 equirectangular panorama
 API cubemap_t  cubemap6( const image_t images[6], int flags ); // 6 cubemap faces
 API void       cubemap_destroy(cubemap_t *c);
 API cubemap_t* cubemap_get_active();
+API void       cubemap_beginbake(cubemap_t *c, vec3 pos, unsigned width, unsigned height);
+API bool       cubemap_stepbake(cubemap_t *c, mat44 proj /* out */, mat44 view /* out */);
+API void       cubemap_endbake(cubemap_t *c, int step /* = 16 */, float sky_intensity /* = 1.0f */);
+API void       cubemap_sh_reset(cubemap_t *c);
+API void       cubemap_sh_addlight(cubemap_t *c, vec3 light, vec3 dir, float strength);
+
+// lighting probe blending
+API void       cubemap_sh_blend(vec3 pos, float max_dist, unsigned count, cubemap_t *probes, vec3 *out_sh /* expects 9 vec3 coefficients */);
 
 // -----------------------------------------------------------------------------
 // fbos
@@ -252,38 +289,134 @@ API void     fbo_unbind();
 API void     fbo_destroy(unsigned id);
 
 // -----------------------------------------------------------------------------
+// lights
+
+enum {
+    MAX_LIGHTS = 96,
+    MAX_SHADOW_LIGHTS = 4,
+};
+
+enum LIGHT_TYPE {
+    LIGHT_DIRECTIONAL,
+    LIGHT_POINT,
+    LIGHT_SPOT,
+};
+
+enum SHADOW_TECHNIQUE {
+    SHADOW_VSM,
+    SHADOW_CSM,
+};
+
+#define NUM_SHADOW_CASCADES 4
+
+typedef struct light_t {
+    char *name;
+    unsigned type;
+    vec3 diffuse, specular, ambient;
+    vec3 pos, dir;
+    struct {
+        float constant, linear, quadratic;
+    } falloff;
+    float radius;
+    float specularPower;
+    float innerCone, outerCone;
+    //@todo: cookie, flare
+
+    // Shadowmapping
+    bool cast_shadows;
+    unsigned shadow_technique;
+    float shadow_distance;
+    float shadow_near_clip;
+    mat44 shadow_matrix[NUM_SHADOW_CASCADES];
+    float min_variance; //< VSM
+    float variance_transition; //< VSM
+    float shadow_bias; //< CSM
+    float normal_bias; //< CSM
+    float shadow_softness;
+    float penumbra_size;
+
+    // internals
+    bool cached; //< used by scene to invalidate cached light data
+    bool processed_shadows;
+} light_t;
+
+API light_t light();
+// API void    light_flags(int flags);
+API void    light_type(light_t* l, char type);
+API void    light_diffuse(light_t* l, vec3 color);
+API void    light_specular(light_t* l, vec3 color);
+API void    light_ambient(light_t* l, vec3 color);
+API void    light_teleport(light_t* l, vec3 pos);
+API void    light_pos(light_t* l, vec3 pos);
+API void    light_dir(light_t* l, vec3 dir);
+API void    light_power(light_t* l, float power);
+API void    light_radius(light_t* l, float radius);
+API void    light_falloff(light_t* l, float constant, float linear, float quadratic);
+API void    light_cone(light_t* l, float innerCone, float outerCone);
+
+API void    ui_light(light_t *l);
+API void    ui_lights(unsigned num_lights, light_t *lights);
+
+
+// -----------------------------------------------------------------------------
 // shadowmaps
 
-// #ifndef VSMCUBE
-// #define VSMCUBE 0
-// #endif
-// #ifndef VSMBLUR
-// #define VSMBLUR 1
-// #endif
-
 typedef struct shadowmap_t {
-    mat44  shadowmatrix;
-    mat44  mvp;
-    mat44  mv;
-    mat44  proj;
-    vec4   light_position;
-    int    saved_fb;
-    int    saved_viewport[4];
-    handle fbo, texture;
-    int texture_width;
+    mat44 V;
+    mat44 PV;
+    int vsm_texture_width;
+    int csm_texture_width;
+    int step;
+    int light_step;
+    int cascade_index;
+    unsigned shadow_technique;
+    float cascade_splits[NUM_SHADOW_CASCADES];
+    frustum shadow_frustum;
+
+    // signals
+    bool skip_render;
+    int lights_pushed;
+    handle fbo;
+
+    // VRAM usage
+    uint64_t vram_usage;
+    uint64_t vram_usage_total;
+    uint64_t vram_usage_vsm;
+    uint64_t vram_usage_csm;
+
+    // depth texture
+    handle depth_texture;
+    handle depth_texture_2d;
+
+    // shadowmap offsets texture;
+    int filter_size, window_size;
+    handle offsets_texture;
+
+    struct {
+        int gen;
+        unsigned shadow_technique;
+        handle texture;
+        handle texture_2d[NUM_SHADOW_CASCADES];
+        float cascade_distances[NUM_SHADOW_CASCADES];
+    } maps[MAX_SHADOW_LIGHTS];
+
+    handle saved_fb;
+    handle saved_pass;
+    int saved_vp[4];
+    int gen;
+    int old_filter_size;
+    int old_window_size;
 } shadowmap_t;
 
-API shadowmap_t shadowmap(int texture_width); // = 1024
-API void shadowmap_destroy(shadowmap_t *s);
+API shadowmap_t shadowmap(int vsm_texture_width, int csm_texture_width); // = 512, 4096
+API void          shadowmap_offsets_build(shadowmap_t *s, int filter_size, int window_size);
+API void        shadowmap_destroy(shadowmap_t *s);
 
-API void shadowmap_set_shadowmatrix(shadowmap_t *s, vec3 aLightPos, vec3 aLightAt, vec3 aLightUp, const mat44 projection);
 API void shadowmap_begin(shadowmap_t *s);
+API bool   shadowmap_step(shadowmap_t *s); //< roll over to the next light if it returns false
+API void     shadowmap_light(shadowmap_t *s, light_t *l, mat44 cam_proj, mat44 cam_view); //< must be called at most once per shadowmap_step
 API void shadowmap_end(shadowmap_t *s);
-
-// shadowmap utils
-
-API void shadowmatrix_proj(mat44 shm_proj, float aLightFov, float znear, float zfar);
-API void shadowmatrix_ortho(mat44 shm_proj, float left, float right, float bottom, float top, float znear, float zfar);
+API void ui_shadowmap(shadowmap_t *s);
 
 // -----------------------------------------------------------------------------
 // shaders
@@ -365,12 +498,7 @@ API void write_barrier();
 /// Blocks main thread until all image operations are done by the GPU.
 API void write_barrier_image();
 
-// ssbo
-/// `STATIC`, `DYNAMIC` AND `STREAM` specify the frequency at which we intend to access the data.
-/// `DRAW` favors CPU->GPU operations.
-/// `READ` favors GPU->CPU operations.
-/// `COPY` favors CPU->GPU->CPU operations.
-enum SSBO_USAGE {
+enum BUFFER_USAGE {
     STATIC_DRAW,
     STATIC_READ,
     STATIC_COPY,
@@ -383,6 +511,12 @@ enum SSBO_USAGE {
     STREAM_READ,
     STREAM_COPY
 };
+
+// ssbo
+/// `STATIC`, `DYNAMIC` AND `STREAM` specify the frequency at which we intend to access the data.
+/// `DRAW` favors CPU->GPU operations.
+/// `READ` favors GPU->CPU operations.
+/// `COPY` favors CPU->GPU->CPU operations.
 
 enum SSBO_ACCESS {
     SSBO_READ = BUFFER_READ,
@@ -427,8 +561,16 @@ API void ssbo_unmap();
 /// Unbinds an SSBO resource
 API void ssbo_unbind();
 
+// ubo
+
+API unsigned ubo_create(void *data, int size, unsigned usage);
+API void       ubo_update(unsigned ubo, int offset, void *data, int size);
+API void       ubo_bind(unsigned ubo, unsigned unit);
+API void       ubo_unbind(unsigned unit);
+API void     ubo_destroy(unsigned ubo);
+
 // -----------------------------------------------------------------------------
-// meshes (@fixme: deprecate?)
+// meshes
 
 enum MESH_FLAGS {
     MESH_STATIC = 0, // STATIC, DYNAMIC, STREAM // zero|single|many updates per frame
@@ -480,15 +622,11 @@ enum SKYBOX_FLAGS {
 };
 
 typedef struct skybox_t {
-    handle program;
+    handle program, rayleigh_program;
     mesh_t geometry;
     cubemap_t cubemap;
     int flags;
-
-    // mie
-    int framebuffers[6];
-    int textures[6];
-    float *pixels;
+    bool rayleigh_immediate;
 
     // pbr
     texture_t sky, refl, env;
@@ -499,8 +637,9 @@ API skybox_t skybox_pbr(const char *sky_map, const char *refl_map, const char *e
 API int      skybox_render(skybox_t *sky, mat44 proj, mat44 view);
 API void     skybox_destroy(skybox_t *sky);
 API void     skybox_mie_calc_sh(skybox_t *sky, float sky_intensity);
-API void     skybox_sh_reset(skybox_t *sky);
-API void     skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength);
+API void     skybox_sh_reset(skybox_t *sky);  /* @deprecated */
+API void     skybox_sh_shader(skybox_t *sky);  /* @deprecated */
+API void     skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength);  /* @deprecated */
 
 API int      skybox_push_state(skybox_t *sky, mat44 proj, mat44 view); // @to deprecate
 API int      skybox_pop_state(); // @to deprecate
@@ -518,6 +657,7 @@ enum MATERIAL_ENUMS {
 	MATERIAL_CHANNEL_AO,
 	MATERIAL_CHANNEL_AMBIENT,
 	MATERIAL_CHANNEL_EMISSIVE,
+	MATERIAL_CHANNEL_PARALLAX,
     
     MAX_CHANNELS_PER_MATERIAL
 };
@@ -525,6 +665,7 @@ enum MATERIAL_ENUMS {
 typedef struct material_layer_t {
     char   texname[32];
     float  value;
+    float  value2;
     colormap_t map;
 } material_layer_t;
 
@@ -532,6 +673,9 @@ typedef struct material_t {
     char *name;
     material_layer_t layer[MAX_CHANNELS_PER_MATERIAL];
 } material_t;
+
+API uint32_t material_checksum(material_t *m);
+API void ui_material(material_t *m);
 
 // -----------------------------------------------------------------------------
 // shadertoys
@@ -586,28 +730,93 @@ API anim_t loop(float minframe, float maxframe, float blendtime, unsigned flags)
 API array(anim_t) animlist(const char *filename);
 
 // -----------------------------------------------------------------------------
+// model uniforms
+
+enum UNIFORM_KIND {
+    UNIFORM_BOOL,
+    UNIFORM_INT,
+    UNIFORM_UINT,
+    UNIFORM_FLOAT,
+    UNIFORM_VEC2,
+    UNIFORM_VEC3,
+    UNIFORM_VEC4,
+    UNIFORM_MAT3,
+    UNIFORM_MAT4,
+    UNIFORM_SAMPLER2D,
+    UNIFORM_SAMPLER3D,
+    UNIFORM_SAMPLERCUBE,
+};
+
+typedef struct model_uniform_t {
+    const char *name;
+    int kind;
+    union {
+        float f;
+        int i;
+        bool b;
+        unsigned u;
+        vec2 v2;
+        vec3 v3;
+        vec4 v4;
+        mat33 m33;
+        mat44 m44;
+    };
+} model_uniform_t;
+
+#define model_uniform(name, kind, ...) (model_uniform_t){ name, kind, __VA_ARGS__ }
+
+API bool model_compareuniform(const model_uniform_t *a, const model_uniform_t *b);
+API bool model_compareuniforms(unsigned s1, const model_uniform_t *a, unsigned s2, const model_uniform_t *b);
+API uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms);
+
+// -----------------------------------------------------------------------------
 // models
 
 enum MODEL_FLAGS {
+    MODEL_PBR = 0,
+
     MODEL_NO_ANIMATIONS = 1,
     MODEL_NO_MESHES = 2,
     MODEL_NO_TEXTURES = 4,
     MODEL_NO_FILTERING = 8,
-    MODEL_MATCAPS = 16,
-    MODEL_RIMLIGHT = 32,
-    MODEL_PBR = 64,
+    MODEL_NO_PBR = 16,
+    MODEL_MATCAPS = 32,
+    MODEL_RIMLIGHT = 64,
+    MODEL_TRANSPARENT = 128,
+    MODEL_STREAM = 256, // useful with model_sync()
+
+    // internal
+    MODEL_PROCEDURAL = 512,
 };
 
 enum SHADING_MODE {
     SHADING_NONE,
     SHADING_PHONG,
+    SHADING_VERTEXLIT,
     SHADING_PBR,
 };
 
+enum FOG_MODE {
+    FOG_NONE,
+    FOG_LINEAR,
+    FOG_EXP,
+    FOG_EXP2,
+    FOG_DEPTH,
+};
+
 enum RENDER_PASS {
-    RENDER_PASS_NORMAL,
-    RENDER_PASS_SHADOW,
-    RENDER_PASS_LIGHTMAP,
+    RENDER_PASS_OPAQUE,
+    RENDER_PASS_TRANSPARENT,
+
+    RENDER_PASS_OVERRIDES_BEGIN,
+    
+    RENDER_PASS_SHADOW_BEGIN,
+    RENDER_PASS_SHADOW_CSM,
+    RENDER_PASS_SHADOW_VSM,
+    RENDER_PASS_SHADOW_END,
+    
+    RENDER_PASS_CUSTOM, // make sure to apply renderstate before calling this
+    RENDER_PASS_OVERRIDES_END,
     
     NUM_RENDER_PASSES
 };
@@ -619,26 +828,85 @@ enum MODEL_UNIFORMS {
     MODEL_UNIFORM_CAM_POS,
     MODEL_UNIFORM_CAM_DIR,
     MODEL_UNIFORM_BILLBOARD,
-    MODEL_UNIFORM_TEXLIT,
     MODEL_UNIFORM_MODEL,
     MODEL_UNIFORM_VIEW,
     MODEL_UNIFORM_INV_VIEW,
     MODEL_UNIFORM_PROJ,
     MODEL_UNIFORM_SKINNED,
+    MODEL_UNIFORM_INSTANCED,
     MODEL_UNIFORM_VS_BONE_MATRIX,
     MODEL_UNIFORM_U_MATCAPS,
+    MODEL_UNIFORM_FRAME_COUNT,
+    MODEL_UNIFORM_FRAME_TIME,
+    MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_VIEW,
+    MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_PROJECTOR,
+    MODEL_UNIFORM_SHADOW_TECHNIQUE,
+    MODEL_UNIFORM_U_SHADOW_RECEIVER,
+    MODEL_UNIFORM_SHADOW_OFFSETS,
+    MODEL_UNIFORM_SHADOW_FILTER_SIZE,
+    MODEL_UNIFORM_SHADOW_WINDOW_SIZE,
+
+    // PBR
     MODEL_UNIFORM_RESOLUTION,
+    MODEL_UNIFORM_HAS_TEX_ENV_CUBEMAP,
     MODEL_UNIFORM_HAS_TEX_SKYSPHERE,
     MODEL_UNIFORM_HAS_TEX_SKYENV,
+    MODEL_UNIFORM_TEX_ENV_CUBEMAP,
     MODEL_UNIFORM_TEX_SKYSPHERE,
     MODEL_UNIFORM_SKYSPHERE_MIP_COUNT,
     MODEL_UNIFORM_TEX_SKYENV,
     MODEL_UNIFORM_TEX_BRDF_LUT,
-    MODEL_UNIFORM_FRAME_COUNT,
+    
+    // Shadows
+    MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES,
+    MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES_COUNT = MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES+NUM_SHADOW_CASCADES,
+
+    MODEL_UNIFORM_SHADOW_MAP_2D,
+    MODEL_UNIFORM_SHADOW_MAP_2D_COUNT = MODEL_UNIFORM_SHADOW_MAP_2D+NUM_SHADOW_CASCADES,
+    
+    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP,
+    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP_COUNT = MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+MAX_LIGHTS,
 
     NUM_MODEL_UNIFORMS
 };
 
+enum MODEL_TEXTURE_SLOTS {
+    MODEL_TEXTURE_DIFFUSE,
+    MODEL_TEXTURE_NORMALS,
+    MODEL_TEXTURE_SPECULAR,
+    MODEL_TEXTURE_ALBEDO,
+    MODEL_TEXTURE_ROUGHNESS,
+    MODEL_TEXTURE_METALLIC,
+    MODEL_TEXTURE_AO,
+    MODEL_TEXTURE_AMBIENT,
+    MODEL_TEXTURE_EMISSIVE,
+    MODEL_TEXTURE_PARALLAX,
+    
+    // PBR
+    MODEL_TEXTURE_ENV_CUBEMAP,
+    MODEL_TEXTURE_SKYSPHERE,
+    MODEL_TEXTURE_SKYENV,
+    MODEL_TEXTURE_BRDF_LUT,
+
+    // Shadows
+    MODEL_TEXTURE_SHADOW_MAP_2D,
+    MODEL_TEXTURE_SHADOW_MAP_2D_COUNT = MODEL_TEXTURE_SHADOW_MAP_2D+NUM_SHADOW_CASCADES,
+
+    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP,
+    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP_COUNT = MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+MAX_SHADOW_LIGHTS,
+
+    MODEL_TEXTURE_SHADOW_OFFSETS,
+
+    // User-defined slot
+    MODEL_TEXTURE_USER_DEFINED,
+
+    NUM_MODEL_TEXTURE_SLOTS
+};
+
+typedef struct lightarray_t {
+    light_t *base;
+    unsigned count;
+} lightarray_t;
 
 typedef struct model_t {
     struct iqm_t *iqm; // private
@@ -648,19 +916,17 @@ typedef struct model_t {
     handle *textures;
     char **texture_names;
     array(material_t) materials;
-    int uniforms[NUM_MODEL_UNIFORMS];
     
-    texture_t sky_refl, sky_env;
-
-    texture_t lightmap;
-    float *lmdata;
+    texture_t sky_refl, sky_env, sky_cubemap;
 
     unsigned num_meshes;
     unsigned num_triangles;
     unsigned num_joints; // num_poses;
     unsigned num_anims;
     unsigned num_frames;
-    handle program;
+    shadowmap_t *shadow_map;
+    lightarray_t lights;
+    bool shadow_receiver;
     float curframe;
     mat44 pivot;
 
@@ -671,6 +937,12 @@ typedef struct model_t {
     int num_tris;
     handle vao, ibo, vbo, vao_instanced;
 
+    array(int) lod_collapse_map; // to which neighbor each vertex collapses. ie, [10] -> 7 (used by LODs) @leak
+    void *lod_verts;
+    int lod_num_verts;
+    void *lod_tris;
+    int lod_num_tris;
+
     unsigned flags;
     unsigned billboard;
 
@@ -679,7 +951,24 @@ typedef struct model_t {
 
     int stored_flags;
     renderstate_t rs[NUM_RENDER_PASSES];
+
+    bool frustum_enabled;
+    frustum frustum_state;
+
+    model_uniform_t *uniforms; //< array
 } model_t;
+
+typedef struct model_vertex_t {
+    vec3 position;
+    vec2 texcoord;
+    vec3 normal;
+    vec4 tangent;
+    uint8_t blend_indices[4];
+    uint8_t blend_weights[4];
+    float blend_vertex_index;
+    vec4 color;
+    vec2 texcoord2;
+} model_vertex_t;
 
 enum BILLBOARD_MODE {
     BILLBOARD_X = 0x1,
@@ -690,19 +979,40 @@ enum BILLBOARD_MODE {
     BILLBOARD_SPHERICAL = BILLBOARD_X|BILLBOARD_Y|BILLBOARD_Z
 };
 
-API model_t  model(const char *filename, int flags);
-API model_t  model_from_mem(const void *mem, int sz, int flags);
+API model_t  model(const char *filename, int flags); //< filename == 0 for procedural models
+API model_t  model_from_mem(const void *mem, int sz, int flags); //< mem == 0 for procedural models
+API void     model_sync(model_t m, int num_vertices, model_vertex_t *vertices, int num_indices, uint32_t *indices); //< MODEL_PROCEDURAL models only
 API float    model_animate(model_t, float curframe);
 API float    model_animate_clip(model_t, float curframe, int minframe, int maxframe, bool loop);
 API float    model_animate_blends(model_t m, anim_t *primary, anim_t *secondary, float delta);
+API int      model_texture_unit(model_t *m);
 API aabb     model_aabb(model_t, mat44 transform);
-API void     model_shading(model_t*, int shading);
-API void     model_skybox(model_t*, skybox_t sky, bool load_sh);
-API void     model_render(model_t, mat44 proj, mat44 view, mat44 model, int shader);
+API sphere   model_bsphere(model_t, mat44 transform);
+API void     model_lod(model_t*, float lo_detail, float hi_detail, float morph);
+API void     model_setstyle(model_t*, int shading);
+API void     model_setshader(model_t*, int shading, const char *vs, const char *fs, const char *defines);
+API void     model_adduniform(model_t*, model_uniform_t uniform);
+API void     model_adduniforms(model_t*, unsigned count, model_uniform_t *uniforms);
+API uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms);
+API void     model_fog(model_t*, unsigned mode, vec3 color, float start, float end, float density);
+API void     model_skybox(model_t*, skybox_t sky);
+API void     model_cubemap(model_t*, cubemap_t *c);
+API void     model_probe(model_t*, vec3 center, float radius, unsigned count, cubemap_t *c);
+API void     model_shadow(model_t*, shadowmap_t *sm);
+API void     model_light(model_t*, unsigned count, light_t *lights);
+API void     model_rimlight(model_t*, vec3 rim_range, vec3 rim_color, vec3 rim_pivot, bool rim_ambient);
+API void     model_render(model_t, mat44 proj, mat44 view, mat44 model);
 API void     model_render_skeleton(model_t, mat44 model);
-API void     model_render_instanced(model_t, mat44 proj, mat44 view, mat44 *models, int shader, unsigned count);
-API void     model_set_texture(model_t, texture_t t);
+API void     model_render_instanced(model_t, mat44 proj, mat44 view, mat44 *models, unsigned count);
+API void     model_render_instanced_pass(model_t m, mat44 proj, mat44 view, mat44* models, unsigned count, int pass);
+API void     model_render_pass(model_t m, mat44 proj, mat44 view, mat44 model, int pass);
+API void     model_set_texture(model_t*, texture_t t);
+API bool     model_has_transparency_mesh(model_t m, int mesh);
+API bool     model_has_transparency(model_t m);
+API void     model_set_frustum(model_t *m, frustum f);
+API void     model_clear_frustum(model_t *m);
 API bool     model_get_bone_pose(model_t m, unsigned joint, mat34 *out);
+API bool     model_get_bone_position(model_t m, unsigned joint, mat44 M, vec3 *out);
 API void     model_destroy(model_t);
 
 API unsigned model_getpass();
@@ -710,35 +1020,7 @@ API unsigned model_setpass(unsigned pass);
 
 API vec3     pose(bool forward, float curframe, int minframe, int maxframe, bool loop, float *opt_retframe);
 
-// -----------------------------------------------------------------------------
-// model animations
-
-typedef struct anims_t {
-    int   inuse; // animation number in use
-    float speed; // x1.00
-    array(anim_t) anims; // [begin,end,flags] frames of every animation in set
-} anims_t;
-
-API anims_t animations(const char *pathfile, int flags);
-
-// -----------------------------------------------------------------------------
-// lightmapping utils
-// @fixme: support xatlas uv packing
-
-typedef struct lightmap_t {
-    struct lm_context *ctx; // private
-    bool ready;
-    int w, h;
-    int atlas_w, atlas_h; //@fixme: implement
-    texture_t atlas; //@fixme: implement this
-    array(model_t*) models;
-    unsigned shader;
-} lightmap_t;
-
-API lightmap_t lightmap(int hmsize /*64*/, float near, float far, vec3 color /*1,1,1 for AO*/, int passes /*2*/, float threshold /*0.01f*/, float distmod /*0.0f*/);
-API void       lightmap_setup(lightmap_t *lm, int w, int h);
-API void          lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata);
-API void       lightmap_destroy(lightmap_t *lm);
+API void ui_materials(model_t *m);
 
 // -----------------------------------------------------------------------------
 // post-fxs

@@ -88,6 +88,8 @@ typedef float mat44[16];
  float simplex4( vec4 xyzw );
  float deg (float radians);
  float rad (float degrees);
+ float cycle180 (float angle);
+ float cycle360 (float angle);
  int mini (int a, int b);
  int maxi (int a, int b);
  int absi (int a );
@@ -242,6 +244,7 @@ typedef float mat44[16];
  void frustum44(mat44 m, float l, float r, float b, float t, float n, float f);
  void perspective44(mat44 m, float fovy_degrees, float aspect, float nearp, float farp);
  void lookat44(mat44 m, vec3 eye, vec3 center, vec3 up);
+ vec3 pos44(mat44 m);
  void translation44(mat44 m, float x, float y, float z);
  void translate44(mat44 m, float x, float y, float z);
  void relocate44(mat44 m, float x, float y, float z);
@@ -268,6 +271,15 @@ typedef float mat44[16];
  void print33( float *m );
  void print34( float *m );
  void print44( float *m );
+ uint32_t hh_mem(const void *data, size_t size);
+ uint32_t hh_str(const char* str);
+ uint32_t hh_float(float f);
+ uint32_t hh_int(int i);
+ uint32_t hh_vec2(vec2 v);
+ uint32_t hh_vec3(vec3 v);
+ uint32_t hh_vec4(vec4 v);
+ uint32_t hh_mat33(mat33 m);
+ uint32_t hh_mat44(mat44 m);
  uintptr_t id_make(void *ptr);
  void * id_handle(uintptr_t id);
  void id_dispose(uintptr_t id);
@@ -413,7 +425,7 @@ typedef struct swarm_t {
 } swarm_t;
  swarm_t swarm();
  void swarm_update(swarm_t *self, float delta);
- void swarm_update_acceleration_only(swarm_t *self);
+ void swarm_update_acceleration_only(swarm_t *self, float delta);
  void swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta);
  int ui_swarm(swarm_t *self);
  void midi_send(unsigned midi_msg);
@@ -1008,9 +1020,12 @@ typedef struct renderstate_t {
     unsigned polygon_mode_face;
     unsigned polygon_mode_draw;
     bool scissor_test_enabled;
+    bool seamless_cubemap;
+    bool depth_clamp_enabled;
 } renderstate_t;
  renderstate_t renderstate();
  bool renderstate_compare(const renderstate_t *stateA, const renderstate_t *stateB);
+ uint32_t renderstate_checksum(const renderstate_t *state);
  void renderstate_apply(const renderstate_t *state);
  unsigned rgba( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
  unsigned bgra( uint8_t b, uint8_t g, uint8_t r, uint8_t a );
@@ -1091,40 +1106,136 @@ typedef struct colormap_t {
     texture_t *texture;
 } colormap_t;
  bool colormap( colormap_t *cm, const char *texture_name, bool load_as_srgb );
+ unsigned query_test_point(mat44 proj, mat44 view, vec3 pos, float size);
+ void fullscreen_quad_rgb_gamma( texture_t texture_rgb, float gamma );
+ void fullscreen_quad_rgb_flipped_gamma( texture_t texture_rgb, float gamma );
  void fullscreen_quad_rgb( texture_t texture_rgb );
  void fullscreen_quad_rgb_flipped( texture_t texture );
  void fullscreen_quad_ycbcr( texture_t texture_YCbCr[3] );
  void fullscreen_quad_ycbcr_flipped( texture_t texture_YCbCr[3] );
+ void quad_render_id( int texture_type, int texture_id, vec2 dims, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
+ void quad_render( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
 typedef struct cubemap_t {
     unsigned id;
     vec3 sh[9];
+    int framebuffers[6];
+    int textures[6];
+    int depth_buffers[6];
+    unsigned width, height;
+    float *pixels;
+    int step;
+    vec3 pos;
 } cubemap_t;
  cubemap_t cubemap( const image_t image, int flags );
  cubemap_t cubemap6( const image_t images[6], int flags );
  void cubemap_destroy(cubemap_t *c);
  cubemap_t* cubemap_get_active();
+ void cubemap_beginbake(cubemap_t *c, vec3 pos, unsigned width, unsigned height);
+ bool cubemap_stepbake(cubemap_t *c, mat44 proj , mat44 view );
+ void cubemap_endbake(cubemap_t *c, int step , float sky_intensity );
+ void cubemap_sh_reset(cubemap_t *c);
+ void cubemap_sh_addlight(cubemap_t *c, vec3 light, vec3 dir, float strength);
+ void cubemap_sh_blend(vec3 pos, float max_dist, unsigned count, cubemap_t *probes, vec3 *out_sh );
  unsigned fbo( unsigned texture_color, unsigned texture_depth, int wr_flags );
  void fbo_bind(unsigned id);
  void fbo_unbind();
  void fbo_destroy(unsigned id);
+enum {
+    MAX_LIGHTS = 96,
+    MAX_SHADOW_LIGHTS = 4,
+};
+enum LIGHT_TYPE {
+    LIGHT_DIRECTIONAL,
+    LIGHT_POINT,
+    LIGHT_SPOT,
+};
+enum SHADOW_TECHNIQUE {
+    SHADOW_VSM,
+    SHADOW_CSM,
+};
+typedef struct light_t {
+    char *name;
+    unsigned type;
+    vec3 diffuse, specular, ambient;
+    vec3 pos, dir;
+    struct {
+        float constant, linear, quadratic;
+    } falloff;
+    float radius;
+    float specularPower;
+    float innerCone, outerCone;
+    bool cast_shadows;
+    unsigned shadow_technique;
+    float shadow_distance;
+    float shadow_near_clip;
+    mat44 shadow_matrix[4];
+    float min_variance;
+    float variance_transition;
+    float shadow_bias;
+    float normal_bias;
+    float shadow_softness;
+    float penumbra_size;
+    bool cached;
+    bool processed_shadows;
+} light_t;
+ light_t light();
+ void light_type(light_t* l, char type);
+ void light_diffuse(light_t* l, vec3 color);
+ void light_specular(light_t* l, vec3 color);
+ void light_ambient(light_t* l, vec3 color);
+ void light_teleport(light_t* l, vec3 pos);
+ void light_pos(light_t* l, vec3 pos);
+ void light_dir(light_t* l, vec3 dir);
+ void light_power(light_t* l, float power);
+ void light_radius(light_t* l, float radius);
+ void light_falloff(light_t* l, float constant, float linear, float quadratic);
+ void light_cone(light_t* l, float innerCone, float outerCone);
+ void ui_light(light_t *l);
+ void ui_lights(unsigned num_lights, light_t *lights);
 typedef struct shadowmap_t {
-    mat44 shadowmatrix;
-    mat44 mvp;
-    mat44 mv;
-    mat44 proj;
-    vec4 light_position;
-    int saved_fb;
-    int saved_viewport[4];
-    handle fbo, texture;
-    int texture_width;
+    mat44 V;
+    mat44 PV;
+    int vsm_texture_width;
+    int csm_texture_width;
+    int step;
+    int light_step;
+    int cascade_index;
+    unsigned shadow_technique;
+    float cascade_splits[4];
+    frustum shadow_frustum;
+    bool skip_render;
+    int lights_pushed;
+    handle fbo;
+    uint64_t vram_usage;
+    uint64_t vram_usage_total;
+    uint64_t vram_usage_vsm;
+    uint64_t vram_usage_csm;
+    handle depth_texture;
+    handle depth_texture_2d;
+    int filter_size, window_size;
+    handle offsets_texture;
+    struct {
+        int gen;
+        unsigned shadow_technique;
+        handle texture;
+        handle texture_2d[4];
+        float cascade_distances[4];
+    } maps[MAX_SHADOW_LIGHTS];
+    handle saved_fb;
+    handle saved_pass;
+    int saved_vp[4];
+    int gen;
+    int old_filter_size;
+    int old_window_size;
 } shadowmap_t;
- shadowmap_t shadowmap(int texture_width);
+ shadowmap_t shadowmap(int vsm_texture_width, int csm_texture_width);
+ void shadowmap_offsets_build(shadowmap_t *s, int filter_size, int window_size);
  void shadowmap_destroy(shadowmap_t *s);
- void shadowmap_set_shadowmatrix(shadowmap_t *s, vec3 aLightPos, vec3 aLightAt, vec3 aLightUp, const mat44 projection);
  void shadowmap_begin(shadowmap_t *s);
+ bool shadowmap_step(shadowmap_t *s);
+ void shadowmap_light(shadowmap_t *s, light_t *l, mat44 cam_proj, mat44 cam_view);
  void shadowmap_end(shadowmap_t *s);
- void shadowmatrix_proj(mat44 shm_proj, float aLightFov, float znear, float zfar);
- void shadowmatrix_ortho(mat44 shm_proj, float left, float right, float bottom, float top, float znear, float zfar);
+ void ui_shadowmap(shadowmap_t *s);
  unsigned shader(const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines);
  unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines);
  unsigned shader_bind(unsigned program);
@@ -1160,7 +1271,7 @@ enum BUFFER_MODE {
  void shader_image_unit(unsigned texture, unsigned unit, unsigned level, int layer, unsigned texel_type, unsigned access);
  void write_barrier();
  void write_barrier_image();
-enum SSBO_USAGE {
+enum BUFFER_USAGE {
     STATIC_DRAW,
     STATIC_READ,
     STATIC_COPY,
@@ -1183,6 +1294,11 @@ enum SSBO_ACCESS {
  void *ssbo_map(unsigned access);
  void ssbo_unmap();
  void ssbo_unbind();
+ unsigned ubo_create(void *data, int size, unsigned usage);
+ void ubo_update(unsigned ubo, int offset, void *data, int size);
+ void ubo_bind(unsigned ubo, unsigned unit);
+ void ubo_unbind(unsigned unit);
+ void ubo_destroy(unsigned ubo);
 enum MESH_FLAGS {
     MESH_STATIC = 0,
     MESH_STREAM = 1,
@@ -1223,13 +1339,11 @@ enum SKYBOX_FLAGS {
 	SKYBOX_PBR,
 };
 typedef struct skybox_t {
-    handle program;
+    handle program, rayleigh_program;
     mesh_t geometry;
     cubemap_t cubemap;
     int flags;
-    int framebuffers[6];
-    int textures[6];
-    float *pixels;
+    bool rayleigh_immediate;
     texture_t sky, refl, env;
 } skybox_t;
  skybox_t skybox(const char *panorama_or_cubemap_folder, int flags);
@@ -1238,6 +1352,7 @@ typedef struct skybox_t {
  void skybox_destroy(skybox_t *sky);
  void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity);
  void skybox_sh_reset(skybox_t *sky);
+ void skybox_sh_shader(skybox_t *sky);
  void skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength);
  int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view);
  int skybox_pop_state();
@@ -1251,17 +1366,21 @@ enum MATERIAL_ENUMS {
 	MATERIAL_CHANNEL_AO,
 	MATERIAL_CHANNEL_AMBIENT,
 	MATERIAL_CHANNEL_EMISSIVE,
+	MATERIAL_CHANNEL_PARALLAX,
     MAX_CHANNELS_PER_MATERIAL
 };
 typedef struct material_layer_t {
     char texname[32];
     float value;
+    float value2;
     colormap_t map;
 } material_layer_t;
 typedef struct material_t {
     char *name;
     material_layer_t layer[MAX_CHANNELS_PER_MATERIAL];
 } material_t;
+ uint32_t material_checksum(material_t *m);
+ void ui_material(material_t *m);
 enum {
     SHADERTOY_FLIP_Y = 2,
     SHADERTOY_IGNORE_FBO = 4,
@@ -1300,24 +1419,74 @@ typedef struct anim_t {
  anim_t clip(float minframe, float maxframe, float blendtime, unsigned flags);
  anim_t loop(float minframe, float maxframe, float blendtime, unsigned flags);
  anim_t* animlist(const char *filename);
+enum UNIFORM_KIND {
+    UNIFORM_BOOL,
+    UNIFORM_INT,
+    UNIFORM_UINT,
+    UNIFORM_FLOAT,
+    UNIFORM_VEC2,
+    UNIFORM_VEC3,
+    UNIFORM_VEC4,
+    UNIFORM_MAT3,
+    UNIFORM_MAT4,
+    UNIFORM_SAMPLER2D,
+    UNIFORM_SAMPLER3D,
+    UNIFORM_SAMPLERCUBE,
+};
+typedef struct model_uniform_t {
+    const char *name;
+    int kind;
+    union {
+        float f;
+        int i;
+        bool b;
+        unsigned u;
+        vec2 v2;
+        vec3 v3;
+        vec4 v4;
+        mat33 m33;
+        mat44 m44;
+    };
+} model_uniform_t;
+ bool model_compareuniform(const model_uniform_t *a, const model_uniform_t *b);
+ bool model_compareuniforms(unsigned s1, const model_uniform_t *a, unsigned s2, const model_uniform_t *b);
+ uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms);
 enum MODEL_FLAGS {
+    MODEL_PBR = 0,
     MODEL_NO_ANIMATIONS = 1,
     MODEL_NO_MESHES = 2,
     MODEL_NO_TEXTURES = 4,
     MODEL_NO_FILTERING = 8,
-    MODEL_MATCAPS = 16,
-    MODEL_RIMLIGHT = 32,
-    MODEL_PBR = 64,
+    MODEL_NO_PBR = 16,
+    MODEL_MATCAPS = 32,
+    MODEL_RIMLIGHT = 64,
+    MODEL_TRANSPARENT = 128,
+    MODEL_STREAM = 256,
+    MODEL_PROCEDURAL = 512,
 };
 enum SHADING_MODE {
     SHADING_NONE,
     SHADING_PHONG,
+    SHADING_VERTEXLIT,
     SHADING_PBR,
 };
+enum FOG_MODE {
+    FOG_NONE,
+    FOG_LINEAR,
+    FOG_EXP,
+    FOG_EXP2,
+    FOG_DEPTH,
+};
 enum RENDER_PASS {
-    RENDER_PASS_NORMAL,
-    RENDER_PASS_SHADOW,
-    RENDER_PASS_LIGHTMAP,
+    RENDER_PASS_OPAQUE,
+    RENDER_PASS_TRANSPARENT,
+    RENDER_PASS_OVERRIDES_BEGIN,
+    RENDER_PASS_SHADOW_BEGIN,
+    RENDER_PASS_SHADOW_CSM,
+    RENDER_PASS_SHADOW_VSM,
+    RENDER_PASS_SHADOW_END,
+    RENDER_PASS_CUSTOM,
+    RENDER_PASS_OVERRIDES_END,
     NUM_RENDER_PASSES
 };
 enum MODEL_UNIFORMS {
@@ -1327,24 +1496,67 @@ enum MODEL_UNIFORMS {
     MODEL_UNIFORM_CAM_POS,
     MODEL_UNIFORM_CAM_DIR,
     MODEL_UNIFORM_BILLBOARD,
-    MODEL_UNIFORM_TEXLIT,
     MODEL_UNIFORM_MODEL,
     MODEL_UNIFORM_VIEW,
     MODEL_UNIFORM_INV_VIEW,
     MODEL_UNIFORM_PROJ,
     MODEL_UNIFORM_SKINNED,
+    MODEL_UNIFORM_INSTANCED,
     MODEL_UNIFORM_VS_BONE_MATRIX,
     MODEL_UNIFORM_U_MATCAPS,
+    MODEL_UNIFORM_FRAME_COUNT,
+    MODEL_UNIFORM_FRAME_TIME,
+    MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_VIEW,
+    MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_PROJECTOR,
+    MODEL_UNIFORM_SHADOW_TECHNIQUE,
+    MODEL_UNIFORM_U_SHADOW_RECEIVER,
+    MODEL_UNIFORM_SHADOW_OFFSETS,
+    MODEL_UNIFORM_SHADOW_FILTER_SIZE,
+    MODEL_UNIFORM_SHADOW_WINDOW_SIZE,
     MODEL_UNIFORM_RESOLUTION,
+    MODEL_UNIFORM_HAS_TEX_ENV_CUBEMAP,
     MODEL_UNIFORM_HAS_TEX_SKYSPHERE,
     MODEL_UNIFORM_HAS_TEX_SKYENV,
+    MODEL_UNIFORM_TEX_ENV_CUBEMAP,
     MODEL_UNIFORM_TEX_SKYSPHERE,
     MODEL_UNIFORM_SKYSPHERE_MIP_COUNT,
     MODEL_UNIFORM_TEX_SKYENV,
     MODEL_UNIFORM_TEX_BRDF_LUT,
-    MODEL_UNIFORM_FRAME_COUNT,
+    MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES,
+    MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES_COUNT = MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES+4,
+    MODEL_UNIFORM_SHADOW_MAP_2D,
+    MODEL_UNIFORM_SHADOW_MAP_2D_COUNT = MODEL_UNIFORM_SHADOW_MAP_2D+4,
+    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP,
+    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP_COUNT = MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+MAX_LIGHTS,
     NUM_MODEL_UNIFORMS
 };
+enum MODEL_TEXTURE_SLOTS {
+    MODEL_TEXTURE_DIFFUSE,
+    MODEL_TEXTURE_NORMALS,
+    MODEL_TEXTURE_SPECULAR,
+    MODEL_TEXTURE_ALBEDO,
+    MODEL_TEXTURE_ROUGHNESS,
+    MODEL_TEXTURE_METALLIC,
+    MODEL_TEXTURE_AO,
+    MODEL_TEXTURE_AMBIENT,
+    MODEL_TEXTURE_EMISSIVE,
+    MODEL_TEXTURE_PARALLAX,
+    MODEL_TEXTURE_ENV_CUBEMAP,
+    MODEL_TEXTURE_SKYSPHERE,
+    MODEL_TEXTURE_SKYENV,
+    MODEL_TEXTURE_BRDF_LUT,
+    MODEL_TEXTURE_SHADOW_MAP_2D,
+    MODEL_TEXTURE_SHADOW_MAP_2D_COUNT = MODEL_TEXTURE_SHADOW_MAP_2D+4,
+    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP,
+    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP_COUNT = MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+MAX_SHADOW_LIGHTS,
+    MODEL_TEXTURE_SHADOW_OFFSETS,
+    MODEL_TEXTURE_USER_DEFINED,
+    NUM_MODEL_TEXTURE_SLOTS
+};
+typedef struct lightarray_t {
+    light_t *base;
+    unsigned count;
+} lightarray_t;
 typedef struct model_t {
     struct iqm_t *iqm;
     int shading;
@@ -1352,16 +1564,15 @@ typedef struct model_t {
     handle *textures;
     char **texture_names;
     material_t* materials;
-    int uniforms[NUM_MODEL_UNIFORMS];
-    texture_t sky_refl, sky_env;
-    texture_t lightmap;
-    float *lmdata;
+    texture_t sky_refl, sky_env, sky_cubemap;
     unsigned num_meshes;
     unsigned num_triangles;
     unsigned num_joints;
     unsigned num_anims;
     unsigned num_frames;
-    handle program;
+    shadowmap_t *shadow_map;
+    lightarray_t lights;
+    bool shadow_receiver;
     float curframe;
     mat44 pivot;
     int stride;
@@ -1370,13 +1581,32 @@ typedef struct model_t {
     void *tris;
     int num_tris;
     handle vao, ibo, vbo, vao_instanced;
+    int* lod_collapse_map;
+    void *lod_verts;
+    int lod_num_verts;
+    void *lod_tris;
+    int lod_num_tris;
     unsigned flags;
     unsigned billboard;
     float *instanced_matrices;
     unsigned num_instances;
     int stored_flags;
     renderstate_t rs[NUM_RENDER_PASSES];
+    bool frustum_enabled;
+    frustum frustum_state;
+    model_uniform_t *uniforms;
 } model_t;
+typedef struct model_vertex_t {
+    vec3 position;
+    vec2 texcoord;
+    vec3 normal;
+    vec4 tangent;
+    uint8_t blend_indices[4];
+    uint8_t blend_weights[4];
+    float blend_vertex_index;
+    vec4 color;
+    vec2 texcoord2;
+} model_vertex_t;
 enum BILLBOARD_MODE {
     BILLBOARD_X = 0x1,
     BILLBOARD_Y = 0x2,
@@ -1386,40 +1616,43 @@ enum BILLBOARD_MODE {
 };
  model_t model(const char *filename, int flags);
  model_t model_from_mem(const void *mem, int sz, int flags);
+ void model_sync(model_t m, int num_vertices, model_vertex_t *vertices, int num_indices, uint32_t *indices);
  float model_animate(model_t, float curframe);
  float model_animate_clip(model_t, float curframe, int minframe, int maxframe, bool loop);
  float model_animate_blends(model_t m, anim_t *primary, anim_t *secondary, float delta);
+ int model_texture_unit(model_t *m);
  aabb model_aabb(model_t, mat44 transform);
- void model_shading(model_t*, int shading);
- void model_skybox(model_t*, skybox_t sky, bool load_sh);
- void model_render(model_t, mat44 proj, mat44 view, mat44 model, int shader);
+ sphere model_bsphere(model_t, mat44 transform);
+ void model_lod(model_t*, float lo_detail, float hi_detail, float morph);
+ void model_setstyle(model_t*, int shading);
+ void model_setshader(model_t*, int shading, const char *vs, const char *fs, const char *defines);
+ void model_adduniform(model_t*, model_uniform_t uniform);
+ void model_adduniforms(model_t*, unsigned count, model_uniform_t *uniforms);
+ uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms);
+ void model_fog(model_t*, unsigned mode, vec3 color, float start, float end, float density);
+ void model_skybox(model_t*, skybox_t sky);
+ void model_cubemap(model_t*, cubemap_t *c);
+ void model_probe(model_t*, vec3 center, float radius, unsigned count, cubemap_t *c);
+ void model_shadow(model_t*, shadowmap_t *sm);
+ void model_light(model_t*, unsigned count, light_t *lights);
+ void model_rimlight(model_t*, vec3 rim_range, vec3 rim_color, vec3 rim_pivot, bool rim_ambient);
+ void model_render(model_t, mat44 proj, mat44 view, mat44 model);
  void model_render_skeleton(model_t, mat44 model);
- void model_render_instanced(model_t, mat44 proj, mat44 view, mat44 *models, int shader, unsigned count);
- void model_set_texture(model_t, texture_t t);
+ void model_render_instanced(model_t, mat44 proj, mat44 view, mat44 *models, unsigned count);
+ void model_render_instanced_pass(model_t m, mat44 proj, mat44 view, mat44* models, unsigned count, int pass);
+ void model_render_pass(model_t m, mat44 proj, mat44 view, mat44 model, int pass);
+ void model_set_texture(model_t*, texture_t t);
+ bool model_has_transparency_mesh(model_t m, int mesh);
+ bool model_has_transparency(model_t m);
+ void model_set_frustum(model_t *m, frustum f);
+ void model_clear_frustum(model_t *m);
  bool model_get_bone_pose(model_t m, unsigned joint, mat34 *out);
+ bool model_get_bone_position(model_t m, unsigned joint, mat44 M, vec3 *out);
  void model_destroy(model_t);
  unsigned model_getpass();
  unsigned model_setpass(unsigned pass);
  vec3 pose(bool forward, float curframe, int minframe, int maxframe, bool loop, float *opt_retframe);
-typedef struct anims_t {
-    int inuse;
-    float speed;
-    anim_t* anims;
-} anims_t;
- anims_t animations(const char *pathfile, int flags);
-typedef struct lightmap_t {
-    struct lm_context *ctx;
-    bool ready;
-    int w, h;
-    int atlas_w, atlas_h;
-    texture_t atlas;
-    model_t** models;
-    unsigned shader;
-} lightmap_t;
- lightmap_t lightmap(int hmsize , float near, float far, vec3 color , int passes , float threshold , float distmod );
- void lightmap_setup(lightmap_t *lm, int w, int h);
- void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata);
- void lightmap_destroy(lightmap_t *lm);
+ void ui_materials(model_t *m);
  void viewport_color(unsigned color);
  void viewport_clear(bool color, bool depth);
  void viewport_clip(vec2 from, vec2 to);
@@ -1495,9 +1728,11 @@ typedef struct lightmap_t {
  bool gizmo_hover();
 typedef struct camera_t {
     mat44 view, proj;
-    vec3 position, updir, lookdir;
+    vec3 position, updir, lookdir, rightdir;
     float yaw, pitch, roll;
-    float speed, fov;
+    float speed, accel, fov;
+    float near_clip, far_clip;
+    float frustum_fov_multiplier;
     float move_friction, move_damping;
     float look_friction, look_damping;
     vec3 last_look; vec3 last_move;
@@ -1514,6 +1749,8 @@ typedef struct camera_t {
  void camera_orbit(camera_t *cam, float yaw, float pitch, float inc_distance);
  void camera_lookat(camera_t *cam, vec3 target);
  void camera_enable(camera_t *cam);
+ void camera_freefly(camera_t *cam);
+ frustum camera_frustum_build(camera_t *cam);
  camera_t *camera_get_active();
  int ui_camera(camera_t *cam);
  void ddraw_camera(camera_t *cam);
@@ -1522,69 +1759,55 @@ typedef struct object_t {
     mat44 transform;
     quat rot;
     vec3 sca, pos, euler, pivot;
-    handle* textures;
+    texture_t* textures;
     model_t model;
     anim_t anim;
     float anim_speed;
     aabb bounds;
     unsigned billboard;
+    bool disable_frustum_check;
+    bool cast_shadows;
+    bool fullbright;
+    bool batchable;
+    handle* old_texture_ids;
+    texture_t* old_textures;
+    float distance;
+    bool skip_draw;
     bool light_cached;
+    bool was_batched;
+    mat44* instances;
+    unsigned* pair_instance;
+    uint32_t checksum;
 } object_t;
  object_t object();
+ bool object_compare(object_t *obj1, object_t *obj2);
  void object_rotate(object_t *obj, vec3 euler);
  void object_pivot(object_t *obj, vec3 euler);
  void object_teleport(object_t *obj, vec3 pos);
  void object_move(object_t *obj, vec3 inc);
  vec3 object_position(object_t *obj);
  void object_scale(object_t *obj, vec3 sca);
+ void object_batchable(object_t *obj, bool batchable);
  void object_model(object_t *obj, model_t model);
  void object_anim(object_t *obj, anim_t anim, float speed);
  void object_diffuse(object_t *obj, texture_t tex);
  void object_diffuse_push(object_t *obj, texture_t tex);
  void object_diffuse_pop(object_t *obj);
  void object_billboard(object_t *obj, unsigned mode);
-enum LIGHT_TYPE {
-    LIGHT_DIRECTIONAL,
-    LIGHT_POINT,
-    LIGHT_SPOT,
-};
-enum LIGHT_FLAGS {
-    LIGHT_CAST_SHADOWS = 1,
-};
-typedef struct light_t {
-    char type;
-    vec3 diffuse, specular, ambient;
-    vec3 pos, dir;
-    struct {
-        float constant, linear, quadratic;
-    } falloff;
-    float specularPower;
-    float innerCone, outerCone;
-    bool cached;
-} light_t;
- light_t light();
- void light_type(light_t* l, char type);
- void light_diffuse(light_t* l, vec3 color);
- void light_specular(light_t* l, vec3 color);
- void light_ambient(light_t* l, vec3 color);
- void light_teleport(light_t* l, vec3 pos);
- void light_dir(light_t* l, vec3 dir);
- void light_power(light_t* l, float power);
- void light_falloff(light_t* l, float constant, float linear, float quadratic);
- void light_cone(light_t* l, float innerCone, float outerCone);
- void light_update(unsigned num_lights, light_t *lv);
 enum SCENE_FLAGS {
     SCENE_WIREFRAME = 1,
     SCENE_CULLFACE = 2,
     SCENE_BACKGROUND = 4,
     SCENE_FOREGROUND = 8,
     SCENE_UPDATE_SH_COEF = 16,
+    SCENE_CAST_SHADOWS = 32,
 };
 typedef struct scene_t {
     object_t* objs;
     light_t* lights;
     skybox_t skybox;
     int u_coefficients_sh;
+    shadowmap_t shadowmap;
 } scene_t;
  scene_t* scene_push();
  void scene_pop();
@@ -1595,8 +1818,10 @@ typedef struct scene_t {
  unsigned scene_count();
  object_t* scene_index(unsigned index);
  light_t* scene_spawn_light();
+ void scene_merge_lights(const char *source);
  unsigned scene_count_light();
  light_t* scene_index_light(unsigned index);
+ void scene_skybox(skybox_t sky);
  char* tempvl(const char *fmt, va_list);
  char* tempva(const char *fmt, ...);
  char* strcatf(char **s, const char *buf);
@@ -1817,6 +2042,7 @@ typedef struct skinned_t {
  int callstackf( FILE *fp, int traces );
  void die(const char *message);
  void alert(const char *message);
+ void alert_caption(const char *caption, const char *message);
  void hexdump( const void *ptr, unsigned len );
  void hexdumpf( FILE *fp, const void *ptr, unsigned len, int width );
  void breakpoint();
@@ -1949,6 +2175,10 @@ enum PANEL_FLAGS {
  int ui_int(const char *label, int *value);
  int ui_bool(const char *label, bool *value);
  int ui_short(const char *label, short *value);
+ int ui_float_(const char *label, float *value, float step);
+ int ui_float2_(const char *label, float value[2], float step);
+ int ui_float3_(const char *label, float value[3], float step);
+ int ui_float4_(const char *label, float value[4], float step);
  int ui_float(const char *label, float *value);
  int ui_float2(const char *label, float value[2]);
  int ui_float3(const char *label, float value[3]);
@@ -1985,6 +2215,7 @@ enum PANEL_FLAGS {
  int ui_bitmask8(const char *label, uint8_t *bits);
  int ui_bitmask16(const char *label, uint16_t *bits);
  int ui_console();
+ int ui_clampf_(const char *label, float *value, float minf, float maxf, float step);
  int ui_clampf(const char *label, float *value, float minf, float maxf);
  int ui_label(const char *label);
  int ui_label2(const char *label, const char *caption);
@@ -2048,9 +2279,8 @@ enum WINDOW_FLAGS {
     WINDOW_TRANSPARENT = 0x400,
     WINDOW_BORDERLESS = 0x800,
     WINDOW_TRUE_BORDERLESS = 0x4000,
-    WINDOW_VSYNC_DISABLED = 0,
-    WINDOW_VSYNC_ADAPTIVE = 0x1000,
     WINDOW_VSYNC = 0x2000,
+    WINDOW_VSYNC_ADAPTIVE = 0x1000,
 };
  bool window_create(float scale, unsigned flags);
  bool window_create_from_handle(void *handle, float scale, unsigned flags);
@@ -2064,6 +2294,7 @@ enum WINDOW_FLAGS {
  void window_loop_exit();
  void window_title(const char *title);
  void window_color(unsigned color);
+ char window_msaa();
  vec2 window_canvas();
  void* window_handle();
  char* window_stats();
@@ -2074,7 +2305,7 @@ enum WINDOW_FLAGS {
  double window_delta();
  void window_focus();
  int window_has_focus();
- void window_fullscreen(int enabled);
+ void window_fullscreen(int mode);
  int window_has_fullscreen();
  void window_cursor(int visible);
  int window_has_cursor();
@@ -2084,6 +2315,7 @@ enum WINDOW_FLAGS {
  int window_has_visible();
  void window_maximize(int enabled);
  int window_has_maximize();
+ void window_set_resolution(int width, int height);
  void window_transparent(int enabled);
  int window_has_transparent();
  void window_icon(const char *file_icon);

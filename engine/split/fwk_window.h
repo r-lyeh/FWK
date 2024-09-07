@@ -20,9 +20,8 @@ enum WINDOW_FLAGS {
     WINDOW_BORDERLESS = 0x800,
     WINDOW_TRUE_BORDERLESS = 0x4000,
 
-    WINDOW_VSYNC_DISABLED = 0,
-    WINDOW_VSYNC_ADAPTIVE = 0x1000,
     WINDOW_VSYNC = 0x2000,
+    WINDOW_VSYNC_ADAPTIVE = 0x1000,
 };
 
 API bool     window_create(float scale, unsigned flags);
@@ -40,6 +39,7 @@ API void     window_loop_exit(); // exit from main loop function (emscripten onl
 
 API void     window_title(const char *title);
 API void     window_color(unsigned color);
+API char     window_msaa();
 API vec2     window_canvas();
 API void*    window_handle();
 API char*    window_stats();
@@ -55,7 +55,7 @@ API double   window_delta();
 
 API void     window_focus(); // window attribute api using haz catz language for now
 API int      window_has_focus();
-API void     window_fullscreen(int enabled);
+API void     window_fullscreen(int mode); // 0 = windowed, 1 = borderless, 2 = exclusive
 API int      window_has_fullscreen();
 API void     window_cursor(int visible);
 API int      window_has_cursor();
@@ -65,6 +65,7 @@ API void     window_visible(int visible);
 API int      window_has_visible();
 API void     window_maximize(int enabled);
 API int      window_has_maximize();
+API void     window_set_resolution(int width, int height);
 API void     window_transparent(int enabled);
 API int      window_has_transparent();
 API void     window_icon(const char *file_icon);

@@ -148,7 +148,7 @@ static char* luaL_prepbuffsize(luaL_Buffer* B, size_t sz) {
 # define ARCH_X86
 #elif defined __amd64__ || defined _M_X64
 # define ARCH_X64
-#elif defined __arm__ || defined __ARM__ || defined ARM || defined __ARM || defined __arm
+#elif defined __arm__ || defined __ARM__ || defined ARM || defined __ARM || defined __arm || defined __arm64__ || defined __aarch64__
 # define ARCH_ARM
 #elif defined OS_LINUX && defined __TINYC__ //< @r-lyeh: tcc+linux
 # define ARCH_X64 //< @r-lyeh: tcc+linux

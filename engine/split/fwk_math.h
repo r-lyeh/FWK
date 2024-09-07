@@ -52,6 +52,9 @@ API float simplex4( vec4 xyzw );
 API float deg      (float radians);
 API float rad      (float degrees);
 
+API float cycle180 (float angle);
+API float cycle360 (float angle);
+
 API int   mini     (int    a, int    b);
 API int   maxi     (int    a, int    b);
 API int   absi     (int    a          );
@@ -243,6 +246,7 @@ API void ortho44(mat44 m, float l, float r, float b, float t, float n, float f);
 API void frustum44(mat44 m, float l, float r, float b, float t, float n, float f);
 API void perspective44(mat44 m, float fovy_degrees, float aspect, float nearp, float farp);
 API void lookat44(mat44 m, vec3 eye, vec3 center, vec3 up);
+API vec3 pos44(mat44 m);
 // ---
 API void translation44(mat44 m, float x, float y, float z);
 API void translate44(mat44 m, float x, float y, float z);

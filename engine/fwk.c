@@ -108,6 +108,9 @@
 
 #define AS_NKCOLOR(color) \
     ((struct nk_color){ ((color>>0))&255,((color>>8))&255,((color>>16))&255,((color>>24))&255 })
+
+static inline
+char *file_preprocess(const char *src, const char *path, char* (*)(const char *), const char *parent_function);
 #line 0
 
 #line 1 "fwk_ds.c"
@@ -3228,7 +3231,7 @@ int ui_color3f(const char *label, float *color) {
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, color[3]*ui_alpha }, before = after;
+    struct nk_colorf after = { color[0]*ui_alpha, color[1]*ui_alpha, color[2]*ui_alpha, 1.0f }, before = after;
     struct nk_colorf clamped = { clampf(after.r,0,1), clampf(after.g,0,1), clampf(after.b,0,1), ui_alpha };
     if (nk_combo_begin_color(ui_ctx, nk_rgb_cf(clamped), nk_vec2(200,400))) {
         nk_layout_row_dynamic(ui_ctx, 120, 1);
@@ -3442,13 +3445,42 @@ int ui_short(const char *label, short *v) {
     return *v = (short)i, ret;
 }
 
-int ui_float(const char *label, float *v) {
+static inline
+float ui_float_adjust_step(float step) {
+    if ((input(KEY_LSHIFT) || input(KEY_RSHIFT))&&(input(KEY_LCTRL) || input(KEY_RCTRL))) step *= 100.0f;
+    else if (input(KEY_LSHIFT) || input(KEY_RSHIFT)) step *= 10.0f;
+    else if (input(KEY_LCTRL) || input(KEY_RCTRL)) step *= 0.1f;
+    else if (input(KEY_LALT) || input(KEY_RALT)) step *= 0.01f;
+    return step;
+}
+
+int ui_float_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, 0.01f,0.005f);
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", -FLT_MAX, v[0], FLT_MAX, step, inc_per_pixel);
+    return prev != v[0];
+}
+
+int ui_float(const char *label, float *v) {
+    return ui_float_(label, v, 0.01f);
+}
+
+int ui_double_(const char *label, double *v, double step) {
+    if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
+
+    nk_layout_row_dynamic(ui_ctx, 0, 2);
+    ui_label_(label, NK_TEXT_LEFT);
+
+    double prev = v[0]; v[0] = nk_propertyd(ui_ctx, "#", -DBL_MAX, v[0], DBL_MAX, step, inc_per_pixel);
     return prev != v[0];
 }
 
@@ -3462,21 +3494,30 @@ int ui_double(const char *label, double *v) {
     return prev != v[0];
 }
 
-int ui_clampf(const char *label, float *v, float minf, float maxf) {
+int ui_clampf_(const char *label, float *v, float minf, float maxf, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
+
+    float inc_per_pixel = ui_float_adjust_step(0.005f);
+    step = ui_float_adjust_step(step);
 
     if( minf > maxf ) return ui_clampf(label, v, maxf, minf);
 
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
-    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, 0.1f,0.05f);
+    float prev = v[0]; v[0] = nk_propertyf(ui_ctx, "#", minf, v[0], maxf, step, inc_per_pixel);
     return prev != v[0];
 }
 
-int ui_float2(const char *label, float *v) {
+int ui_clampf(const char *label, float *v, float minf, float maxf) {
+    return ui_clampf_(label, v, minf, maxf, 0.1f);
+}
+
+int ui_float2_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -3486,17 +3527,23 @@ int ui_float2(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1];
     }
     return 0;
 }
 
-int ui_float3(const char *label, float *v) {
+int ui_float2(const char *label, float *v) {
+    return ui_float2_(label, v, 1.0f);
+}
+
+int ui_float3_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -3506,18 +3553,25 @@ int ui_float3(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1] || prev2 != v[2];
     }
     return 0;
 }
 
-int ui_float4(const char *label, float *v) {
+
+int ui_float3(const char *label, float *v) {
+    return ui_float3_(label, v, 1.0f);
+}
+
+int ui_float4_(const char *label, float *v, float step) {
     if( label && ui_filter && ui_filter[0] ) if( !strstri(label, ui_filter) ) return 0;
 
+    float inc_per_pixel = ui_float_adjust_step(0.5f);
+    step = ui_float_adjust_step(step);
     nk_layout_row_dynamic(ui_ctx, 0, 2);
     ui_label_(label, NK_TEXT_LEFT);
 
@@ -3527,15 +3581,19 @@ int ui_float4(const char *label, float *v) {
 
     if (nk_combo_begin_label(ui_ctx, buffer, nk_vec2(200,200))) {
         nk_layout_row_dynamic(ui_ctx, 0, 1);
-        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, 1,0.5f);
-        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, 1,0.5f);
-        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, 1,0.5f);
-        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, 1,0.5f);
+        float prev0 = v[0]; nk_property_float(ui_ctx, "#X:", -FLT_MAX, &v[0], FLT_MAX, step, inc_per_pixel);
+        float prev1 = v[1]; nk_property_float(ui_ctx, "#Y:", -FLT_MAX, &v[1], FLT_MAX, step, inc_per_pixel);
+        float prev2 = v[2]; nk_property_float(ui_ctx, "#Z:", -FLT_MAX, &v[2], FLT_MAX, step, inc_per_pixel);
+        float prev3 = v[3]; nk_property_float(ui_ctx, "#W:", -FLT_MAX, &v[3], FLT_MAX, step, inc_per_pixel);
         nk_combo_end(ui_ctx);
         return prev0 != v[0] || prev1 != v[1] || prev2 != v[2] || prev3 != v[3];
     }
 
     return 0;
+}
+
+int ui_float4(const char *label, float *v) {
+    return ui_float4_(label, v, 1.0f);
 }
 
 int ui_mat33(const char *label, float M[9]) {
@@ -5386,17 +5444,25 @@ frustum frustum_build(mat44 pv) {
     for (int i = 0; i < 6; i++) f.pl[i] = scale4(f.pl[i], 1 / len3(f.pl[i].xyz));
     return f;
 }
+
 int frustum_test_sphere(frustum f, sphere s) {
     for(int i = 0; i < 6; i++) {
         if((dot3(f.pl[i].xyz, s.c) + f.pl[i].w + s.r) < 0) return 0;
     }
+#if GLOBAL_FRUSTUM_DEBUG_DRAW
+    ddraw_sphere(s.c, s.r);
+#endif
     return 1;
 }
+
 int frustum_test_aabb(frustum f, aabb a) {
     for(int i = 0; i < 6; i++) {
         vec3 v = vec3(f.pl[i].x > 0 ? a.max.x : a.min.x, f.pl[i].y > 0 ? a.max.y : a.min.y, f.pl[i].z > 0 ? a.max.z : a.min.z);
         if((dot3(f.pl[i].xyz, v) + f.pl[i].w) < 0) return 0;
     }
+#if GLOBAL_FRUSTUM_DEBUG_DRAW
+    ddraw_aabb(a.min, a.max);
+#endif
     return 1;
 }
 
@@ -6213,7 +6279,7 @@ static cook_worker jobs[JOBS_MAX] = {0};
 static volatile bool cook_cancelable = false, cook_cancelling = false, cook_debug = false;
 
 #ifndef COOK_ON_DEMAND
-#define COOK_ON_DEMAND ifdef(cook, optioni("--cook-on-demand", 1), false)
+#define COOK_ON_DEMAND ifdef(cook, optioni("--cook-on-demand", DEFAULT_COOK_ON_DEMAND), false)
 #endif
 
 static
@@ -6389,7 +6455,8 @@ bool cook_start( const char *cook_ini, const char *masks, int flags ) {
     char *rules_ = file_read(cook_ini);
     if(!rules_ || rules_[0] == 0) return false;
 
-    static char *rules; do_once rules = STRDUP(rules_);
+    // 
+    static char *rules; do_once rules = file_preprocess(rules_, file_path(cook_ini), file_read, "cook_start()");
 
     do_once {
     #if 0
@@ -7180,6 +7247,36 @@ wchar_t *widen(const char *utf8) { // wide strings (win only)
 #define stat8_t           ifdef(win, _stat                             ,  stat_t           ) // struct _stati64
 #endif
 
+static inline
+char *file_preprocess(const char *src, const char *path, char* (*fs_read)(const char *fname), const char *parent_function) { // must FREE() after use
+    if (!src) return NULL;
+
+    char *includes = NULL;
+    for each_substring(src, "\n", line) {
+        if (line[0] == '#' && strstri(line, "#include")) {
+            const char *start = strstri(line, "\"");
+            const char *end = strstri(start+1, "\"");
+            if (start && end) {
+                char *filename = va("%s%.*s", path ? path : "", (int)(end-start-1), start+1);
+                char *included = fs_read(filename);
+                if (included) {
+                    char *nested_includes = file_preprocess(included, path, fs_read, parent_function);
+                    includes = strcatf(&includes, "%s\n", nested_includes ? nested_includes : ""); //@leak
+                } else {
+                    PANIC("!ERROR: %s: Include file not found: %s\n", parent_function, filename);
+                }
+            } else {
+                PANIC("!ERROR: %s: Invalid #include directive: %s\n", parent_function, line);
+            }
+        } else 
+        {
+            includes = strcatf(&includes, "\n%s", line); //@leak
+        }
+    }
+
+    return includes;
+}
+
 char *file_name(const char *pathfile) {
     char *s = strrchr(pathfile, '/'), *t = strrchr(pathfile, '\\');
     return va("%s", s > t ? s+1 : t ? t+1 : pathfile);
@@ -7729,8 +7826,8 @@ typedef struct archive_dir {
 static archive_dir *dir_mount;
 static archive_dir *dir_cache;
 
-#ifndef MAX_CACHED_FILES    // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
-#define MAX_CACHED_FILES 32 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
+#ifndef MAX_CACHED_FILES     // @todo: should this be MAX_CACHED_SIZE (in MiB) instead?
+#define MAX_CACHED_FILES 256 // @todo: should we cache the cooked contents instead? ie, stbi() result instead of file.png?
 #endif
 
 struct vfs_entry {
@@ -10847,95 +10944,7 @@ void *font_colorize(const char *text, const char *comma_types, const char *comma
 // ----------------------------------------------------------------------------
 // game ui (utils)
 
-API void gui_drawrect( texture_t spritesheet, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end );
-
 #define v42v2(rect) vec2(rect.x,rect.y), vec2(rect.z,rect.w)
-
-void gui_drawrect( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end ) {
-    static renderstate_t rect_rs;
-    do_once {
-        rect_rs = renderstate();
-        rect_rs.depth_test_enabled = false;
-        rect_rs.blend_enabled = true;
-        rect_rs.blend_src = GL_SRC_ALPHA;
-        rect_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
-        rect_rs.front_face = GL_CW;
-    }
-    static int program = -1, vbo = -1, vao = -1, u_tint = -1, u_has_tex = -1, u_window_width = -1, u_window_height = -1;
-    float gamma = 1;
-    vec2 dpi = ifdef(osx, window_dpi(), vec2(1,1));
-    if( program < 0 ) {
-        const char* vs = vfs_read("shaders/rect_2d.vs");
-        const char* fs = vfs_read("shaders/rect_2d.fs");
-
-        program = shader(vs, fs, "", "fragcolor" , NULL);
-        ASSERT(program > 0);
-        u_tint = glGetUniformLocation(program, "u_tint");
-        u_has_tex = glGetUniformLocation(program, "u_has_tex");
-        u_window_width = glGetUniformLocation(program, "u_window_width");
-        u_window_height = glGetUniformLocation(program, "u_window_height");
-        glGenVertexArrays( 1, (GLuint*)&vao );
-        glGenBuffers(1, &vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    }
-
-    start = mul2(start, dpi);
-    end = mul2(end, dpi);
-
-    renderstate_apply(&rect_rs);
-
-    GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
-    glUseProgram( program );
-
-    glBindVertexArray( vao );
-
-    glActiveTexture( GL_TEXTURE0 );
-    glBindTexture( texture_type, texture.id );
-
-    glUniform1i(u_has_tex, (texture.id != 0));
-    glUniform1f(u_window_width, (float)window_width());
-    glUniform1f(u_window_height, (float)window_height());
-
-    vec4 rgbaf = {((rgba>>24)&255)/255.f, ((rgba>>16)&255)/255.f,((rgba>>8)&255)/255.f,((rgba>>0)&255)/255.f};
-    glUniform4fv(u_tint, GL_TRUE, &rgbaf.x);
-
-    // normalize texture regions
-    if (texture.id != 0) {
-        tex_start.x /= texture.w;
-        tex_start.y /= texture.h;
-        tex_end.x /= texture.w;
-        tex_end.y /= texture.h;
-    }
-
-    GLfloat vertices[] = {
-        // Positions      // UVs
-        start.x, start.y, tex_start.x, tex_start.y,
-        end.x, start.y,   tex_end.x, tex_start.y,
-        end.x, end.y,     tex_end.x, tex_end.y,
-        start.x, start.y, tex_start.x, tex_start.y,
-        end.x, end.y,     tex_end.x, tex_end.y,
-        start.x, end.y,   tex_start.x, tex_end.y
-    };
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
-
-    glDrawArrays( GL_TRIANGLES, 0, 6 );
-    profile_incstat("Render.num_drawcalls", +1);
-    profile_incstat("Render.num_triangles", +2);
-
-    glBindTexture( texture_type, 0 );
-    glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
-    glBindVertexArray( 0 );
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glUseProgram( 0 );
-}
 
 // ----------------------------------------------------------------------------
 // game ui
@@ -11182,7 +11191,7 @@ void skinned_getskincolor(void *userdata, const char *skin, const char *fallback
 static
 void skinned_draw_missing_rect(vec4 r) {
     vec4 size = vec4(0, 0, texture_checker().w, texture_checker().h);
-    gui_drawrect(texture_checker(), v42v2(size), 0x800080FF, v42v2(r));
+    quad_render(texture_checker(), v42v2(size), 0x800080FF, v42v2(r));
 }
 
 static
@@ -11225,7 +11234,7 @@ void skinned_draw_sprite(float scale, atlas_t *a, atlas_slice_frame_t *f, vec4 r
     }
 
     if (!f->has_9slice) {
-        gui_drawrect(a->tex, v42v2(f->bounds), 0xFFFFFFFF, v42v2(r));
+        quad_render(a->tex, v42v2(f->bounds), 0xFFFFFFFF, v42v2(r));
         return;
     }
 
@@ -11260,15 +11269,15 @@ void skinned_draw_sprite(float scale, atlas_t *a, atlas_slice_frame_t *f, vec4 r
 
     vec4 center = {top_left.z, top_left.w, top_right.x, bottom_right.y};
 
-    gui_drawrect(a->tex, v42v2(center_slice), 0xFFFFFFFF, v42v2(center));
-    gui_drawrect(a->tex, v42v2(top_left_slice), 0xFFFFFFFF, v42v2(top_left));
-    gui_drawrect(a->tex, v42v2(top_right_slice), 0xFFFFFFFF, v42v2(top_right));
-    gui_drawrect(a->tex, v42v2(bottom_left_slice), 0xFFFFFFFF, v42v2(bottom_left));
-    gui_drawrect(a->tex, v42v2(bottom_right_slice), 0xFFFFFFFF, v42v2(bottom_right));
-    gui_drawrect(a->tex, v42v2(top_middle_slice), 0xFFFFFFFF, v42v2(top));
-    gui_drawrect(a->tex, v42v2(bottom_middle_slice), 0xFFFFFFFF, v42v2(bottom));
-    gui_drawrect(a->tex, v42v2(middle_left_slice), 0xFFFFFFFF, v42v2(left));
-    gui_drawrect(a->tex, v42v2(middle_right_slice), 0xFFFFFFFF, v42v2(right));
+    quad_render(a->tex, v42v2(center_slice), 0xFFFFFFFF, v42v2(center));
+    quad_render(a->tex, v42v2(top_left_slice), 0xFFFFFFFF, v42v2(top_left));
+    quad_render(a->tex, v42v2(top_right_slice), 0xFFFFFFFF, v42v2(top_right));
+    quad_render(a->tex, v42v2(bottom_left_slice), 0xFFFFFFFF, v42v2(bottom_left));
+    quad_render(a->tex, v42v2(bottom_right_slice), 0xFFFFFFFF, v42v2(bottom_right));
+    quad_render(a->tex, v42v2(top_middle_slice), 0xFFFFFFFF, v42v2(top));
+    quad_render(a->tex, v42v2(bottom_middle_slice), 0xFFFFFFFF, v42v2(bottom));
+    quad_render(a->tex, v42v2(middle_left_slice), 0xFFFFFFFF, v42v2(left));
+    quad_render(a->tex, v42v2(middle_right_slice), 0xFFFFFFFF, v42v2(right));
 }
 
 static
@@ -11327,6 +11336,63 @@ guiskin_t gui_skinned(const char *asefile, float scale) {
     skin.getscissorrect = skinned_getscissorrect;
     skin.free = skinned_free;
     return skin;
+}
+#line 0
+
+#line 1 "fwk_hash.c"
+// hash helper utilities
+
+uint32_t hh_mem(const void *data, size_t size) {
+    const uint8_t *ptr = (const uint8_t *)data;
+    uint32_t hash = 0;
+    for (size_t i = 0; i < size; ++i) {
+        hash = (hash * 31) + ptr[i];
+    }
+    return hash;
+}
+
+uint32_t hh_str(const char* str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+uint32_t hh_float(float f) {
+    union { float f; uint32_t i; } u;
+    u.f = f;
+    return u.i;
+}
+
+uint32_t hh_int(int i) {
+    return (uint32_t)i;
+}
+
+uint32_t hh_vec2(vec2 v) {
+    return hh_float(v.x) ^ (hh_float(v.y) << 1);
+}
+
+uint32_t hh_vec3(vec3 v) {
+    return hh_float(v.x) ^ (hh_float(v.y) << 1) ^ (hh_float(v.z) << 2);
+}
+
+uint32_t hh_vec4(vec4 v) {
+    return hh_float(v.x) ^ (hh_float(v.y) << 1) ^ (hh_float(v.z) << 2) ^ (hh_float(v.w) << 3);
+}
+
+uint32_t hh_mat33(mat33 m) {
+    uint32_t hash = 0;
+    for (int i = 0; i < 9; ++i)
+        hash ^= hh_float(m[i]) << i;
+    return hash;
+}
+
+uint32_t hh_mat44(mat44 m) {
+    uint32_t hash = 0;
+    for (int i = 0; i < 16; ++i)
+        hash ^= hh_float(m[i]) << i;
+    return hash;
 }
 #line 0
 
@@ -12176,6 +12242,19 @@ float simplex4( vec4 v ) { return snoise4(v.x,v.y,v.z,v.w); }
 float deg      (float radians)      { return radians / C_PI * 180.0f; }
 float rad      (float degrees)      { return degrees * C_PI / 180.0f; }
 
+float cycle180 (float angle) {
+    angle = fmod(angle, 360.0f);
+    if (angle > 180.0f) angle -= 360.0f;
+    if (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+float cycle360 (float angle) {
+    angle = fmod(angle, 360.0f);
+    if (angle < 0.0f) angle += 360.0f;
+    return angle;
+}
+
 int   mini     (int    a, int    b) { return a < b ? a : b; }
 int   maxi     (int    a, int    b) { return a > b ? a : b; }
 int   absi     (int    a          ) { return a < 0 ? -a : a; }
@@ -12324,7 +12403,7 @@ vec4 clamp4f(vec4 v,float a,float b){ return vec4(maxf(minf(b,v.x),a),maxf(minf(
 
 // ----------------------------------------------------------------------------
 
-quat  idq      (                  ) { return quat(1,0,0,0); } // 0,0,0,1?
+quat  idq      (                  ) { return quat(0,0,0,1); }
 quat  ptrq     (const float *a    ) { return quat(a[0],a[1],a[2],a[3]); }
 quat  vec3q    (vec3   a, float w ) { return quat(a.x,a.y,a.z,w); }
 quat  vec4q    (vec4   a          ) { return quat(a.x,a.y,a.z,a.w); }
@@ -12390,27 +12469,20 @@ vec3 rotate3q(vec3 v, quat r) { // rotate vec3 by quat @testme
 }
 
 // euler <-> quat
-vec3  euler    (quat q) { // bugs? returns PitchYawRoll (PYR) in degrees. ref: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
-    float sr_cp = 2*(q.x*q.y + q.z*q.w), cr_cp = 1-2*(q.y*q.y + q.z*q.z);
-    float sy_cp = 2*(q.x*q.w + q.y*q.z), cy_cp = 1-2*(q.z*q.z + q.w*q.w), sp = 2*(q.x*q.z-q.w*q.y);
-    float p = fabs(sp) >= 1 ? copysignf(C_PI / 2, sp) : asinf(sp);
-    float y = atan2f(sy_cp, cy_cp);
-    float r = atan2f(sr_cp, cr_cp);
-    return scale3(vec3(p, y, r), TO_DEG);
+vec3  euler    (quat q) { // returns YawPitchRoll (YPR) in degrees. ref: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    float sr_cy = 2*(q.z*q.w + q.x*q.y), cr_cy = 1-2*(q.y*q.y + q.z*q.z);
+    float sp_cy = 2*(q.y*q.w - q.x*q.z), cp_cy = 1-2*(q.z*q.z + q.w*q.w), sy = 2*(q.x*q.w+q.y*q.z);
+    float y = fabs(sy) >= 1 ? copysignf(C_PI / 2, sy) : asinf(sy);
+    float p = atan2f(sp_cy, cp_cy);
+    float r = atan2f(sr_cy, cr_cy);
+    return scale3(vec3(y, p, r), TO_DEG);
 }
 
-quat  eulerq   (vec3 pyr_degrees) { // bugs?
-#if 0
-    quat x = vec3q(vec3(1,0,0),rad(pyr_degrees.x)); // x, not pitch
-    quat y = vec3q(vec3(0,1,0),rad(pyr_degrees.y)); // y, not yaw
-    quat z = vec3q(vec3(0,0,1),rad(pyr_degrees.z)); // z, not row
-    return normq(mulq(mulq(x, y), z));
-#else
+quat  eulerq   (vec3 pyr_degrees) {
     float p = rad(pyr_degrees.x), y = rad(pyr_degrees.y), r = rad(pyr_degrees.z);
-    float ha = p * 0.5f, hb = r * 0.5f, hc = y * 0.5f;
+    float ha = y * 0.5f, hb = r * 0.5f, hc = p * 0.5f;
     float cp = cosf(ha), sp = sinf(ha), cr = cosf(hb), sr = sinf(hb), cy = cosf(hc), sy = sinf(hc);
-    return quat(cy*cr*cp + sy*sr*sp, cy*sr*cp - sy*cr*sp, cy*cr*sp + sy*sr*cp, sy*cr*cp - cy*sr*sp);
-#endif
+    return quat(cy*sr*cp - sy*cr*sp, cy*cr*sp + sy*sr*cp, sy*cr*cp - cy*sr*sp, cy*cr*cp + sy*sr*sp);
 }
 
 // ----------------------------------------------------------------------------
@@ -12619,6 +12691,20 @@ void lookat44(mat44 m, vec3 eye, vec3 center, vec3 up) {
     m[ 4] = r.y;           m[ 5] = u.y;           m[ 6] = -f.y;         m[ 7] = 0;
     m[ 8] = r.z;           m[ 9] = u.z;           m[10] = -f.z;         m[11] = 0;
     m[12] = -dot3(r, eye); m[13] = -dot3(u, eye); m[14] = dot3(f, eye); m[15] = 1;
+}
+vec3 pos44(mat44 m) {
+    vec3 position;
+    
+    // The camera position is the negation of the translation vector
+    // transformed by the inverse of the rotation matrix.
+    // Since the upper-left 3x3 part of the view matrix is orthogonal,
+    // its inverse is equal to its transpose.
+    
+    position.x = -(m[0] * m[12] + m[1] * m[13] + m[2] * m[14]);
+    position.y = -(m[4] * m[12] + m[5] * m[13] + m[6] * m[14]);
+    position.z = -(m[8] * m[12] + m[9] * m[13] + m[10] * m[14]);
+    
+    return position;
 }
 // ---
 void translation44(mat44 m, float x, float y, float z) { // identity4 + translate4
@@ -16647,6 +16733,7 @@ AUTOTEST {
 
 #line 1 "fwk_render.c"
 // -----------------------------------------------------------------------------
+
 // opengl
 
 #define GL_COMPRESSED_RGB_S3TC_DXT1_EXT   0x83F0
@@ -16767,11 +16854,21 @@ renderstate_t renderstate() {
     // Disable scissor test by default
     state.scissor_test_enabled = GL_FALSE;
 
+    // Enable seamless cubemap by default
+    state.seamless_cubemap = GL_TRUE;
+
+    // Disable depth clamp by default
+    state.depth_clamp_enabled = GL_FALSE;
+
     return state;
 }
 
 bool renderstate_compare(const renderstate_t *stateA, const renderstate_t *stateB) {
     return memcmp(stateA, stateB, sizeof(renderstate_t)) == 0;
+}
+
+uint32_t renderstate_checksum(const renderstate_t *state) {
+    return 0;//hash_bin(state, sizeof(renderstate_t));
 }
 
 static renderstate_t last_rs;
@@ -16873,6 +16970,20 @@ void renderstate_apply(const renderstate_t *state) {
         } else {
             glDisable(GL_SCISSOR_TEST);
         }
+
+        // Apply seamless cubemap
+        if (state->seamless_cubemap) {
+            glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+        } else {
+            glDisable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+        }
+
+        // Apply depth clamp
+        if (state->depth_clamp_enabled) {
+            glEnable(GL_DEPTH_CLAMP);
+        } else {
+            glDisable(GL_DEPTH_CLAMP);
+        }
     }
 }
 
@@ -16907,7 +17018,7 @@ GLuint shader_compile( GLenum type, const char *source ) {
 
         // dump log with line numbers
         shader_print( source );
-        PANIC("!ERROR: shader_compile(): %s\n%s\n", type == GL_VERTEX_SHADER ? "Vertex" : "Fragment", buf);
+        PANIC("!ERROR: shader_compile():\nDevice: %s\nDriver: %s\nShader/program link: %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION), buf);
         return 0;
     }
 
@@ -16926,11 +17037,13 @@ char *shader_preprocess(const char *src, const char *defines) {
                        "#define textureQueryLod(t,uv) vec2(0.,0.)\n" // "#extension GL_EXT_texture_query_lod : enable\n"
                        "#define MEDIUMP mediump\n"
                        "precision MEDIUMP float;\n";
-    const char *desktop = strstr(src, "textureQueryLod") ? "#version 400\n#define MEDIUMP\n" : "#version 330\n#define MEDIUMP\n";
+    
+    char *processed_src = file_preprocess(src, NULL, vfs_read, "shader()");
+    const char *desktop = strstr(processed_src, "textureQueryLod") ? "#version 400\n#define MEDIUMP\n" : "#version 330\n#define MEDIUMP\n";
     const char *glsl_version = ifdef(ems, gles, desktop);
 
     // detect GLSL version if set
-    if (src[0] == '#' && src[1] == 'v') {
+    if (processed_src[0] == '#' && processed_src[1] == 'v') {
         #if 0
         const char *end = strstri(src, "\n");
         glsl_version = va("%.*s", (int)(end-src), src);
@@ -16940,7 +17053,25 @@ char *shader_preprocess(const char *src, const char *defines) {
         #endif
     }
 
-    return va("%s\n%s\n%s", glsl_version, defines ? defines : "", src);
+    // char *preamble = vfs_read("shaderlib/compat.glsl");
+    const char *preamble = ""
+        "#ifndef HAS_TEXTURE_QUERY_LOD\n"
+        "#define textureQueryLod(t,c) vec2(0.0,0.0)\n"
+        "#else\n"
+        "#extension GL_EXT_texture_query_lod : enable\n"
+        "#endif\n";
+
+    ASSERT(preamble);
+    char *extensions = "";
+    {
+        // Check if GL_ARB_texture_query_lod extension is available
+        if (ifdef(ems,0,GLAD_GL_ARB_texture_query_lod)) {
+            extensions = va("%s", "#define HAS_TEXTURE_QUERY_LOD 1\n");
+        }
+    }
+
+    char *dst = va("%s\n%s\n%s\n%s\n%s", glsl_version, extensions, preamble, defines ? defines : "", processed_src);
+    return FREE(processed_src), dst;
 }
 
 unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char *attribs, const char *fragcolor, const char *defines) {
@@ -17006,10 +17137,8 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
                 puts("--- gs:");
                 shader_print(gs);
             }
-        }
-        if (status == GL_FALSE) {
-            PANIC("ERROR: shader(): Shader/program link: %s\n", buf);
-            return 0;
+
+            PANIC("ERROR: shader():\nDevice: %s\nDriver: %s\nShader/program link: %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION), buf);
         }
 
         glDeleteShader(vert);
@@ -17022,6 +17151,8 @@ unsigned shader_geom(const char *gs, const char *vs, const char *fs, const char 
 //        shader_print(fs);
 //#endif
     }
+
+    glFinish();
 
 /*
     if( s->program ) {
@@ -17345,6 +17476,38 @@ void ssbo_unbind(){
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
+// ubo
+
+unsigned ubo_create(void *data, int size, unsigned usage) {
+    static GLuint gl_usage[] = { GL_STATIC_DRAW, GL_STATIC_READ, GL_STATIC_COPY, GL_DYNAMIC_DRAW, GL_DYNAMIC_READ, GL_DYNAMIC_COPY, GL_STREAM_DRAW, GL_STREAM_READ, GL_STREAM_COPY };
+    GLuint ubo;
+    glGenBuffers(1, &ubo);
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBufferData(GL_UNIFORM_BUFFER, size, data, gl_usage[usage]);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    return ubo;
+}
+
+void ubo_update(unsigned ubo, int offset, void *data, int size) {
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void ubo_bind(unsigned ubo, unsigned unit) {
+    glBindBufferBase(GL_UNIFORM_BUFFER, unit, ubo);
+}
+
+void ubo_unbind(unsigned unit) {
+    glBindBufferBase(GL_UNIFORM_BUFFER, unit, 0);
+}
+
+void ubo_destroy(unsigned ubo) {
+    glDeleteBuffers(1, &ubo);
+}
+
+// shaders
+
 static __thread unsigned last_shader = -1;
 
 int shader_uniform(const char *name) {
@@ -17367,10 +17530,15 @@ static inline void shader_cubemap_(int sampler, unsigned texture) {
 }
 static inline void shader_bool_(int uniform, bool x) { glUniform1i(uniform, x); }
 static inline void shader_uint_(int uniform, unsigned x ) { glUniform1ui(uniform, x); }
-static inline void shader_texture_unit_(int sampler, unsigned id, unsigned unit) {
+static inline void shader_texture_unit_kind_(int kind, int sampler, unsigned id, unsigned unit) {
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(kind, id);
     glUniform1i(sampler, unit);
+}
+static inline void shader_texture_unit_(int sampler, unsigned id, unsigned unit) {
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_2D, id);
+    glUniform1i(sampler, unit);
 }
 static inline void shader_texture_(int sampler, texture_t t) { shader_texture_unit_(sampler, t.id, texture_unit()); }
 
@@ -17530,8 +17698,8 @@ vec3 bilinear(image_t in, vec2 uv) { // image_bilinear_pixel() ?
 // -----------------------------------------------------------------------------
 // textures
 
+static int textureUnit = 0, totalTextureUnits = 0;
 int texture_unit() {
-    static int textureUnit = 0, totalTextureUnits = 0;
     do_once glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &totalTextureUnits);
     // ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
     return textureUnit++ % totalTextureUnits;
@@ -17612,7 +17780,7 @@ if( flags & TEXTURE_MIPMAPS ) {
         GLfloat max_aniso = 0;
 //        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max_aniso);
 max_aniso = 4;
-//        glTexParameterf(texture_type, GL_TEXTURE_MAX_ANISOTROPY, max_aniso);
+       glTexParameterf(texture_type, GL_TEXTURE_MAX_ANISOTROPY, max_aniso);
 }
 
     // glBindTexture(texture_type, 0); // do not unbind. current code expects texture to be bound at function exit
@@ -17622,6 +17790,16 @@ max_aniso = 4;
     t->n = n;
     t->flags = flags;
     t->filename = t->filename ? t->filename : "";
+    t->transparent = 0;
+
+    if (t->n == 4 && pixels) {
+        for (int i = 0; i < w * h; i++) {
+            if (((uint8_t *)pixels)[i * 4 + 3] < 255) {
+                t->transparent = 1;
+                break;
+            }
+        }
+    }
 
     return t->id;
 }
@@ -17630,7 +17808,6 @@ texture_t texture_create(unsigned w, unsigned h, unsigned n, const void *pixels,
     texture_t texture = {0};
     glGenTextures( 1, &texture.id );
     texture_update( &texture, w, h, n, pixels, flags );
-    texture.transparent = texture.n > 3; // @fixme: should be true only if any pixel.a == 0
     return texture;
 }
 
@@ -18055,102 +18232,879 @@ texture_t texture_compressed(const char *pathfile, unsigned flags) {
     return texture_compressed_from_mem(data, size, flags);
 }
 
+
+// -----------------------------------------------------------------------------
+
+light_t light() {
+    light_t l = {0};
+    l.diffuse = vec3(1,1,1);
+    l.dir = vec3(1,-1,-1);
+    l.falloff.constant = 1.0f;
+    l.falloff.linear = 0.09f;
+    l.falloff.quadratic = 0.0032f;
+    l.specularPower = 32.f;
+    l.innerCone = 0.85f;// 31 deg
+    l.outerCone = 0.9f; // 25 deg
+    l.cast_shadows = true;
+    l.processed_shadows = false;
+    l.shadow_distance = 400.0f;
+    l.shadow_near_clip = 0.01f;
+    l.shadow_bias = 0.003f;
+    l.normal_bias = 0.0025f;
+    l.shadow_softness = 7.0f;
+    l.penumbra_size = 2.0f;
+    l.min_variance = 0.00002f;
+    l.variance_transition = 0.2f;
+    return l;
+}
+
+void light_type(light_t* l, char type) {
+    l->cached = 0;
+    l->type = type;
+}
+
+void light_diffuse(light_t* l, vec3 color) {
+    l->cached = 0;
+    l->diffuse = color;
+}
+
+void light_specular(light_t* l, vec3 color) {
+    l->cached = 0;
+    l->specular = color;
+}
+
+void light_ambient(light_t* l, vec3 color) {
+    l->cached = 0;
+    l->ambient = color;
+}
+
+void light_teleport(light_t* l, vec3 pos) {
+    l->cached = 0;
+    l->pos = pos;
+}
+
+void light_pos(light_t* l, vec3 pos) {
+    l->cached = 0;
+    l->pos = pos;
+}
+
+void light_dir(light_t* l, vec3 dir) {
+    l->cached = 0;
+    l->dir = dir;
+}
+
+void light_power(light_t* l, float power) {
+    l->cached = 0;
+    l->specularPower = power;
+}
+
+void light_falloff(light_t* l, float constant, float linear, float quadratic) {
+    l->cached = 0;
+    l->falloff.constant = constant;
+    l->falloff.linear = linear;
+    l->falloff.quadratic = quadratic;
+}
+
+void light_radius(light_t* l, float radius) {
+    l->cached = 0;
+    l->radius = radius;
+}
+
+void light_cone(light_t* l, float innerCone, float outerCone) {
+    l->cached = 0;
+    l->innerCone = acos(innerCone);
+    l->outerCone = acos(outerCone);
+}
+
+array(light_t) lightlist(const char *pathfile) {
+    light_t *lightlist = 0;
+    char *light_file = vfs_read(strendi(pathfile,".txt") ? pathfile : va("%s@lightlist.txt", pathfile));
+    if( light_file ) {
+        // deserialize light
+        for each_substring(light_file, "\r\n", light_line) {
+            light_t l = light();
+            int type;
+            vec3 position, direction, color;
+            float power;
+            char name[128] = {0};
+
+            if (sscanf(light_line, "light: %d %f %f %f %f %f %f %f %f %f %f %127[^\n]",
+                       &type, &position.x, &position.y, &position.z,
+                       &direction.x, &direction.y, &direction.z,
+                       &color.x, &color.y, &color.z,
+                       &power, name) != 12) continue;
+
+            l.type = type;
+            l.pos = position;
+            l.dir = direction;
+            // l.diffuse = scale3(color, power);
+            l.diffuse = color;
+            l.radius = power;
+            float falloff = power*0.005f;
+            // recalculate attenuation based on radius
+            l.falloff.constant = 1.0f/power;
+            l.falloff.linear = 0.0f;
+            l.falloff.quadratic = 1.0f/falloff/power;
+            l.name = STRDUP(name); //@leak
+
+            array_push(lightlist, l);
+        }
+    }
+    return lightlist;
+}
+
+static inline
+char *light_fieldname(const char *fmt, ...) {
+    static char buf[32];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return buf;
+}
+
+typedef struct light_object_t {
+    vec4 diffuse;
+    vec4 specular;
+    vec4 ambient;
+    vec4 pos;
+    vec4 dir;
+    float power;
+    float radius;
+    float innerCone;
+    float outerCone;
+    float constant;
+    float linear;
+    float quadratic;
+    float shadow_bias;
+    float normal_bias;
+    float min_variance;
+    float variance_transition;
+    float shadow_softness;
+    float penumbra_size;
+    int type;
+    int processed_shadows;
+    int _padding;
+} light_object_t;
+
+static inline
+void light_update(unsigned* ubo, unsigned num_lights, light_t *lv) {
+    if (num_lights > MAX_LIGHTS) {
+        num_lights = MAX_LIGHTS;
+    }
+
+    light_object_t lights[MAX_LIGHTS] = {0};
+    for (unsigned i = 0; i < num_lights; i++) {
+        light_object_t *light = &lights[i];
+        {
+            light->type = lv[i].type;
+            light->diffuse = vec34(lv[i].diffuse, 0.0f);
+            light->specular = vec34(lv[i].specular, 0.0f);
+            light->ambient = vec34(lv[i].ambient, 0.0f);
+            light->pos = vec34(lv[i].pos, 0.0f);
+            light->dir = vec34(lv[i].dir, 0.0f);
+            light->power = lv[i].specularPower;
+            light->radius = lv[i].radius;
+            light->innerCone = lv[i].innerCone;
+            light->outerCone = lv[i].outerCone;
+            light->processed_shadows = lv[i].processed_shadows;
+            light->constant = lv[i].falloff.constant;
+            light->linear = lv[i].falloff.linear;
+            light->quadratic = lv[i].falloff.quadratic;
+            light->shadow_bias = lv[i].shadow_bias;
+            light->normal_bias = lv[i].normal_bias;
+            light->min_variance = lv[i].min_variance;
+            light->variance_transition = lv[i].variance_transition;
+            light->shadow_softness = lv[i].shadow_softness;
+            light->penumbra_size = lv[i].penumbra_size;
+        }
+    }
+
+    shader_int("u_num_lights", num_lights);
+    ASSERT(ubo);
+
+    if (*ubo == 0 /* buffer not created */) {
+        *ubo = ubo_create(&lights[0], sizeof(light_object_t) * MAX_LIGHTS, STREAM_DRAW);
+    } else {
+        ubo_update(*ubo, 0, &lights[0], sizeof(light_object_t) * num_lights);
+    }
+
+    ubo_bind(*ubo, 0);
+
+    for (unsigned i=0; i < num_lights; ++i) {
+        lv[i].cached = 1;
+        bool processed = false;
+        if (lv[i].processed_shadows && lv[i].shadow_technique == SHADOW_CSM) {
+            processed = true;
+            for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+                shader_mat44(light_fieldname("light_shadow_matrix_csm[%d]", j), lv[i].shadow_matrix[j]);
+            }
+        }
+        if (processed) break;
+    }
+}
+
+void ui_light(light_t *l) {
+    ui_int("Type", &l->type);
+    ui_float3("Position", &l->pos.x);
+    ui_float3("Direction", &l->dir.x);
+    ui_color3f("Diffuse", &l->diffuse.x);
+    ui_color3f("Specular", &l->specular.x);
+    ui_color3f("Ambient", &l->ambient.x);
+    ui_float("Specular Power", &l->specularPower);
+    ui_clampf("Radius", &l->radius, 0.0f, FLT_MAX);
+    ui_clampf_("Constant Falloff", &l->falloff.constant, 0.0, FLT_MAX, 0.005);
+    ui_clampf_("Linear Falloff", &l->falloff.linear, 0.0, FLT_MAX, 0.005);
+    ui_clampf_("Quadratic Falloff", &l->falloff.quadratic, 0.0, FLT_MAX, 0.005);
+    ui_float("Inner Cone", &l->innerCone);
+    ui_float("Outer Cone", &l->outerCone);
+    ui_float_("Shadow Bias", &l->shadow_bias, 0.00005);
+    ui_float_("Normal Bias", &l->normal_bias, 0.00005);
+    ui_float_("Shadow Softness", &l->shadow_softness, 0.5);
+    ui_float_("Penumbra Size", &l->penumbra_size, 0.05f);
+    ui_float_("Min Variance", &l->min_variance, 0.00005);
+    ui_float_("Variance Transition", &l->variance_transition, 0.0005);
+}
+
+void ui_lights(unsigned num_lights, light_t *lights) {
+    for (unsigned i = 0; i < num_lights; ++i) {
+        if (ui_collapse(va("Light %d", i), va("light_%d", i))) {
+            ui_light(&lights[i]);
+            ui_collapse_end();
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // shadowmaps
 
-shadowmap_t shadowmap(int texture_width) { // = 1024
-    shadowmap_t s = {0};
-    s.texture_width = texture_width;
+static inline
+void shadowmap_init_common_resources(shadowmap_t *s, int vsm_texture_width, int csm_texture_width) {
+    // Create a cubemap depth texture for Variance Shadow Mapping (VSM)
+    glGenTextures(1, &s->depth_texture);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, s->depth_texture);
+    for (int i = 0; i < 6; i++) {
+        // Create a 16-bit depth component texture for each face of the cubemap
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_DEPTH_COMPONENT16, vsm_texture_width, vsm_texture_width, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, 0);
+    }
 
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &s.saved_fb);
+    // Unbind the cubemap texture
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+    // Create a 2D depth texture for Cascaded Shadow Mapping (CSM)
+    glGenTextures(1, &s->depth_texture_2d);
+    glBindTexture(GL_TEXTURE_2D, s->depth_texture_2d);
+    // Create a single 16-bit depth component texture
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, csm_texture_width, csm_texture_width, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, 0);
+
+    // Unbind the 2D texture
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+
+#if !is(ems)
+static inline void
+shadowmap_init_caster_vsm(shadowmap_t *s, int light_index, int texture_width) {
+    float borderColor[] = {1.0, 1.0, 1.0, 1.0};
+
+    if (s->maps[light_index].texture) {
+        return;
+    }
+
+    // Create a cubemap moments texture
+    glGenTextures(1, &s->maps[light_index].texture);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, s->maps[light_index].texture);
+    for (int i = 0; i < 6; i++) {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RG32F, texture_width, texture_width, 0, GL_RG, GL_FLOAT, 0);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BORDER_COLOR, borderColor);
+    
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
+static inline void
+shadowmap_init_caster_csm(shadowmap_t *s, int light_index, int texture_width) {
+    float borderColor[] = {1.0, 1.0, 1.0, 1.0};
+
+    if (s->maps[light_index].texture_2d[0]) {
+        return;
+    }
+
+    // Initialise shadow map 2D
+    for (int i = 0; i < NUM_SHADOW_CASCADES; i++) {
+        glGenTextures(1, &s->maps[light_index].texture_2d[i]);
+        glBindTexture(GL_TEXTURE_2D, s->maps[light_index].texture_2d[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, texture_width, texture_width, 0, GL_RED, GL_HALF_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+shadowmap_t shadowmap(int vsm_texture_width, int csm_texture_width) { // = 512, 4096
+    shadowmap_t s = {0};
+    s.vsm_texture_width = vsm_texture_width;
+    s.csm_texture_width = csm_texture_width;
+    s.saved_fb = 0;
+    s.filter_size = 6;
+    s.window_size = 10;
+
+    s.cascade_splits[0] = 0.1f;
+    s.cascade_splits[1] = 0.25f;
+    s.cascade_splits[2] = 0.75f;
+    s.cascade_splits[3] = 1.0f;  /* sticks to camera far plane */
 
     glGenFramebuffers(1, &s.fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, s.fbo);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &s.saved_fb);
 
-    glActiveTexture(GL_TEXTURE0);
-    glGenTextures(1, &s.texture);
-    glBindTexture(GL_TEXTURE_2D, s.texture);
+    for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+        s.maps[i].shadow_technique = 0xFFFF;
+        for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+            s.maps[i].cascade_distances[j] = 0.0f;
+        }
+    }
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, texture_width, texture_width, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, 0);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s.texture, 0);
-
-#if is(ems)
-    GLenum nones[] = { GL_NONE };
-    glDrawBuffers(1, nones);
-    glReadBuffer(GL_NONE);
-#else
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-#endif
+    shadowmap_init_common_resources(&s, vsm_texture_width, csm_texture_width);
 
     glBindFramebuffer(GL_FRAMEBUFFER, s.saved_fb);
     return s;
 }
 
-void shadowmap_destroy(shadowmap_t *s) {
-    if (s->texture) {
-        glDeleteTextures(1, &s->texture);
+static inline
+float shadowmap_offsets_build_jitter() {
+    return (randf() - 0.5f);    
+}
+
+static inline
+float *shadowmap_offsets_build_data(int filter_size, int window_size) {
+    int bufsize = filter_size * filter_size * window_size * window_size * 2;
+    float *data = MALLOC(bufsize * sizeof(float));
+
+    int index = 0;
+
+    for (int y = 0; y < window_size; y++) {
+        for (int x = 0; x < window_size; x++) {
+            for (int v = filter_size-1; v >= 0; v--) {
+                for (int u = 0; u < filter_size; u++) {
+                    float x = ((float)(u + 0.5f + shadowmap_offsets_build_jitter()) / (float)filter_size);
+                    float y = ((float)(v + 0.5f + shadowmap_offsets_build_jitter()) / (float)filter_size);
+                    ASSERT(index + 1 < bufsize);
+                    data[index+0] = sqrtf(y) * cosf(2 * M_PI * x);
+                    data[index+1] = sqrtf(y) * sinf(2 * M_PI * x);
+                    index += 2;
+                }
+            }
+        }
     }
-    if (s->fbo) {
-        glDeleteFramebuffers(1, &s->fbo);
+    return data;
+}
+
+void shadowmap_offsets_build(shadowmap_t *s, int filter_size, int window_size) {
+    if (s->offsets_texture) {
+        glDeleteTextures(1, &s->offsets_texture);
+        s->offsets_texture = 0;
+    }
+
+    s->filter_size = filter_size;
+    s->window_size = window_size;
+    int num_samples = filter_size * filter_size;
+
+    float *data = shadowmap_offsets_build_data(filter_size, window_size);
+
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &s->offsets_texture);
+    glBindTexture(GL_TEXTURE_3D, s->offsets_texture);
+    glTexStorage3D(GL_TEXTURE_3D, 1, GL_RGBA32F, num_samples / 2, window_size, window_size);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, num_samples / 2, window_size, window_size, GL_RGBA, GL_FLOAT, data);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    FREE(data);
+}
+
+static inline
+void shadowmap_destroy_light(shadowmap_t *s, int light_index) {
+    s->maps[light_index].gen = 0;
+    s->maps[light_index].shadow_technique = 0xFFFF;
+
+    if (s->maps[light_index].texture) {
+        glDeleteTextures(1, &s->maps[light_index].texture);
+        s->maps[light_index].texture = 0;
+    }
+    
+    for (int i = 0; i < NUM_SHADOW_CASCADES; i++) {
+        if (s->maps[light_index].texture_2d[i]) {
+            glDeleteTextures(1, &s->maps[light_index].texture_2d[i]);
+            s->maps[light_index].texture_2d[i] = 0;
+        }
+    }
+}
+
+void shadowmap_destroy(shadowmap_t *s) {
+    for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+        shadowmap_destroy_light(s, i);
+    }
+
+    if (s->depth_texture) {
+        glDeleteTextures(1, &s->depth_texture);
+        s->depth_texture = 0;
+    }
+
+    if (s->depth_texture_2d) {
+        glDeleteTextures(1, &s->depth_texture_2d);
+        s->depth_texture_2d = 0;
+    }
+
+    shadowmap_t z = {0};
+    *s = z;
+}
+
+static shadowmap_t *active_shadowmap = NULL;
+
+void shadowmap_begin(shadowmap_t *s) {
+    glGetIntegerv(GL_VIEWPORT, s->saved_vp);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &s->saved_fb);
+
+    for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+        if (s->maps[i].gen != s->gen) {
+            shadowmap_destroy_light(s, i);
+        }
+    }
+
+    if (s->filter_size != s->old_filter_size || s->window_size != s->old_window_size) {
+        shadowmap_offsets_build(s, s->filter_size, s->window_size);
+        s->old_filter_size = s->filter_size;
+        s->old_window_size = s->window_size;
+    }
+
+    s->step = 0;
+    s->light_step = 0;
+    s->cascade_index = 0;
+    s->gen++;
+    active_shadowmap = s;
+    s->saved_pass = model_getpass();
+}
+
+static void shadowmap_light_point(shadowmap_t *s, light_t *l, int dir) {
+    if(dir<0) return;
+    mat44 P, V, PV;
+    perspective44(P, 90.0f, 1.0f, l->shadow_near_clip, l->shadow_distance);
+    vec3 lightPos = l->pos;
+
+    /**/ if(dir == 0) lookat44(V, lightPos, add3(lightPos, vec3(+1,  0,  0)), vec3(0, -1,  0)); // +X
+    else if(dir == 1) lookat44(V, lightPos, add3(lightPos, vec3(-1,  0,  0)), vec3(0, -1,  0)); // -X
+    else if(dir == 2) lookat44(V, lightPos, add3(lightPos, vec3( 0, +1,  0)), vec3(0,  0, +1)); // +Y
+    else if(dir == 3) lookat44(V, lightPos, add3(lightPos, vec3( 0, -1,  0)), vec3(0,  0, -1)); // -Y
+    else if(dir == 4) lookat44(V, lightPos, add3(lightPos, vec3( 0,  0, +1)), vec3(0, -1,  0)); // +Z
+    else /*dir == 5*/ lookat44(V, lightPos, add3(lightPos, vec3( 0,  0, -1)), vec3(0, -1,  0)); // -Z
+    multiply44x2(PV, P, V); // -Z
+
+    copy44(s->V, V);
+    copy44(s->PV, PV);
+    
+    l->processed_shadows = true;
+    s->shadow_technique = l->shadow_technique = SHADOW_VSM;
+    model_setpass(RENDER_PASS_SHADOW_VSM);
+}
+
+static array(vec3) frustum_corners = 0;
+
+static inline
+void shadowmap_light_directional_calc_frustum_corners(mat44 cam_proj, mat44 cam_view) {
+    mat44 PV; multiply44x2(PV, cam_proj, cam_view);
+    mat44 inverse_view_proj; invert44(inverse_view_proj, PV);
+    array_resize(frustum_corners, 0);
+    for (unsigned x = 0; x < 2; x++) {
+        for (unsigned y = 0; y < 2; y++) {
+            for (unsigned z = 0; z < 2; z++) {
+                vec4 corner = {
+                    x * 2.0f - 1.0f,
+                    y * 2.0f - 1.0f,
+                    z * 2.0f - 1.0f,
+                    1.0f
+                };
+                vec4 world_corner = transform444(inverse_view_proj, corner);
+                world_corner = scale4(world_corner, 1.0f / world_corner.w);
+                array_push(frustum_corners, vec3(world_corner.x, world_corner.y, world_corner.z));
+            }
+        }
+    }
+}
+
+static void shadowmap_light_directional(shadowmap_t *s, light_t *l, int dir, float cam_fov, float cam_far, mat44 cam_view) {
+    if (dir != 0) {
+        s->skip_render = true;
+        return;
+    }
+
+    float far_plane = 0.0f;
+    float near_plane = 0.0f;
+
+    if (s->cascade_index == 0) {
+        near_plane = l->shadow_near_clip;
+        far_plane = l->shadow_distance * s->cascade_splits[0];
+    } else if (s->cascade_index < NUM_SHADOW_CASCADES - 1) {
+        near_plane = l->shadow_distance * s->cascade_splits[s->cascade_index-1];
+        far_plane = l->shadow_distance * s->cascade_splits[s->cascade_index];
+    } else {
+        near_plane = l->shadow_distance * s->cascade_splits[NUM_SHADOW_CASCADES-1];
+        far_plane = cam_far;
+    }
+
+    mat44 proj; perspective44(proj, 75, 1.0f, near_plane, far_plane);
+    shadowmap_light_directional_calc_frustum_corners(proj, cam_view);
+    vec3 center = {0,0,0};
+    float sphere_radius = 0.0f;
+    for (unsigned i = 0; i < array_count(frustum_corners); i++) {
+        center = add3(center, frustum_corners[i]);
+        float dist = len3(frustum_corners[i]);
+        sphere_radius = max(sphere_radius, dist);
+    }
+    center = scale3(center, 1.0f / array_count(frustum_corners));
+
+
+    s->maps[s->light_step].cascade_distances[s->cascade_index] = far_plane;
+
+    float minX = FLT_MAX, maxX = FLT_MIN;
+    float minY = FLT_MAX, maxY = FLT_MIN;
+    float minZ = FLT_MAX, maxZ = FLT_MIN;
+
+    mat44 V;
+    vec3 lightDir = norm3(l->dir);
+    vec3 up = vec3(0, 1, 0);
+
+    lookat44(V, sub3(center, scale3(lightDir, sphere_radius)), add3(center, scale3(lightDir, sphere_radius)), up);
+
+    for (unsigned i = 0; i < array_count(frustum_corners); i++) {
+        vec3 corner = frustum_corners[i];
+
+        corner = transform344(V, corner);
+        minX = min(minX, corner.x);
+        maxX = max(maxX, corner.x);
+        minY = min(minY, corner.y);
+        maxY = max(maxY, corner.y);
+        minZ = min(minZ, corner.z);
+        maxZ = max(maxZ, corner.z);
+    }
+
+#if 0
+    float tmpZ = -minZ;
+    minZ = -maxZ;
+    maxZ = tmpZ;
+
+    float mid = (maxZ + minZ) * 0.5f;
+    minZ -= mid * 5.0f;
+    maxZ += mid * 5.0f;
+#endif
+
+    mat44 P, PV;
+    ortho44(P, 
+        minX, maxX, 
+        minY, maxY, 
+        // minZ, maxZ);
+        -maxZ, -minZ);
+
+    multiply44x2(PV, P, V);
+
+    copy44(s->V, V);
+    copy44(s->PV, PV);
+    copy44(l->shadow_matrix[s->cascade_index], PV);
+
+    l->processed_shadows = true;
+    l->cached = 0;
+    s->shadow_technique = l->shadow_technique = SHADOW_CSM;
+    model_setpass(RENDER_PASS_SHADOW_CSM);
+}
+
+static inline
+bool shadowmap_step_finish(shadowmap_t *s) {
+    if (s->shadow_technique == SHADOW_CSM) {
+        if (s->cascade_index < NUM_SHADOW_CASCADES-1) {
+            s->cascade_index++;
+            s->step = 0;
+            return false;
+        }
+    }
+
+    s->step = 0;
+    s->light_step++;
+    s->cascade_index = 0;
+    model_setpass(s->saved_pass);
+    return true;
+}
+
+bool shadowmap_step(shadowmap_t *s) {
+    int max_steps = s->shadow_technique == 0xffff ? 1 : s->shadow_technique == SHADOW_CSM ? 1 : 6;
+    if (s->step >= max_steps) {
+        return !shadowmap_step_finish(s);
+    }
+
+    if (s->light_step >= MAX_SHADOW_LIGHTS) {
+        return false;
+    }
+
+    s->step++;
+    s->skip_render = false;
+    s->lights_pushed = 0;
+    return true;
+}
+
+static inline
+void shadowmap_clear_fbo() {
+    glClearColor(1, 1, 1, 1);
+    glClearDepth(1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void shadowmap_light(shadowmap_t *s, light_t *l, mat44 cam_proj, mat44 cam_view) {
+    l->processed_shadows = false;
+    if (l->cast_shadows) {
+        int step = s->step - 1;
+
+        float y_scale = cam_proj[5];
+        float cam_fov = (2.0f * atan(1.0f / y_scale)) * TO_DEG;
+        float cam_far = 0.0f; {
+            float m22 = cam_proj[10];
+            float m32 = cam_proj[14];
+            float near_plane = -m32 / (m22 + 1.0f);
+            cam_far = (2.0f * near_plane) / (m22 - 1.0f);
+            cam_far *= 0.5f;
+        }
+
+        if (l->type == LIGHT_POINT || l->type == LIGHT_SPOT) {
+            shadowmap_light_point(s, l, step);
+        } else if (l->type == LIGHT_DIRECTIONAL) {
+            shadowmap_light_directional(s, l, step, cam_fov, cam_far, cam_view);
+        }
+
+        if (s->skip_render) {
+            return;
+        }
+
+        if (s->maps[s->light_step].shadow_technique != l->shadow_technique) {
+            shadowmap_destroy_light(s, s->light_step);
+            if (l->shadow_technique == SHADOW_VSM) {
+                shadowmap_init_caster_vsm(s, s->light_step, s->vsm_texture_width);
+            } else if (l->shadow_technique == SHADOW_CSM) {
+                shadowmap_init_caster_csm(s, s->light_step, s->csm_texture_width);
+            }
+        }
+
+        s->maps[s->light_step].gen = s->gen;
+        s->maps[s->light_step].shadow_technique = l->shadow_technique;
+
+        ASSERT(s->lights_pushed == 0);
+        s->lights_pushed++;
+
+        if (l->type == LIGHT_DIRECTIONAL) {
+            glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->maps[s->light_step].texture_2d[s->cascade_index], 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s->depth_texture_2d, 0);
+            shadowmap_clear_fbo();
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + step, s->maps[s->light_step].texture, 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_CUBE_MAP_POSITIVE_X + step, s->depth_texture, 0);
+            shadowmap_clear_fbo();
+        }
+    
+        unsigned texture_width = s->shadow_technique == SHADOW_VSM ? s->vsm_texture_width : s->csm_texture_width;
+        glViewport(0, 0, texture_width, texture_width);
+
+        s->shadow_frustum = frustum_build(s->PV);
+    }
+}
+
+void shadowmap_end(shadowmap_t *s) {
+    glViewport(s->saved_vp[0], s->saved_vp[1], s->saved_vp[2], s->saved_vp[3]);
+    glBindFramebuffer(GL_FRAMEBUFFER, s->saved_fb);
+    active_shadowmap = NULL;
+
+    // calculate vram usage
+    s->vram_usage = 0;
+    s->vram_usage_total = 0;
+    s->vram_usage_vsm = 0;
+    s->vram_usage_csm = 0;
+    {
+        // Common resources
+        s->vram_usage += 6 * s->vsm_texture_width * s->vsm_texture_width * 2; // VSM depth texture (GL_DEPTH_COMPONENT16)
+        s->vram_usage += s->csm_texture_width * s->csm_texture_width * 2; // CSM depth texture (GL_DEPTH_COMPONENT16)
+
+        // Per-light resources
+        for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+            if (s->maps[i].shadow_technique == SHADOW_VSM) {
+                // VSM cubemap texture (GL_RGB32F)
+                s->vram_usage_vsm += 6 * s->vsm_texture_width * s->vsm_texture_width * 8;
+            } else if (s->maps[i].shadow_technique == SHADOW_CSM) {
+                // CSM textures (GL_RG16F)
+                s->vram_usage_csm += NUM_SHADOW_CASCADES * s->csm_texture_width * s->csm_texture_width * 2;
+            }
+        }
+        s->vram_usage_total = s->vram_usage + s->vram_usage_vsm + s->vram_usage_csm;
+    }
+}
+
+void ui_shadowmap(shadowmap_t *s) {
+    if (!s) return;
+
+    int vsm_width = s->vsm_texture_width;
+    int csm_width = s->csm_texture_width;
+    ui_int("Texture Width (VSM)", &vsm_width);
+    ui_int("Texture Width (CSM)", &csm_width);
+
+    if (ui_collapse("Shadowmap Offsets", "shadowmap_offsets")) {
+        ui_int("Filter Size", &s->filter_size);
+        ui_int("Window Size", &s->window_size);
+        ui_collapse_end();
+    }
+
+    if (ui_collapse("VRAM Usage", "vram_usage")) {
+        ui_label2("Total VRAM", va("%lld KB", s->vram_usage_total / 1024));
+        ui_label2("VSM VRAM", va("%lld KB", s->vram_usage_vsm / 1024));
+        ui_label2("CSM VRAM", va("%lld KB", s->vram_usage_csm / 1024));
+        ui_label2("Depth Texture VRAM", va("%lld KB", s->vram_usage / 1024));
+        ui_collapse_end();
+    }
+}
+#else // @todo ems support
+shadowmap_t shadowmap(int vsm_texture_width, int csm_texture_width) { // = 512, 4096
+    shadowmap_t s = {0};
+    s.vsm_texture_width = vsm_texture_width;
+    s.csm_texture_width = csm_texture_width;
+    s.saved_fb = 0;
+    s.filter_size = 8;
+    s.window_size = 10;
+    s.cascade_splits[0] = 0.1f;
+    s.cascade_splits[1] = 0.5f;
+    s.cascade_splits[2] = 1.0f;
+    s.cascade_splits[3] = 1.0f;  /* sticks to camera far plane */
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &s.saved_fb);
+    glBindFramebuffer(GL_FRAMEBUFFER, s.saved_fb);
+    return s;
+}
+
+static inline
+void shadowmap_destroy_light(shadowmap_t *s, int light_index) {
+    s->maps[light_index].gen = 0;
+    s->maps[light_index].shadow_technique = 0xFFFF;
+}
+
+void shadowmap_destroy(shadowmap_t *s) {
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        shadowmap_destroy_light(s, i);
     }
     shadowmap_t z = {0};
     *s = z;
 }
 
-void shadowmap_set_shadowmatrix(shadowmap_t *s, vec3 aLightPos, vec3 aLightAt, vec3 aLightUp, const mat44 projection) {
-    copy44(s->proj, projection);
-    s->light_position = vec4(aLightPos.x, aLightPos.y, aLightPos.z, 1);
-    lookat44(s->mv, aLightPos, aLightAt, aLightUp);
-
-    mat44 bias = {
-        0.5, 0.0, 0.0, 0.0,
-        0.0, 0.5, 0.0, 0.0,
-        0.0, 0.0, 0.5, 0.0,
-        0.5, 0.5, 0.5, 1.0 };
-
-    // s->shadowmatrix = bias;
-    // s->shadowmatrix *= s->proj;
-    // s->shadowmatrix *= s->mv;
-//  multiply44x3(s->shadowmatrix, s->mv, s->proj, bias);
-    multiply44x3(s->shadowmatrix, bias, s->proj, s->mv);
-
-    // mvp = projection * s->mv;
-//  multiply44x2(s->mvp, s->mv, projection);
-    multiply44x2(s->mvp, projection, s->mv);
-}
+static shadowmap_t *active_shadowmap = NULL;
 
 void shadowmap_begin(shadowmap_t *s) {
-    glGetIntegerv(GL_VIEWPORT, &s->saved_viewport[0]);
+    glGetIntegerv(GL_VIEWPORT, s->saved_vp);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &s->saved_fb);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
-    glViewport(0, 0, s->texture_width, s->texture_width);
+    for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+        if (s->maps[i].gen != s->gen) {
+            shadowmap_destroy_light(s, i);
+        }
+    }
 
-    glClearDepth(1);
-    glClear(GL_DEPTH_BUFFER_BIT);
+    s->step = 0;
+    s->light_step = 0;
+    s->cascade_index = 0;
+    s->gen++;
+    active_shadowmap = s;
+    s->saved_pass = model_getpass();
+}
+
+bool shadowmap_step(shadowmap_t *s) {
+    s->skip_render = true;
+    return false;
+}
+
+void shadowmap_light(shadowmap_t *s, light_t *l, mat44 cam_proj, mat44 cam_view) {
+    l->processed_shadows = false;
 }
 
 void shadowmap_end(shadowmap_t *s) {
-    glViewport(s->saved_viewport[0], s->saved_viewport[1], s->saved_viewport[2], s->saved_viewport[3]);
-    glBindFramebuffer(GL_FRAMEBUFFER, s->saved_fb);
 }
 
-// shadowmap utils
+void ui_shadowmap(shadowmap_t *s) {
+}
+#endif
+// -----------------------------------------------------------------------------
+// Occlusion queries
 
-void shadowmatrix_proj(mat44 shm_proj, float aLightFov, float znear, float zfar) {
-    perspective44(shm_proj, aLightFov, 1.0f, znear, zfar);
+static renderstate_t query_test_rs;
+
+static inline
+unsigned query_adjust_samples_msaa(unsigned samples) {
+    if (window_msaa() > 1) {
+        return samples / window_msaa();
+    }
+    return samples;
 }
 
-void shadowmatrix_ortho(mat44 shm_proj, float left, float right, float bottom, float top, float znear, float zfar) {
-    ortho44(shm_proj, left, right, bottom, top, znear, zfar);
+static inline
+void query_test_rs_init() {
+    do_once {
+        query_test_rs = renderstate();
+        query_test_rs.depth_test_enabled = true;
+        query_test_rs.depth_write_enabled = false;
+        query_test_rs.depth_func = GL_LESS;
+        query_test_rs.point_size_enabled = 1;
+        query_test_rs.point_size = 1.0f;
+        memset(query_test_rs.color_mask, 0, sizeof(query_test_rs.color_mask));
+    }
+}
+
+unsigned query_test_point(mat44 proj, mat44 view, vec3 pos, float size) {
+    static int program = -1, vao = -1, u_mvp = -1, query = -1;
+    if( program < 0 ) {
+        const char* vs = vfs_read("shaders/query_point_vs.glsl");
+        const char* fs = vfs_read("shaders/query_point_fs.glsl");
+
+        program = shader(vs, fs, "", "fragcolor" , NULL);
+        u_mvp = glGetUniformLocation(program, "u_mvp");
+        glGenVertexArrays( 1, (GLuint*)&vao );
+        glGenQueries(1, (GLuint*)&query);
+        query_test_rs_init();
+    }
+
+    query_test_rs.point_size = size;
+    renderstate_apply(&query_test_rs);
+
+    int oldprog = last_shader;
+    glUseProgram( program );
+    
+    mat44 M; translation44(M, pos.x, pos.y, pos.z);
+    mat44 MVP; multiply44x3(MVP, proj, view, M);
+    glUniformMatrix4fv(u_mvp, 1, GL_FALSE, MVP);
+
+    glBindVertexArray( vao );
+
+    glBeginQuery(GL_SAMPLES_PASSED, query);
+    glDrawArrays( GL_POINTS, 0, 1 );
+    glEndQuery(GL_SAMPLES_PASSED);
+
+    GLuint samples_passed = 0;
+    glGetQueryObjectuiv(query, GL_QUERY_RESULT, &samples_passed);
+
+    glBindVertexArray( 0 );
+    glUseProgram( oldprog );
+    return query_adjust_samples_msaa(samples_passed);
 }
 
 // -----------------------------------------------------------------------------
@@ -18173,7 +19127,7 @@ void fullscreen_quad_rs_init() {
     }
 }
 
-void fullscreen_quad_rgb( texture_t texture ) {
+void fullscreen_quad_rgb_gamma( texture_t texture, float gamma ) {
     fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
@@ -18188,8 +19142,8 @@ void fullscreen_quad_rgb( texture_t texture ) {
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
     renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    float gamma = 1;
-    glUniform1f( u_inv_gamma, gamma );
+    float inv_gamma = 1.0f / gamma;
+    glUniform1f( u_inv_gamma, inv_gamma );
 
     glBindVertexArray( vao );
 
@@ -18203,10 +19157,9 @@ void fullscreen_quad_rgb( texture_t texture ) {
     glBindTexture( texture_type, 0 );
     glBindVertexArray( 0 );
     glUseProgram( 0 );
-//    glDisable( GL_BLEND );
 }
 
-void fullscreen_quad_rgb_flipped( texture_t texture ) {
+void fullscreen_quad_rgb_flipped_gamma( texture_t texture, float gamma ) {
     fullscreen_quad_rs_init();
     static int program = -1, vao = -1, u_inv_gamma = -1;
     if( program < 0 ) {
@@ -18221,8 +19174,8 @@ void fullscreen_quad_rgb_flipped( texture_t texture ) {
     GLenum texture_type = texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
     renderstate_apply(&fullscreen_quad_rs);
     glUseProgram( program );
-    float gamma = 1;
-    glUniform1f( u_inv_gamma, gamma );
+    float inv_gamma = 1.0f / gamma;
+    glUniform1f( u_inv_gamma, inv_gamma );
 
     glBindVertexArray( vao );
 
@@ -18236,7 +19189,14 @@ void fullscreen_quad_rgb_flipped( texture_t texture ) {
     glBindTexture( texture_type, 0 );
     glBindVertexArray( 0 );
     glUseProgram( 0 );
-//    glDisable( GL_BLEND );
+}
+
+void fullscreen_quad_rgb( texture_t texture_rgb ) {
+    fullscreen_quad_rgb_gamma(texture_rgb, 1.0f);
+}
+
+void fullscreen_quad_rgb_flipped( texture_t texture ) {
+    fullscreen_quad_rgb_flipped_gamma(texture, 1.0f);
 }
 
 void fullscreen_quad_ycbcr( texture_t textureYCbCr[3] ) {
@@ -18327,6 +19287,98 @@ void fullscreen_quad_ycbcr_flipped( texture_t textureYCbCr[3] ) {
     glBindVertexArray( 0 );
     glUseProgram( 0 );
 //    glDisable( GL_BLEND );
+}
+
+// -----------------------------------------------------------------------------
+// 2D quad drawing
+
+void quad_render_id( int texture_type, int texture_id, vec2 dims, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end ) {
+    static renderstate_t rect_rs;
+    do_once {
+        rect_rs = renderstate();
+        rect_rs.depth_test_enabled = false;
+        rect_rs.blend_enabled = true;
+        rect_rs.blend_src = GL_SRC_ALPHA;
+        rect_rs.blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+        rect_rs.front_face = GL_CW;
+    }
+    static int program = -1, vbo = -1, vao = -1, u_tint = -1, u_has_tex = -1, u_window_width = -1, u_window_height = -1;
+    float gamma = 1;
+    vec2 dpi = ifdef(osx, window_dpi(), vec2(1,1));
+    if( program < 0 ) {
+        const char* vs = vfs_read("shaders/rect_2d.vs");
+        const char* fs = vfs_read("shaders/rect_2d.fs");
+
+        program = shader(vs, fs, "", "fragcolor" , NULL);
+        ASSERT(program > 0);
+        u_tint = glGetUniformLocation(program, "u_tint");
+        u_has_tex = glGetUniformLocation(program, "u_has_tex");
+        u_window_width = glGetUniformLocation(program, "u_window_width");
+        u_window_height = glGetUniformLocation(program, "u_window_height");
+        glGenVertexArrays( 1, (GLuint*)&vao );
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    }
+
+    start = mul2(start, dpi);
+    end = mul2(end, dpi);
+
+    renderstate_apply(&rect_rs);
+
+    glUseProgram( program );
+
+    glBindVertexArray( vao );
+
+    glActiveTexture( GL_TEXTURE0 );
+    glBindTexture( texture_type, texture_id );
+
+    glUniform1i(u_has_tex, (texture_id != 0));
+    glUniform1f(u_window_width, (float)window_width());
+    glUniform1f(u_window_height, (float)window_height());
+
+    vec4 rgbaf = {((rgba>>24)&255)/255.f, ((rgba>>16)&255)/255.f,((rgba>>8)&255)/255.f,((rgba>>0)&255)/255.f};
+    glUniform4fv(u_tint, GL_TRUE, &rgbaf.x);
+
+    // normalize texture regions
+    if (texture_id != 0) {
+        tex_start.x /= dims.x;
+        tex_start.y /= dims.y;
+        tex_end.x /= dims.x;
+        tex_end.y /= dims.y;
+    }
+
+    GLfloat vertices[] = {
+        // Positions      // UVs
+        start.x, start.y, tex_start.x, tex_start.y,
+        end.x, start.y,   tex_end.x, tex_start.y,
+        end.x, end.y,     tex_end.x, tex_end.y,
+        start.x, start.y, tex_start.x, tex_start.y,
+        end.x, end.y,     tex_end.x, tex_end.y,
+        start.x, end.y,   tex_start.x, tex_end.y
+    };
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
+
+    glDrawArrays( GL_TRIANGLES, 0, 6 );
+    profile_incstat("Render.num_drawcalls", +1);
+    profile_incstat("Render.num_triangles", +2);
+
+    glBindTexture( texture_type, 0 );
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glBindVertexArray( 0 );
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram( 0 );
+}
+
+void quad_render( texture_t texture, vec2 tex_start, vec2 tex_end, int rgba, vec2 start, vec2 end ) {
+    quad_render_id(texture.flags & TEXTURE_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D, texture.id, vec2(texture.w, texture.h), tex_start, tex_end, rgba, start, end);
 }
 
 // -----------------------------------------------------------------------------
@@ -18476,12 +19528,298 @@ cubemap_t cubemap( const image_t in, int flags ) {
 void cubemap_destroy(cubemap_t *c) {
     glDeleteTextures(1, &c->id);
     c->id = 0; // do not destroy SH coefficients still. they might be useful in the future.
+
+    if (c->pixels) {
+        FREE(c->pixels);
+        glDeleteFramebuffers(6, c->framebuffers);
+        glDeleteTextures(6, c->textures);
+        glDeleteRenderbuffers(6, c->depth_buffers);
+    }
 }
 
 static cubemap_t *last_cubemap;
 
 cubemap_t* cubemap_get_active() {
     return last_cubemap;
+}
+
+// cubemap baker
+
+static int sky_last_fb;
+static int sky_last_vp[4];
+void cubemap_beginbake(cubemap_t *c, vec3 pos, unsigned width, unsigned height) {
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &sky_last_fb);
+    glGetIntegerv(GL_VIEWPORT, sky_last_vp);
+    c->step = 0;
+    c->pos = pos;
+
+    if (!c->pixels || (c->width != width || c->height != height)) {
+        c->pixels = REALLOC(c->pixels, width*height*12);
+        c->width = width;
+        c->height = height;
+
+        if (c->framebuffers[0]) {
+            glDeleteFramebuffers(6, c->framebuffers);
+            glDeleteTextures(6, c->textures);
+            glDeleteRenderbuffers(6, c->depth_buffers);
+            for(int i = 0; i < 6; ++i) {
+                c->framebuffers[i] = 0;
+            }
+        }
+    }
+
+    if (!c->framebuffers[0]) {
+        for(int i = 0; i < 6; ++i) {
+            glGenFramebuffers(1, &c->framebuffers[i]);
+            glBindFramebuffer(GL_FRAMEBUFFER, c->framebuffers[i]);
+            
+            glGenTextures(1, &c->textures[i]);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, c->textures[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, c->textures[i], 0);
+
+            // attach depth buffer
+            glGenRenderbuffers(1, &c->depth_buffers[i]);
+            glBindRenderbuffer(GL_RENDERBUFFER, c->depth_buffers[i]);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, c->depth_buffers[i]);
+            glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        }
+    }
+}
+
+bool cubemap_stepbake(cubemap_t *c, mat44 proj /* out */, mat44 view /* out */) {
+    if (c->step >= 6) return false;
+
+    static vec3 directions[6] = {{ 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1}};
+    static vec3 up_vectors[6] = {{ 0,-1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1},{ 0,-1, 0},{ 0,-1, 0}};
+
+    glBindFramebuffer(GL_FRAMEBUFFER, c->framebuffers[c->step]);
+    glClearColor(0, 0, 0, 1);
+    glClearDepth(1.0f);
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+
+    glViewport(0, 0, c->width, c->height);
+
+    perspective44(proj, 90.0f, c->width / (float)c->height, 0.1f, 1000.f);
+    lookat44(view, c->pos, add3(c->pos, directions[c->step]), up_vectors[c->step]);
+    ++c->step;
+
+    return true;
+}
+
+void cubemap_endbake(cubemap_t *c, int step, float sky_intensity) {
+    if (!sky_intensity) {
+        sky_intensity = 1.0f;
+    }
+    if (!step) {
+        step = 16;
+    }
+
+    if (c->id) {
+        glDeleteTextures(1, &c->id);
+        c->id = 0;
+    }
+  
+    #if 0
+    static unsigned sh_shader = -1, sh_buffer = -1, wg_buffer = -1, u_intensity = -1, u_size = -1, u_face_index = -1, u_texture = -1, u_step = -1, u_pass = -1;
+    do_once {
+        sh_shader = compute(vfs_read("shaders/cubemap_sh.glsl"));
+        glGenBuffers(1, &sh_buffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sh_buffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 9 * sizeof(vec3), NULL, GL_DYNAMIC_COPY);
+        
+        u_texture = glGetUniformLocation(sh_shader, "cubeFace");
+        u_intensity = glGetUniformLocation(sh_shader, "skyIntensity");
+        u_size = glGetUniformLocation(sh_shader, "textureSize");
+        u_face_index = glGetUniformLocation(sh_shader, "faceIndex");
+        u_step = glGetUniformLocation(sh_shader, "step");
+        u_pass = glGetUniformLocation(sh_shader, "pass");
+    }
+
+    // Prepare work group buffer
+    glGenBuffers(1, &wg_buffer);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, wg_buffer);
+    int num_work_groups = ((c->width + 15) / 16) * ((c->height + 15) / 16);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, num_work_groups * 9 * sizeof(vec3), NULL, GL_DYNAMIC_COPY);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, wg_buffer);
+    
+    // Clear SH buffer
+    vec3 zero = vec3(0,0,0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sh_buffer);
+    glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_RGB32F, GL_RGB, GL_FLOAT, &zero);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sh_buffer);
+
+    // Set up render parameters
+    int step = 16;
+    shader_bind(sh_shader);
+    glUniform1f(u_intensity, sky_intensity);
+    glUniform2i(u_size, c->width, c->height);
+
+    for (int i = 0; i < 6; i++) {
+        // Bind texture to texture unit 0
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, c->textures[i]);
+        glUniform1i(u_texture, 0);
+
+        // Set up face index
+        glUniform1i(u_face_index, i);
+
+        // Dispatch compute shader
+        glUniform1i(u_pass, 0);
+        glDispatchCompute((c->width+step-1)/step, (c->height+step-1)/step, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        glUniform1i(u_pass, 1);
+        glDispatchCompute((c->width+step-1)/step, (c->height+step-1)/step, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    }
+
+    // Copy SH coefficients from buffer to array
+    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 9 * sizeof(vec3), c->sh);
+
+    // Normalize SH coefficients
+    int total_samples = 16 * 2 * 6;
+    for (int s = 0; s < 9; s++) {
+        c->sh[s] = scale3(c->sh[s], 32.f / total_samples);
+        // c->sh[s] = scale3(c->sh[s], 4.f * M_PI / total_samples);
+    }
+
+    glDeleteBuffers(1, &wg_buffer);
+
+    // Generate cubemap texture
+    glGenTextures(1, &c->id);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, c->id);
+
+    // Copy each face of the cubemap to the cubemap texture
+    for (int i = 0; i < 6; ++i) {
+        glCopyImageSubData(c->textures[i], GL_TEXTURE_2D, 0, 0, 0, 0,
+                           c->id, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, 0, 0, 0,
+                           c->width, c->height, 1);
+    }
+    
+    // Generate mipmaps
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    #else
+
+    glGenTextures(1, &c->id);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, c->id);
+
+    int samples = 0;
+    for (int i = 0; i < 6; i++) {
+        glBindFramebuffer(GL_FRAMEBUFFER, c->framebuffers[i]);
+        glReadPixels(0, 0, c->width, c->height, GL_RGB, GL_FLOAT, c->pixels);
+  
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, c->width, c->height, 0, GL_RGB, GL_FLOAT, c->pixels);
+
+        // calculate SH coefficients (@ands)
+        // copied from cubemap6 method
+        const vec3 skyDir[] = {{ 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1}};
+        const vec3 skyX[]   = {{ 0, 0,-1},{ 0, 0, 1},{ 1, 0, 0},{ 1, 0, 0},{ 1, 0, 0},{-1, 0, 0}};
+        // const vec3 skyY[]   = {{ 0, 1, 0},{ 0, 1, 0},{ 0, 0,-1},{ 0, 0, 1},{ 0, 1, 0},{ 0, 1, 0}};
+        static vec3 skyY[6] = {{ 0,-1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1},{ 0,-1, 0},{ 0,-1, 0}};
+
+        for (int y = 0; y < c->height; y += step) {
+            float *p = (float*)(c->pixels + y * c->width * 3);
+            for (int x = 0; x < c->width; x += step) {
+                vec3 n = add3(
+                    add3(
+                        scale3(skyX[i],  2.0f * (x / (c->width - 1.0f)) - 1.0f),
+                        scale3(skyY[i], -2.0f * (y / (c->height - 1.0f)) + 1.0f)),
+                    skyDir[i]); // texelDirection;
+                float l = len3(n);
+                vec3 light = scale3(vec3(p[0], p[1], p[2]), (1 / (l * l * l)) * sky_intensity); // texelSolidAngle * texel_radiance;
+                n = norm3(n);
+                c->sh[0] = add3(c->sh[0], scale3(light,  0.282095f));
+                c->sh[1] = add3(c->sh[1], scale3(light, -0.488603f * n.y * 2.0 / 3.0));
+                c->sh[2] = add3(c->sh[2], scale3(light,  0.488603f * n.z * 2.0 / 3.0));
+                c->sh[3] = add3(c->sh[3], scale3(light, -0.488603f * n.x * 2.0 / 3.0));
+                c->sh[4] = add3(c->sh[4], scale3(light,  1.092548f * n.x * n.y / 4.0));
+                c->sh[5] = add3(c->sh[5], scale3(light, -1.092548f * n.y * n.z / 4.0));
+                c->sh[6] = add3(c->sh[6], scale3(light,  0.315392f * (3.0f * n.z * n.z - 1.0f) / 4.0));
+                c->sh[7] = add3(c->sh[7], scale3(light, -1.092548f * n.x * n.z / 4.0));
+                c->sh[8] = add3(c->sh[8], scale3(light,  0.546274f * (n.x * n.x - n.y * n.y) / 4.0));
+                p += 3 * step;
+                samples++;
+            }
+        }
+    }
+
+    for (int s = 0; s < 9; s++) {
+        c->sh[s] = scale3(c->sh[s], 32.f / samples);
+    }
+    
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    #endif
+
+    glBindFramebuffer(GL_FRAMEBUFFER, sky_last_fb);
+    glViewport(sky_last_vp[0], sky_last_vp[1], sky_last_vp[2], sky_last_vp[3]);
+}
+
+void cubemap_sh_reset(cubemap_t *c) {
+    for (int s = 0; s < 9; s++) {
+        c->sh[s] = vec3(0,0,0);
+    }
+}
+
+void cubemap_sh_addlight(cubemap_t *c, vec3 light, vec3 dir, float strength) {
+    // Normalize the direction
+    vec3 norm_dir = norm3(dir);
+
+    // Scale the light color and intensity
+    vec3 scaled_light = scale3(light, strength);
+
+    // Add light to the SH coefficients
+    c->sh[0] = add3(c->sh[0], scale3(scaled_light,  0.282095f));
+    c->sh[1] = add3(c->sh[1], scale3(scaled_light, -0.488603f * norm_dir.y));
+    c->sh[2] = add3(c->sh[2], scale3(scaled_light,  0.488603f * norm_dir.z));
+    c->sh[3] = add3(c->sh[3], scale3(scaled_light, -0.488603f * norm_dir.x));
+}
+
+void cubemap_sh_blend(vec3 pos, float max_dist, unsigned count, cubemap_t *probes, vec3 *out_sh) {
+    if (count == 0) {
+        memset(out_sh, 0, 9 * sizeof(vec3));
+        return;
+    }
+
+    float total_weight = 0.0f;
+    vec3 final_sh[9] = {0};
+
+    // Iterate through each probe
+    for (unsigned i = 0; i < count; i++) {
+        float distance = len3(sub3(pos, probes[i].pos));
+        float weight = 1.0f - (distance / max_dist);
+        weight = weight * weight;
+
+        for (int s = 0; s < 9; s++) {
+            final_sh[s] = add3(final_sh[s], scale3(probes[i].sh[s], weight));
+        }
+
+        total_weight += weight;
+    }
+
+    // Normalize the final SH coefficients
+    for (int s = 0; s < 9; s++) {
+        final_sh[s] = scale3(final_sh[s], 1.0f / total_weight);
+    }
+
+    // Apply SH coefficients to the shader
+    memcpy(out_sh, final_sh, 9 * sizeof(vec3));
 }
 
 // -----------------------------------------------------------------------------
@@ -18498,14 +19836,17 @@ skybox_t skybox(const char *asset, int flags) {
     // sky program
     sky.flags = flags && flags != SKYBOX_PBR ? flags : !!asset ? SKYBOX_CUBEMAP : SKYBOX_RAYLEIGH; // either cubemap or rayleigh
     sky.program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
-        sky.flags ? vfs_read("fs_3_4_skybox.glsl") : vfs_read("shaders/fs_3_4_skybox_rayleigh.glsl"),
+        vfs_read("fs_3_4_skybox.glsl"),
+        "att_position", "fragcolor", NULL);
+    sky.rayleigh_program = shader(vfs_read("shaders/vs_3_3_skybox.glsl"),
+        vfs_read("shaders/fs_3_4_skybox_rayleigh.glsl"),
         "att_position", "fragcolor", NULL);
 
     // sky cubemap & SH
     if( asset ) {
         int is_panorama = vfs_size( asset );
         if( is_panorama ) { // is file
-            stbi_hdr_to_ldr_gamma(1.0f);
+            stbi_hdr_to_ldr_gamma(2.2f);
             image_t panorama = image( asset, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
             image_destroy(&panorama);
@@ -18522,7 +19863,7 @@ skybox_t skybox(const char *asset, int flags) {
         }
     } else {
         // set up mie defaults // @fixme: use shader params instead
-        shader_bind(sky.program);
+        shader_bind(sky.rayleigh_program);
         shader_vec3("uSunPos", vec3( 0, 0.1, -1 ));
         shader_vec3("uRayOrigin", vec3(0.0, 6372000.0, 0.0));
         shader_float("uSunIntensity", 22.0);
@@ -18541,11 +19882,12 @@ skybox_t skybox(const char *asset, int flags) {
 
 static inline
 texture_t load_env_tex( const char *pathfile, unsigned flags ) {
+    stbi_hdr_to_ldr_gamma(2.2f);
     int flags_hdr = strendi(pathfile, ".hdr") ? TEXTURE_FLOAT | TEXTURE_RGBA : 0;
     texture_t t = texture(pathfile, flags | TEXTURE_LINEAR | TEXTURE_MIPMAPS | TEXTURE_REPEAT | flags_hdr);
     glBindTexture( GL_TEXTURE_2D, t.id );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
     return t;
 }
 
@@ -18567,7 +19909,7 @@ skybox_t skybox_pbr(const char *sky_map, const char *refl_map, const char *env_m
     if( sky_map ) {
         int is_panorama = vfs_size( sky_map );
         if( is_panorama ) { // is file
-            stbi_hdr_to_ldr_gamma(1.0f);
+            stbi_hdr_to_ldr_gamma(2.2f);
             image_t panorama = image( sky_map, IMAGE_RGBA );
             sky.cubemap = cubemap( panorama, 0 ); // RGBA required
             image_destroy(&panorama);
@@ -18593,115 +19935,49 @@ skybox_t skybox_pbr(const char *sky_map, const char *refl_map, const char *env_m
     return sky;
 }
 
-void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
-    unsigned WIDTH = 1024, HEIGHT = 1024;
-    int last_fb;
-    int vp[4];
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &last_fb);
-    glGetIntegerv(GL_VIEWPORT, vp);
+static renderstate_t skybox_rs;
+API vec4 window_getcolor_(); // internal use, not public
 
-    if (!sky_intensity) {
-        sky_intensity = 1.0f;
+static inline
+void skybox_render_rayleigh(skybox_t *sky, mat44 proj, mat44 view) {
+    last_cubemap = &sky->cubemap;
+
+    do_once {
+        skybox_rs = renderstate();
+        skybox_rs.depth_test_enabled = 1;
+        skybox_rs.cull_face_enabled = 0;
+        skybox_rs.front_face = GL_CCW;
     }
 
-    if (!sky->pixels)
-        sky->pixels = MALLOC(WIDTH*HEIGHT*12);
+    // we have to reset clear color here, because of wrong alpha compositing issues on native transparent windows otherwise
+    // vec4 bgcolor = window_getcolor_(); 
+    // skybox_rs.clear_color[0] = bgcolor.r;
+    // skybox_rs.clear_color[1] = bgcolor.g;
+    // skybox_rs.clear_color[2] = bgcolor.b;
+    // skybox_rs.clear_color[3] = 1; // @transparent
 
-    if (!sky->framebuffers[0]) {
-        for(int i = 0; i < 6; ++i) {
-            glGenFramebuffers(1, &sky->framebuffers[i]);
-            glBindFramebuffer(GL_FRAMEBUFFER, sky->framebuffers[i]);
+    mat44 mvp; multiply44x2(mvp, proj, view);
 
-            glGenTextures(1, &sky->textures[i]);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, sky->textures[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glBindTexture(GL_TEXTURE_2D, 0);
+    //glDepthMask(GL_FALSE);
+    shader_bind(sky->rayleigh_program);
+    shader_mat44("u_mvp", mvp);
 
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sky->textures[i], 0);
-        }
-    }
-
-    static vec3 directions[6] = {{ 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1}};
-
-    int samples = 0;
-    for(int i = 0; i < 6; ++i) {
-        glBindFramebuffer(GL_FRAMEBUFFER, sky->framebuffers[i]);
-        glViewport(0, 0, WIDTH, HEIGHT);
-        glUseProgram(sky->program);
-
-        mat44 proj; perspective44(proj, 90.0f, WIDTH / (float)HEIGHT, 0.1f, 500.f);
-        mat44 view; lookat44(view, vec3(0,0,0), directions[i], vec3(0,-1,0));
-
-        skybox_render(sky, proj, view);
-
-        glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_FLOAT, sky->pixels);
-
-        // calculate SH coefficients (@ands)
-        // copied from cubemap6 method
-        const vec3 skyDir[] = {{ 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1}};
-        const vec3 skyX[]   = {{ 0, 0,-1},{ 0, 0, 1},{ 1, 0, 0},{ 1, 0, 0},{ 1, 0, 0},{-1, 0, 0}};
-        const vec3 skyY[]   = {{ 0, 1, 0},{ 0, 1, 0},{ 0, 0,-1},{ 0, 0, 1},{ 0, 1, 0},{ 0, 1, 0}};
-        int step = 16;
-        for (int y = 0; y < HEIGHT; y += step) {
-            float *p = (float*)(sky->pixels + y * WIDTH * 3);
-            for (int x = 0; x < WIDTH; x += step) {
-                vec3 n = add3(
-                    add3(
-                        scale3(skyX[i],  2.0f * (x / (WIDTH - 1.0f)) - 1.0f),
-                        scale3(skyY[i], -2.0f * (y / (HEIGHT - 1.0f)) + 1.0f)),
-                    skyDir[i]); // texelDirection;
-                float l = len3(n);
-                vec3 light = scale3(vec3(p[0], p[1], p[2]), (1 / (l * l * l)) * sky_intensity); // texelSolidAngle * texel_radiance;
-                n = norm3(n);
-                sky->cubemap.sh[0] = add3(sky->cubemap.sh[0], scale3(light,  0.282095f));
-                sky->cubemap.sh[1] = add3(sky->cubemap.sh[1], scale3(light, -0.488603f * n.y * 2.0 / 3.0));
-                sky->cubemap.sh[2] = add3(sky->cubemap.sh[2], scale3(light,  0.488603f * n.z * 2.0 / 3.0));
-                sky->cubemap.sh[3] = add3(sky->cubemap.sh[3], scale3(light, -0.488603f * n.x * 2.0 / 3.0));
-                sky->cubemap.sh[4] = add3(sky->cubemap.sh[4], scale3(light,  1.092548f * n.x * n.y / 4.0));
-                sky->cubemap.sh[5] = add3(sky->cubemap.sh[5], scale3(light, -1.092548f * n.y * n.z / 4.0));
-                sky->cubemap.sh[6] = add3(sky->cubemap.sh[6], scale3(light,  0.315392f * (3.0f * n.z * n.z - 1.0f) / 4.0));
-                sky->cubemap.sh[7] = add3(sky->cubemap.sh[7], scale3(light, -1.092548f * n.x * n.z / 4.0));
-                sky->cubemap.sh[8] = add3(sky->cubemap.sh[8], scale3(light,  0.546274f * (n.x * n.x - n.y * n.y) / 4.0));
-                p += 3 * step;
-                samples++;
-            }
-        }
-    }
-
-    for (int s = 0; s < 9; s++) {
-        sky->cubemap.sh[s] = scale3(sky->cubemap.sh[s], 32.f / samples);
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, last_fb);
-    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    renderstate_apply(&skybox_rs);
+    mesh_render(&sky->geometry);
 }
 
-void skybox_sh_reset(skybox_t *sky) {
-    for (int s = 0; s < 9; s++) {
-        sky->cubemap.sh[s] = vec3(0,0,0);
+void skybox_mie_calc_sh(skybox_t *sky, float sky_intensity) {
+    cubemap_beginbake(&sky->cubemap, vec3(0, 0, 0), 1024, 1024);
+    mat44 proj, view;
+    while (cubemap_stepbake(&sky->cubemap, proj, view)) {
+        skybox_render_rayleigh(sky, proj, view);
     }
+    cubemap_endbake(&sky->cubemap, 0, sky_intensity);
 }
 
 void skybox_sh_add_light(skybox_t *sky, vec3 light, vec3 dir, float strength) {
-    // Normalize the direction
-    vec3 norm_dir = norm3(dir);
-
-    // Scale the light color and intensity
-    vec3 scaled_light = scale3(light, strength);
-
-    // Add light to the SH coefficients
-    sky->cubemap.sh[0] = add3(sky->cubemap.sh[0], scale3(scaled_light,  0.282095f));
-    sky->cubemap.sh[1] = add3(sky->cubemap.sh[1], scale3(scaled_light, -0.488603f * norm_dir.y));
-    sky->cubemap.sh[2] = add3(sky->cubemap.sh[2], scale3(scaled_light,  0.488603f * norm_dir.z));
-    sky->cubemap.sh[3] = add3(sky->cubemap.sh[3], scale3(scaled_light, -0.488603f * norm_dir.x));
+    cubemap_sh_addlight(&sky->cubemap, light, dir, strength);
 }
-
-API vec4 window_getcolor_(); // internal use, not public
-
-static renderstate_t skybox_rs;
 
 int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view) {
     last_cubemap = &sky->cubemap;
@@ -18714,20 +19990,21 @@ int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view) {
     }
 
     // we have to reset clear color here, because of wrong alpha compositing issues on native transparent windows otherwise
-    vec4 bgcolor = window_getcolor_(); 
-    skybox_rs.clear_color[0] = bgcolor.r;
-    skybox_rs.clear_color[1] = bgcolor.g;
-    skybox_rs.clear_color[2] = bgcolor.b;
-    skybox_rs.clear_color[3] = 1; // @transparent
+    // vec4 bgcolor = window_getcolor_(); 
+    // skybox_rs.clear_color[0] = bgcolor.r;
+    // skybox_rs.clear_color[1] = bgcolor.g;
+    // skybox_rs.clear_color[2] = bgcolor.b;
+    // skybox_rs.clear_color[3] = 1; // @transparent
 
-    mat44 mvp; multiply44x2(mvp, proj, view);
+
+
+    mat44 mvp;
+    multiply44x2(mvp, proj, view);
 
     //glDepthMask(GL_FALSE);
     shader_bind(sky->program);
     shader_mat44("u_mvp", mvp);
-    if( sky->flags ) {
-        shader_cubemap("u_cubemap", sky->cubemap.id);
-    }
+    shader_cubemap("u_cubemap", sky->cubemap.id);
 
     renderstate_apply(&skybox_rs);
     return 0; // @fixme: return sortable hash here?
@@ -18739,6 +20016,10 @@ int skybox_pop_state() {
     return 0;
 }
 int skybox_render(skybox_t *sky, mat44 proj, mat44 view) {
+    if (sky->rayleigh_immediate && !sky->flags) {
+        skybox_render_rayleigh(sky, proj, view);
+        return 0;
+    }
     skybox_push_state(sky, proj, view);
     mesh_render(&sky->geometry);
     skybox_pop_state();
@@ -18746,14 +20027,9 @@ int skybox_render(skybox_t *sky, mat44 proj, mat44 view) {
 }
 void skybox_destroy(skybox_t *sky) {
     glDeleteProgram(sky->program);
+    glDeleteProgram(sky->rayleigh_program);
     cubemap_destroy(&sky->cubemap);
     mesh_destroy(&sky->geometry);
-
-    if (sky->pixels) {
-        FREE(sky->pixels);
-        glDeleteFramebuffers(6, sky->framebuffers);
-        glDeleteTextures(6, sky->textures);
-    }
 }
 
 // -----------------------------------------------------------------------------
@@ -19502,7 +20778,7 @@ static void brdf_load() {
     static int program = -1, vao = -1;
     if( program < 0 ) {
         const char* vs = vfs_read("shaders/vs_0_2_fullscreen_quad_B_flipped.glsl");
-        const char* fs = vfs_read("shaders/brdf.glsl");
+        const char* fs = vfs_read("shaders/brdf_lut.glsl");
 
         program = shader(vs, fs, "", "fragcolor", NULL);
         glGenVertexArrays( 1, (GLuint*)&vao );
@@ -19548,6 +20824,7 @@ bool colormap( colormap_t *cm, const char *texture_name, bool load_as_srgb ) {
     }
 
     int srgb = load_as_srgb ? TEXTURE_SRGB : 0;
+    // int srgb = 0;
     int hdr = strendi(texture_name, ".hdr") ? TEXTURE_FLOAT|TEXTURE_RGBA : 0;
     texture_t t = texture_compressed(texture_name, TEXTURE_LINEAR | TEXTURE_ANISOTROPY | TEXTURE_MIPMAPS | TEXTURE_REPEAT | hdr | srgb);
 
@@ -19634,6 +20911,8 @@ shadertoy_t shadertoy( const char *shaderfile, unsigned flags ) {
 }
 
 shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
+    int saved_vp[4];
+    glGetIntegerv(GL_VIEWPORT, saved_vp);
     if( s->program && s->vao ) {
         if( s->dims.x && !(s->flags&SHADERTOY_IGNORE_FBO) && !texture_rec_begin(&s->tx, s->dims.x, s->dims.y) ) {
             return s;
@@ -19674,6 +20953,7 @@ shadertoy_t* shadertoy_render(shadertoy_t *s, float delta) {
 
         if(s->dims.x && !(s->flags&SHADERTOY_IGNORE_FBO)) texture_rec_end(&s->tx); // texture_rec
     }
+    glViewport(saved_vp[0], saved_vp[1], saved_vp[2], saved_vp[3]);
     return s;
 }
 
@@ -19789,9 +21069,11 @@ typedef struct iqm_vertex {
     GLubyte blendindexes[4];
     GLubyte blendweights[4];
     GLfloat blendvertexindex;
-    GLubyte color[4];
+    GLfloat color[4];
     GLfloat texcoord2[2];
 } iqm_vertex;
+
+STATIC_ASSERT((sizeof(iqm_vertex) == sizeof(model_vertex_t)));
 
 typedef struct iqm_t {
     int nummeshes, numtris, numverts, numjoints, numframes, numanims;
@@ -19806,228 +21088,463 @@ typedef struct iqm_t {
     mat34 *baseframe, *inversebaseframe, *outframe, *frames;
     GLint bonematsoffset;
     vec4 *colormaps;
+    uint32_t instancing_checksum;
+    int uniforms[2][NUM_MODEL_UNIFORMS];
+    handle program;
+    handle shadow_program;
+    unsigned light_ubo;
+    int texture_unit;
 } iqm_t;
 
-void model_set_texture(model_t m, texture_t t) {
-    if(!m.iqm) return;
-    iqm_t *q = m.iqm;
+//
+// model binds
+//
+
+bool model_compareuniform(const model_uniform_t *a, const model_uniform_t *b) {
+    if (a->kind != b->kind) return false;
+    if (strcmp(a->name, b->name) != 0) return false;
+
+    switch (a->kind) {
+        case UNIFORM_FLOAT:
+            if (a->f != b->f) return false;
+            break;
+        case UNIFORM_INT:
+        case UNIFORM_UINT:
+        case UNIFORM_BOOL:
+        case UNIFORM_SAMPLER2D:
+        case UNIFORM_SAMPLER3D:
+        case UNIFORM_SAMPLERCUBE:
+            if (a->i != b->i) return false;
+            break;
+        case UNIFORM_VEC2:
+            if (memcmp(&a->v2.x, &b->v2.x, sizeof(vec2)) != 0) return false;
+            break;
+        case UNIFORM_VEC3:
+            if (memcmp(&a->v3.x, &b->v3.x, sizeof(vec3)) != 0) return false;
+            break;
+        case UNIFORM_VEC4:
+            if (memcmp(&a->v4.x, &b->v4.x, sizeof(vec4)) != 0) return false;
+            break;
+        case UNIFORM_MAT3:
+            if (memcmp(a->m33, b->m33, sizeof(mat33)) != 0) return false;
+            break;
+        case UNIFORM_MAT4:
+            if (memcmp(a->m44, b->m44, sizeof(mat44)) != 0) return false;
+            break;
+        default:
+            return false;
+    }
+    return true;
+}
+
+bool model_compareuniforms(unsigned s1, const model_uniform_t *a, unsigned s2, const model_uniform_t *b) {
+    if (s1 != s2) return false;
+    
+    for (unsigned i = 0; i < s1; ++i) {
+        if (!model_compareuniform(&a[i], &b[i])) return false;
+    }
+    
+    return true;
+}
+
+uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms) {
+    uint32_t checksum = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        checksum ^= hh_str(uniforms[i].name);
+        checksum ^= uniforms[i].kind;
+        
+        switch (uniforms[i].kind) {
+            case UNIFORM_FLOAT:
+                checksum ^= hh_float(uniforms[i].f);
+                break;
+            case UNIFORM_INT:
+            case UNIFORM_UINT:
+            case UNIFORM_BOOL:
+            case UNIFORM_SAMPLER2D:
+            case UNIFORM_SAMPLER3D:
+            case UNIFORM_SAMPLERCUBE:
+                checksum ^= hh_int(uniforms[i].i);
+                break;
+            case UNIFORM_VEC2:
+                checksum ^= hh_vec2(uniforms[i].v2);
+                break;
+            case UNIFORM_VEC3:
+                checksum ^= hh_vec3(uniforms[i].v3);
+                break;
+            case UNIFORM_VEC4:
+                checksum ^= hh_vec4(uniforms[i].v4);
+                break;
+            case UNIFORM_MAT3:
+                checksum ^= hh_mat33(uniforms[i].m33);
+                break;
+            case UNIFORM_MAT4:
+                checksum ^= hh_mat44(uniforms[i].m44);
+                break;
+        }
+    }
+    return checksum;
+}
+
+void model_set_texture(model_t *m, texture_t t) {
+    if(!m->iqm) return;
+    iqm_t *q = m->iqm;
 
     for( int i = 0; i < q->nummeshes; ++i) { // assume 1 texture per mesh
         q->textures[i] = t.id;
+        if (!m->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture) {
+            m->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
+        }
+        *m->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = t;
     }
 }
 
-//@fixme: some locations are invalid, find out why
-#if 0
+static inline
+void model_init_uniforms(iqm_t *q, int slot, int program) {
+    if(!q) return;
+
+    for (int i = 0; i < NUM_MODEL_UNIFORMS; ++i) q->uniforms[slot][i] = -1;
+    unsigned shader = program;
+    int loc = -1;
+    glUseProgram(shader);
+
+    // MV Matrix
+    if ((loc = glGetUniformLocation(shader, "u_mv")) >= 0 || (loc = glGetUniformLocation(shader, "MV")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_MV] = loc;
+
+    // MVP Matrix
+    if ((loc = glGetUniformLocation(shader, "u_mvp")) >= 0 || (loc = glGetUniformLocation(shader, "MVP")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_MVP] = loc;
+
+
+    // VP Matrix
+    if ((loc = glGetUniformLocation(shader, "u_vp")) >= 0 || (loc = glGetUniformLocation(shader, "VP")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_VP] = loc;
+
+    // Camera Position
+    if ((loc = glGetUniformLocation(shader, "u_cam_pos")) >= 0 || (loc = glGetUniformLocation(shader, "cam_pos")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_CAM_POS] = loc;
+
+    // Camera Direction
+    if ((loc = glGetUniformLocation(shader, "u_cam_dir")) >= 0 || (loc = glGetUniformLocation(shader, "cam_dir")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_CAM_DIR] = loc;
+
+    // Billboard
+    if ((loc = glGetUniformLocation(shader, "u_billboard")) >= 0 || (loc = glGetUniformLocation(shader, "billboard")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_BILLBOARD] = loc;
+
+    // Model Matrix
+    if ((loc = glGetUniformLocation(shader, "M")) >= 0 || (loc = glGetUniformLocation(shader, "model")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_MODEL] = loc;
+
+    // View Matrix
+    if ((loc = glGetUniformLocation(shader, "V")) >= 0 || (loc = glGetUniformLocation(shader, "view")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_VIEW] = loc;
+
+    // Instanced
+    if ((loc = glGetUniformLocation(shader, "u_instanced")) >= 0 || (loc = glGetUniformLocation(shader, "instanced")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_INSTANCED] = loc;
+
+    // Inverse View Matrix
+    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_INV_VIEW] = loc;
+
+    // Projection Matrix
+    if ((loc = glGetUniformLocation(shader, "P")) >= 0 || (loc = glGetUniformLocation(shader, "proj")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_PROJ] = loc;
+
+    // Skinned
+    if ((loc = glGetUniformLocation(shader, "SKINNED")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SKINNED] = loc;
+
+    // Bone Matrix
+    if ((loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_VS_BONE_MATRIX] = loc;
+
+    // Matcaps
+    if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_U_MATCAPS] = loc;
+
+    // Frame Count
+    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_FRAME_COUNT] = loc;
+
+    // Frame Time
+    if ((loc = glGetUniformLocation(shader, "frame_time")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_FRAME_TIME] = loc;
+
+    // Shadow Uniforms
+    if ((loc = glGetUniformLocation(shader, "cameraToShadowView")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_VIEW] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "cameraToShadowProjector")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_PROJECTOR] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "shadow_technique")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_TECHNIQUE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "u_shadow_receiver")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_U_SHADOW_RECEIVER] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "shadow_offsets")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_OFFSETS] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "shadow_filter_size")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_FILTER_SIZE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "shadow_window_size")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SHADOW_WINDOW_SIZE] = loc;
+
+    // PBR Uniforms
+    if ((loc = glGetUniformLocation(shader, "resolution")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_RESOLUTION] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "has_tex_skycube")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_ENV_CUBEMAP] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_skycube")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_TEX_ENV_CUBEMAP] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "has_tex_skysphere")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_SKYSPHERE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "has_tex_skyenv")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_SKYENV] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_skysphere")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_TEX_SKYSPHERE] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "skysphere_mip_count")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_SKYSPHERE_MIP_COUNT] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_skyenv")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_TEX_SKYENV] = loc;
+
+    if ((loc = glGetUniformLocation(shader, "tex_brdf_lut")) >= 0)
+        q->uniforms[slot][MODEL_UNIFORM_TEX_BRDF_LUT] = loc;
+
+    for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+        if ((loc = glGetUniformLocation(shader, va("u_cascade_distances[%d]", j))) >= 0)
+            q->uniforms[slot][MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES + j] = loc;
+        if ((loc = glGetUniformLocation(shader, va("shadowMap2D[%d]", j))) >= 0)
+            q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_2D + j] = loc;
+    }
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        if ((loc = glGetUniformLocation(shader, va("shadowMap[%d]", i))) >= 0)
+            q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+i] = loc;
+    }
+}
+
+
+static int model_totalTextureUnits = 0;
+int model_texture_unit(model_t *m) {
+    do_once glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &model_totalTextureUnits);
+    // ASSERT(textureUnit < totalTextureUnits, "%d texture units exceeded", totalTextureUnits);
+    return MODEL_TEXTURE_USER_DEFINED + (m->iqm->texture_unit++ % (model_totalTextureUnits - MODEL_TEXTURE_USER_DEFINED));
+}
+
+void model_applyuniform(model_t m, const model_uniform_t *t);
+
 static
-void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view, mat44 model) {  // @todo: cache uniform locs
+void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view, mat44 model) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
+    int slot = shader == q->shadow_program ? 1 : 0;
+    if (q->uniforms[slot][MODEL_UNIFORM_MODEL] == -1) {
+        model_init_uniforms(q, slot, shader);
+    }
+
     shader_bind(shader);
     int loc;
-    //if( (loc = glGetUniformLocation(shader, "M")) >= 0 ) glUniformMatrix4fv( loc, 1, GL_FALSE/*GL_TRUE*/, m); // RIM
-    if( (loc = m.uniforms[MODEL_UNIFORM_MV]) >= 0 ) {
-        shader_mat44_(loc, mv);
+
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_MV]) >= 0) {
+        glUniformMatrix4fv(loc, 1, GL_FALSE, mv);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_MVP]) >= 0 ) {
-        mat44 mvp; multiply44x2(mvp, proj, mv); // multiply44x3(mvp, proj, view, model);
-        shader_mat44_(loc, mvp);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_MVP]) >= 0) {
+        mat44 mvp; multiply44x2(mvp, proj, mv);
+        glUniformMatrix4fv(loc, 1, GL_FALSE, mvp);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_VP]) >= 0 ) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_VP]) >= 0) {
         mat44 vp; multiply44x2(vp, proj, view);
-        shader_mat44_(loc, vp);
+        glUniformMatrix4fv(loc, 1, GL_FALSE, vp);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_CAM_POS]) >= 0 ) {
-        vec3 pos = vec3(view[12], view[13], view[14]);
-        shader_vec3_(loc, pos);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_CAM_POS]) >= 0) {
+        vec3 pos = pos44(view);
+        glUniform3fv(loc, 1, &pos.x);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_CAM_DIR]) >= 0 ) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_CAM_DIR]) >= 0) {
         vec3 dir = norm3(vec3(view[2], view[6], view[10]));
-        shader_vec3_(loc, dir);
+        glUniform3fv(loc, 1, &dir.x);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_BILLBOARD]) >= 0 ) {
-        shader_int_(loc, m.billboard);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_BILLBOARD]) >= 0) {
+        glUniform1i(loc, m.billboard);
     }
-    if( (loc = m.uniforms[MODEL_UNIFORM_TEXLIT]) >= 0 ) {
-        shader_bool_(loc, (m.lightmap.w != 0));
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_MODEL]) >= 0) {
+        glUniformMatrix4fv(loc, 1, GL_FALSE, model);
     }
-    if ((loc = m.uniforms[MODEL_UNIFORM_MODEL]) >= 0) {
-        shader_mat44_(loc, model);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_VIEW]) >= 0) {
+        glUniformMatrix4fv(loc, 1, GL_FALSE, view);
     }
-    if ((loc = m.uniforms[MODEL_UNIFORM_VIEW]) >= 0) {
-        shader_mat44_(loc, view);
-    }
-    if ((loc = m.uniforms[MODEL_UNIFORM_INV_VIEW]) >= 0) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_INV_VIEW]) >= 0) {
         mat44 inv_view;
         invert44(inv_view, view);
-        shader_mat44_(loc, inv_view);
-    }
-    if ((loc = m.uniforms[MODEL_UNIFORM_PROJ]) >= 0) {
-        shader_mat44_(loc, proj);
-    }
-    if( (loc = m.uniforms[MODEL_UNIFORM_SKINNED]) >= 0 ) shader_int_(loc, q->numanims ? GL_TRUE : GL_FALSE);
-    if( q->numanims )
-        if( (loc = m.uniforms[MODEL_UNIFORM_VS_BONE_MATRIX]) >= 0 ) glUniformMatrix3x4fv( loc, q->numjoints, GL_FALSE, q->outframe[0]);
-    if ((loc = m.uniforms[MODEL_UNIFORM_U_MATCAPS]) >= 0) {
-        shader_bool_(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
-    }
-
-    if (m.shading == SHADING_PBR) {
-        handle old_shader = last_shader;
-        shader_bind(shader);
-        shader_vec2_( m.uniforms[MODEL_UNIFORM_RESOLUTION], vec2(window_width(),window_height()));
-        
-        bool has_tex_skysphere = m.sky_refl.id != texture_checker().id;
-        bool has_tex_skyenv = m.sky_env.id != texture_checker().id;
-        shader_bool_( m.uniforms[MODEL_UNIFORM_HAS_TEX_SKYSPHERE], has_tex_skysphere );
-        shader_bool_( m.uniforms[MODEL_UNIFORM_HAS_TEX_SKYENV], has_tex_skyenv );
-        if( has_tex_skysphere ) {
-            float mipCount = floor( log2( max(m.sky_refl.w, m.sky_refl.h) ) );
-            shader_texture_(m.uniforms[MODEL_UNIFORM_TEX_SKYSPHERE], m.sky_refl);
-            shader_float_( m.uniforms[MODEL_UNIFORM_SKYSPHERE_MIP_COUNT], mipCount );
-        }
-        if( has_tex_skyenv ) {
-            shader_texture_( m.uniforms[MODEL_UNIFORM_TEX_SKYENV], m.sky_env );
-        }
-        shader_texture_( m.uniforms[MODEL_UNIFORM_TEX_BRDF_LUT], brdf_lut() );
-        shader_uint_( m.uniforms[MODEL_UNIFORM_FRAME_COUNT], (unsigned)window_frame() );
-        shader_bind(old_shader);
-    }
-}
-#else
-static
-void model_set_uniforms(model_t m, int shader, mat44 mv, mat44 proj, mat44 view, mat44 model) {  // @todo: cache uniform locs
-    if(!m.iqm) return;
-    iqm_t *q = m.iqm;
-
-    shader_bind(shader);
-    int loc;
-    //if( (loc = glGetUniformLocation(shader, "M")) >= 0 ) glUniformMatrix4fv( loc, 1, GL_FALSE/*GL_TRUE*/, m); // RIM
-    if( (loc = glGetUniformLocation(shader, "MV")) >= 0 ) {
-        glUniformMatrix4fv( loc, 1, GL_FALSE, mv);
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "u_mv")) >= 0 ) {
-        glUniformMatrix4fv( loc, 1, GL_FALSE, mv);
-    }
-    if( (loc = glGetUniformLocation(shader, "MVP")) >= 0 ) {
-        mat44 mvp; multiply44x2(mvp, proj, mv); // multiply44x3(mvp, proj, view, model);
-        glUniformMatrix4fv( loc, 1, GL_FALSE, mvp);
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "u_mvp")) >= 0 ) {
-        mat44 mvp; multiply44x2(mvp, proj, mv); // multiply44x3(mvp, proj, view, model);
-        glUniformMatrix4fv( loc, 1, GL_FALSE, mvp);
-    }
-    if( (loc = glGetUniformLocation(shader, "VP")) >= 0 ) {
-        mat44 vp; multiply44x2(vp, proj, view);
-        glUniformMatrix4fv( loc, 1, GL_FALSE, vp);
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "u_vp")) >= 0 ) {
-        mat44 vp; multiply44x2(vp, proj, view);
-        glUniformMatrix4fv( loc, 1, GL_FALSE, vp);
-    }
-    if( (loc = glGetUniformLocation(shader, "u_cam_pos")) >= 0 ) {
-        vec3 pos = vec3(view[12], view[13], view[14]);
-        glUniform3fv( loc, 1, &pos.x );
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "cam_pos")) >= 0 ) {
-        vec3 pos = vec3(view[12], view[13], view[14]);
-        glUniform3fv( loc, 1, &pos.x );
-    }
-    if( (loc = glGetUniformLocation(shader, "u_cam_dir")) >= 0 ) {
-        vec3 dir = norm3(vec3(view[2], view[6], view[10]));
-        glUniform3fv( loc, 1, &dir.x );
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "cam_dir")) >= 0 ) {
-        vec3 dir = norm3(vec3(view[2], view[6], view[10]));
-        glUniform3fv( loc, 1, &dir.x );
-    }
-    if( (loc = glGetUniformLocation(shader, "billboard")) >= 0 ) {
-        glUniform1i( loc, m.billboard );
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "u_billboard")) >= 0 ) {
-        glUniform1i( loc, m.billboard );
-    }
-    if( (loc = glGetUniformLocation(shader, "texlit")) >= 0 ) {
-        glUniform1i( loc, (m.lightmap.w != 0) );
-    }
-    else
-    if( (loc = glGetUniformLocation(shader, "u_texlit")) >= 0 ) {
-        glUniform1i( loc, (m.lightmap.w != 0) );
-    }
-#if 0
-    // @todo: mat44 projview (useful?)
-#endif
-    if ((loc = glGetUniformLocation(shader, "M")) >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, model);
-    }
-    else
-    if ((loc = glGetUniformLocation(shader, "model")) >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, model);
-    }
-    if ((loc = glGetUniformLocation(shader, "V")) >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, view);
-    }
-    else
-    if ((loc = glGetUniformLocation(shader, "view")) >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, view);
-    }
-    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0) {
-        mat44 inv_view;
-        invert44( inv_view, view);
         glUniformMatrix4fv(loc, 1, GL_FALSE, inv_view);
     }
-    if ((loc = glGetUniformLocation(shader, "P")) >= 0) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_PROJ]) >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
     }
-    else
-    if ((loc = glGetUniformLocation(shader, "proj")) >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, proj);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_SKINNED]) >= 0) {
+        glUniform1i(loc, q->numanims ? GL_TRUE : GL_FALSE);
     }
-    if( (loc = glGetUniformLocation(shader, "SKINNED")) >= 0 ) glUniform1i( loc, q->numanims ? GL_TRUE : GL_FALSE);
-    if( q->numanims )
-    if( (loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0 ) glUniformMatrix3x4fv( loc, q->numjoints, GL_FALSE, q->outframe[0]);
-
-    if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0) {
-        glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE:GL_FALSE);
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_INSTANCED]) >= 0) {
+        glUniform1i(loc, m.num_instances > 1 ? GL_TRUE : GL_FALSE);
+    }
+    if (q->numanims) {
+        if ((loc = q->uniforms[slot][MODEL_UNIFORM_VS_BONE_MATRIX]) >= 0) {
+            glUniformMatrix3x4fv(loc, q->numjoints, GL_FALSE, q->outframe[0]);
+        }
+    }
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_U_MATCAPS]) >= 0) {
+        glUniform1i(loc, m.flags & MODEL_MATCAPS ? GL_TRUE : GL_FALSE);
     }
     
-    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_FRAME_COUNT]) >= 0) {
         glUniform1i(loc, (unsigned)window_frame());
     }
-
-    if ((loc = glGetUniformLocation(shader, "frame_time")) >= 0) {
+    if ((loc = q->uniforms[slot][MODEL_UNIFORM_FRAME_TIME]) >= 0) {
         glUniform1f(loc, (float)window_time());
     }
 
+    // Shadow uniforms
+    if (shader == q->shadow_program) {
+        shadowmap_t *sm = active_shadowmap;
+        ASSERT(sm);
+        if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_VIEW]) >= 0) {
+            glUniformMatrix4fv(loc, 1, GL_FALSE, sm->V);
+        }
+        if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_CAMERA_TO_SHADOW_PROJECTOR]) >= 0) {
+            glUniformMatrix4fv(loc, 1, GL_FALSE, sm->PV);
+        }
+        if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_TECHNIQUE]) >= 0) {
+            glUniform1i(loc, sm->shadow_technique);
+        }
+    } else {
+        // Shadow receiving
+        if (m.shadow_map && m.shadow_receiver) {
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_U_SHADOW_RECEIVER]) >= 0) {
+                glUniform1i(loc, GL_TRUE);
+            }
+
+            bool was_csm_pushed = 0;
+            int shadow_lights_pushed = 0;
+            for (int i = 0; i < MAX_LIGHTS; i++) {
+                if (shadow_lights_pushed >= MAX_SHADOW_LIGHTS) break;
+                shadow_lights_pushed++;
+                if (i < m.lights.count) {
+                    light_t *light = &m.lights.base[i];
+
+                    if (light->shadow_technique == SHADOW_CSM) {
+                        for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+                            shader_texture_unit_kind_(GL_TEXTURE_2D, q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_2D + j], m.shadow_map->maps[i].texture_2d[j], MODEL_TEXTURE_SHADOW_MAP_2D + j);
+                            glUniform1f(q->uniforms[slot][MODEL_UNIFORM_SHADOW_CASCADE_DISTANCES + j], m.shadow_map->maps[i].cascade_distances[j]);
+                        }
+                        was_csm_pushed = 1;
+                        shader_texture_unit_kind_(GL_TEXTURE_CUBE_MAP, q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+i], 0, MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+i);
+                    }
+                    else if (light->shadow_technique == SHADOW_VSM) {
+                        shader_texture_unit_kind_(GL_TEXTURE_CUBE_MAP, q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+i], m.shadow_map->maps[i].texture, MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+i);
+                    }
+                } else {
+                    if (!was_csm_pushed) {
+                        was_csm_pushed = 1;
+                        for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+                            glUniform1i(q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_2D + j], MODEL_TEXTURE_SHADOW_MAP_2D + j);
+                        }
+                    }
+                    glUniform1i(q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+i], MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+i);
+                }
+            }
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_OFFSETS]) >= 0) {
+                shader_texture_unit_kind_(GL_TEXTURE_3D, q->uniforms[slot][MODEL_UNIFORM_SHADOW_OFFSETS], m.shadow_map->offsets_texture, MODEL_TEXTURE_SHADOW_OFFSETS);
+            }
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_FILTER_SIZE]) >= 0) {
+                glUniform1i(loc, m.shadow_map->filter_size);
+            }
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_WINDOW_SIZE]) >= 0) {
+                glUniform1i(loc, m.shadow_map->window_size);
+            }
+        }
+        else if (m.shadow_map == NULL || !m.shadow_receiver) {
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_U_SHADOW_RECEIVER]) >= 0) {
+                glUniform1i(loc, GL_FALSE);
+            }
+            for (int j = 0; j < NUM_SHADOW_CASCADES; j++) {
+                if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_2D + j]) >= 0) {
+                    glUniform1i(loc, MODEL_TEXTURE_SHADOW_MAP_2D + j);
+                }
+            }
+            for (int i = 0; i < MAX_SHADOW_LIGHTS; i++) {
+                if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_MAP_CUBEMAP + i]) >= 0) {
+                    glUniform1i(loc, MODEL_TEXTURE_SHADOW_MAP_CUBEMAP + i);
+                }
+            }
+            if ((loc = q->uniforms[slot][MODEL_UNIFORM_SHADOW_OFFSETS]) >= 0) {
+                glUniform1i(q->uniforms[slot][MODEL_UNIFORM_SHADOW_OFFSETS], MODEL_TEXTURE_SHADOW_OFFSETS);
+            }
+        }
+    }
+
     if (m.shading == SHADING_PBR) {
-        handle old_shader = last_shader;
-        shader_bind(shader);
-        shader_vec2( "resolution", vec2(window_width(),window_height()));
+        if ((loc = q->uniforms[slot][MODEL_UNIFORM_RESOLUTION]) >= 0) {
+            glUniform2f(loc, (float)window_width(), (float)window_height());
+        }
         
-        bool has_tex_skysphere = m.sky_refl.id != texture_checker().id;
-        bool has_tex_skyenv = m.sky_env.id != texture_checker().id;
-        shader_bool( "has_tex_skysphere", has_tex_skysphere );
-        shader_bool( "has_tex_skyenv", has_tex_skyenv );
+        bool has_tex_skysphere = m.sky_refl.id != 0;
+        bool has_tex_skyenv = m.sky_env.id != 0;
+        bool has_tex_env_cubemap = m.sky_cubemap.id != 0;
+        glUniform1i(q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_ENV_CUBEMAP], has_tex_env_cubemap);
+        glUniform1i(q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_SKYSPHERE], has_tex_skysphere);
+        glUniform1i(q->uniforms[slot][MODEL_UNIFORM_HAS_TEX_SKYENV], has_tex_skyenv);
+        if (has_tex_env_cubemap) {
+            shader_texture_unit_kind_(GL_TEXTURE_CUBE_MAP, q->uniforms[slot][MODEL_UNIFORM_TEX_ENV_CUBEMAP], m.sky_cubemap.id, MODEL_TEXTURE_ENV_CUBEMAP);
+        } else {
+            glUniform1i(q->uniforms[slot][MODEL_UNIFORM_TEX_ENV_CUBEMAP], MODEL_TEXTURE_ENV_CUBEMAP);
+        }
         if( has_tex_skysphere ) {
             float mipCount = floor( log2( max(m.sky_refl.w, m.sky_refl.h) ) );
-            shader_texture("tex_skysphere", m.sky_refl);
-            shader_float( "skysphere_mip_count", mipCount );
+            shader_texture_unit_kind_(GL_TEXTURE_2D, q->uniforms[slot][MODEL_UNIFORM_TEX_SKYSPHERE], m.sky_refl.id, MODEL_TEXTURE_SKYSPHERE);
+            glUniform1f(q->uniforms[slot][MODEL_UNIFORM_SKYSPHERE_MIP_COUNT], mipCount);
+        } else {
+            glUniform1i(q->uniforms[slot][MODEL_UNIFORM_TEX_SKYSPHERE], MODEL_TEXTURE_SKYSPHERE);
         }
         if( has_tex_skyenv ) {
-            shader_texture( "tex_skyenv", m.sky_env );
+            shader_texture_unit_kind_(GL_TEXTURE_2D, q->uniforms[slot][MODEL_UNIFORM_TEX_SKYENV], m.sky_env.id, MODEL_TEXTURE_SKYENV);
+        } else {
+            glUniform1i(q->uniforms[slot][MODEL_UNIFORM_TEX_SKYENV], MODEL_TEXTURE_SKYENV);
         }
-        shader_texture( "tex_brdf_lut", brdf_lut() );
-        shader_bind(old_shader);
+        shader_texture_unit_kind_(GL_TEXTURE_2D, q->uniforms[slot][MODEL_UNIFORM_TEX_BRDF_LUT], brdf_lut().id, MODEL_TEXTURE_BRDF_LUT);
+    }
+
+    /* apply custom model uniforms */
+    for (int i = 0; i < array_count(m.uniforms); i++) {
+        model_applyuniform(m, &m.uniforms[i]);
     }
 }
-#endif
+
+static inline
+uint32_t model_instancing_checksum(float *matrices, unsigned count) {
+    uint32_t checksum = 0;
+    float *data = matrices;
+    int total_floats = count * 16;
+
+    for (int i = 0; i < total_floats; i++) {
+        uint32_t int_value = *(uint32_t*)&data[i];
+        checksum = ((checksum << 5) + checksum) + int_value;
+    }
+
+    return checksum;
+}
+
 static
 void model_set_state(model_t m) {
     if(!m.iqm) return;
@@ -20049,7 +21566,7 @@ void model_set_state(model_t m) {
     glEnableVertexAttribArray(3);
 
     // vertex color
-    glVertexAttribPointer(11, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,color) );
+    glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(iqm_vertex), (GLvoid*)offsetof(iqm_vertex,color) );
     glEnableVertexAttribArray(11);
 
     // lmap data
@@ -20067,13 +21584,18 @@ void model_set_state(model_t m) {
     }
 
     // mat4 attribute; for instanced rendering
-    if( 1 ) {
+    if(m.num_instances > 1) {
         unsigned vec4_size = sizeof(vec4);
         unsigned mat4_size = sizeof(vec4) * 4;
 
         // vertex buffer object
         glBindBuffer(GL_ARRAY_BUFFER, m.vao_instanced);
-        glBufferData(GL_ARRAY_BUFFER, m.num_instances * mat4_size, m.instanced_matrices, GL_STREAM_DRAW);
+
+        uint32_t checksum = model_instancing_checksum(m.instanced_matrices, m.num_instances);
+        if (checksum != q->instancing_checksum) {
+            q->instancing_checksum = checksum;
+            glBufferData(GL_ARRAY_BUFFER, m.num_instances * mat4_size, m.instanced_matrices, GL_STREAM_DRAW);
+        }
 
         glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 4 * vec4_size, (GLvoid*)(((char*)NULL)+(0 * vec4_size)));
         glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 4 * vec4_size, (GLvoid*)(((char*)NULL)+(1 * vec4_size)));
@@ -20096,6 +21618,46 @@ void model_set_state(model_t m) {
     glBindVertexArray( 0 );
 }
 
+void model_sync(model_t m, int num_vertices, model_vertex_t *vertices, int num_indices, uint32_t *indices) {
+    if (!m.iqm) return;
+    iqm_t *q = m.iqm;
+
+    if (!(m.flags & MODEL_PROCEDURAL)) {
+        PANIC("model_sync() cannot be used with non-procedural models");
+    }
+
+    if (!q->vao) glGenVertexArrays(1, &q->vao);
+    glBindVertexArray(q->vao);
+   
+    if (num_vertices > 0) { 
+        if(!q->vbo) glGenBuffers(1, &q->vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, q->vbo);
+        glBufferData(GL_ARRAY_BUFFER, num_vertices * sizeof(model_vertex_t), vertices, m.flags & MODEL_STREAM ? GL_STREAM_DRAW : GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+    if (num_indices > 0) {
+        if (!q->ibo) glGenBuffers(1, &q->ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, q->ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, num_indices * sizeof(uint32_t), indices, m.flags & MODEL_STREAM ? GL_STREAM_DRAW : GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+
+    q->nummeshes = 1;
+    q->numtris = num_indices/3;
+    q->numverts = num_vertices;
+
+    if (!q->meshes) q->meshes = CALLOC(q->nummeshes, sizeof(struct iqmmesh));
+    struct iqmmesh *mesh = &q->meshes[0];
+    mesh->first_vertex = 0;
+    mesh->num_vertexes = num_vertices;
+    mesh->first_triangle = 0;
+    mesh->num_triangles = num_indices/3;
+
+    model_set_state(m);
+    glBindVertexArray(0);
+}
+
 static
 bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     if(q->meshdata) return false;
@@ -20115,7 +21677,7 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
     float *inposition = NULL, *innormal = NULL, *intangent = NULL, *intexcoord = NULL, *invertexindex = NULL;
     uint8_t *inblendindex8 = NULL, *inblendweight8 = NULL;
     int *inblendindexi = NULL; float *inblendweightf = NULL;
-    uint8_t *invertexcolor8 = NULL;
+    float *invertexcolor = NULL;
     struct iqmvertexarray *vas = (struct iqmvertexarray *)&q->buf[hdr->ofs_vertexarrays];
     for(int i = 0; i < (int)hdr->num_vertexarrays; i++) {
         struct iqmvertexarray *va = &vas[i];
@@ -20125,7 +21687,7 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
         break; case IQM_NORMAL: ASSERT(va->format == IQM_FLOAT && va->size == 3); innormal = (float *)&q->buf[va->offset]; lil32pf(innormal, 3*hdr->num_vertexes);
         break; case IQM_TANGENT: ASSERT(va->format == IQM_FLOAT && va->size == 4); intangent = (float *)&q->buf[va->offset]; lil32pf(intangent, 4*hdr->num_vertexes);
         break; case IQM_TEXCOORD: ASSERT(va->format == IQM_FLOAT && va->size == 2); intexcoord = (float *)&q->buf[va->offset]; lil32pf(intexcoord, 2*hdr->num_vertexes);
-        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE); invertexcolor8 = (uint8_t *)&q->buf[va->offset];
+        break; case IQM_COLOR: ASSERT(va->size == 4); ASSERT(va->format == IQM_FLOAT); invertexcolor = (float *)&q->buf[va->offset];
         break; case IQM_BLENDINDEXES: ASSERT(va->size == 4); ASSERT(va->format == IQM_UBYTE || va->format == IQM_INT);
         if(va->format == IQM_UBYTE) inblendindex8 = (uint8_t *)&q->buf[va->offset];
         else inblendindexi = (int *)&q->buf[va->offset];
@@ -20190,7 +21752,26 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
             float conv = i;
             memcpy(&v->blendvertexindex, &conv, 4);
         }
-        if(invertexcolor8) memcpy(v->color, &invertexcolor8[i*4], sizeof(v->color));
+        if(invertexcolor) {
+            v->color[0] = invertexcolor[i*4+0];
+            v->color[1] = invertexcolor[i*4+1];
+            v->color[2] = invertexcolor[i*4+2];
+            v->color[3] = invertexcolor[i*4+3];
+        }
+        else {
+            v->color[0] = 1.0f;
+            v->color[1] = 1.0f;
+            v->color[2] = 1.0f;
+            v->color[3] = 1.0f;
+        }
+
+        /* handle vertex colors for parts of mesh that don't utilise it. */
+        if (v->color[0] + v->color[1] + v->color[2] + v->color[3] < 0.001f) {
+            v->color[0] = 1.0f;
+            v->color[1] = 1.0f;
+            v->color[2] = 1.0f;
+            v->color[3] = 1.0f;
+        }
     }
 
     if(!q->vbo) glGenBuffers(1, &q->vbo);
@@ -20217,10 +21798,6 @@ bool model_load_meshes(iqm_t *q, const struct iqmheader *hdr, model_t *m) {
 
     q->textures = CALLOC(hdr->num_meshes * 8, sizeof(GLuint));
     q->colormaps = CALLOC(hdr->num_meshes * 8, sizeof(vec4));
-    for(int i = 0; i < (int)hdr->num_meshes; i++) {
-        int invalid = texture_checker().id;
-        q->textures[i] = invalid;
-    }
 
     const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
     for(int i = 0; i < (int)hdr->num_meshes; i++) {
@@ -20298,6 +21875,42 @@ bool model_load_anims(iqm_t *q, const struct iqmheader *hdr) {
     return true;
 }
 
+void ui_material(material_t *m) {
+    static char* channel_names[] = {
+        "Diffuse", "Normals", "Specular", "Albedo", "Roughness", "Metallic", "AO", "Ambient", "Emissive", "Parallax"
+    };
+    for (int i = 0; i < MAX_CHANNELS_PER_MATERIAL; i++) {
+        
+        if (ui_collapse(channel_names[i], va("%s_%d", m->name, i))) {
+            ui_color4f(va("%s Color", channel_names[i]), &m->layer[i].map.color.x);
+            
+            if (m->layer[i].map.texture) {
+                ui_texture(va("%s Texture", channel_names[i]), *m->layer[i].map.texture);
+            }
+            
+            if (i == MATERIAL_CHANNEL_SPECULAR) {
+                ui_float("Specular Shininess", &m->layer[i].value);
+            }
+
+            if (i == MATERIAL_CHANNEL_PARALLAX) {
+                ui_float("Parallax Scale", &m->layer[i].value);
+                ui_float("Parallax Shadow Power", &m->layer[i].value2);
+            }
+            
+            ui_collapse_end();
+        }
+    }
+}
+
+void ui_materials(model_t *m) {
+    for (int i = 0; i < array_count(m->materials); i++) {
+        if (ui_collapse(m->materials[i].name, va("material_%d", i))) {
+            ui_material(&m->materials[i]);
+            ui_collapse_end();
+        }
+    }
+}
+
 // prevents crash on osx when strcpy'ing non __restrict arguments
 static char* strcpy_safe(char *d, const char *s) {
     sprintf(d, "%s", s);
@@ -20307,39 +21920,44 @@ static char* strcpy_safe(char *d, const char *s) {
 static
 void model_load_pbr_layer(material_layer_t *layer, const char *texname, bool load_as_srgb) {
     strcpy_safe(layer->texname, texname);
-    colormap(&layer->map, texname, false);
+    colormap(&layer->map, texname, load_as_srgb);
 }
 
 static
-void model_load_pbr(material_t *mt) {
+void model_load_pbr(model_t *m, material_t *mt, int mesh) {
+    if (!m->iqm) return;
+    struct iqm_t *q = m->iqm;
+
     // initialise default colors
-    mt->layer[MATERIAL_CHANNEL_DIFFUSE].map.color = vec4(0.5,0.5,0.5,0.5);
+    // mt->layer[MATERIAL_CHANNEL_DIFFUSE].map.color = vec4(0.5,0.5,0.5,1.0);
     mt->layer[MATERIAL_CHANNEL_NORMALS].map.color = vec4(0,0,0,0);
     mt->layer[MATERIAL_CHANNEL_SPECULAR].map.color = vec4(0,0,0,0);
     mt->layer[MATERIAL_CHANNEL_SPECULAR].value = 1.0f; // specular_shininess
     mt->layer[MATERIAL_CHANNEL_ALBEDO].map.color = vec4(0.5,0.5,0.5,1.0);
     mt->layer[MATERIAL_CHANNEL_ROUGHNESS].map.color = vec4(1,1,1,1);
     mt->layer[MATERIAL_CHANNEL_METALLIC].map.color = vec4(0,0,0,0);
-    mt->layer[MATERIAL_CHANNEL_AO].map.color = vec4(1,1,1,1);
+    mt->layer[MATERIAL_CHANNEL_AO].map.color = vec4(1,1,1,0);
     mt->layer[MATERIAL_CHANNEL_AMBIENT].map.color = vec4(0,0,0,1);
     mt->layer[MATERIAL_CHANNEL_EMISSIVE].map.color = vec4(0,0,0,0);
-
+    mt->layer[MATERIAL_CHANNEL_PARALLAX].map.color = vec4(0,0,0,0);
+    mt->layer[MATERIAL_CHANNEL_PARALLAX].value = 0.1f;
+    mt->layer[MATERIAL_CHANNEL_PARALLAX].value2 = 4.0f;
+    
     // load colormaps
     array(char*) tokens = strsplit(mt->name, "+");
     for( int j = 0, end = array_count(tokens); j < end; ++j ) {
         char *t = tokens[j];
-        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") || strstri(t, "Base_Color") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_DIFFUSE], t, 1);
-        if( strstri(t, "_N.") || strstri(t, "Normal") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0);
-        if( strstri(t, "_S.") || strstri(t, "Specular") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0);
-        if( strstri(t, "_A.") || strstri(t, "Albedo") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); // 0?
-        if( strstri(t, "Roughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
-        if( strstri(t, "_MR.")|| strstri(t, "MetallicRoughness") || strstri(t, "OcclusionRoughnessMetallic") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        if( strstri(t, "_D.") || strstri(t, "Diffuse") || strstri(t, "BaseColor") || strstri(t, "Base_Color") )    { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_DIFFUSE], t, 1); continue; }
+        if( strstri(t, "_N.") || strstri(t, "Normal") )     { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0); continue; }
+        if( strstri(t, "_S.") || strstri(t, "Specular") )   { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0); continue; }
+        if( strstri(t, "_A.") || strstri(t, "Albedo") )     { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); continue; }
+        if( strstri(t, "Roughness") )  { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0); continue; }
+        if( strstri(t, "_MR.")|| strstri(t, "MetallicRoughness") || strstri(t, "OcclusionRoughnessMetallic") )  { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0); continue; }
         else
-        if( strstri(t, "_M.") || strstri(t, "Metallic") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0);
-      //if( strstri(t, "_S.") || strstri(t, "Shininess") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
-      //if( strstri(t, "_A.") || strstri(t, "Ambient") )    model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AMBIENT], t, 0);
-        if( strstri(t, "_E.") || strstri(t, "Emissive") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_EMISSIVE], t, 1);
-        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AO], t, 0);
+        if( strstri(t, "_M.") || strstri(t, "Metallic") )   { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0); continue; }
+        if( strstri(t, "_E.") || strstri(t, "Emissive") )   { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_EMISSIVE], t, 1); continue; }
+        if( strstri(t, "_AO.") || strstri(t, "AO") || strstri(t, "Occlusion") ) { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_AO], t, 0); continue; }
+        if( strstri(t, "_P.") || strstri(t, "Parallax") || strstri(t, "disp.") ) { model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_PARALLAX], t, 0); continue; }
     }
 }
 
@@ -20348,6 +21966,7 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
     q->textures = q->textures ? q->textures : CALLOC(hdr->num_meshes * 8, sizeof(GLuint)); // up to 8 textures per mesh
     q->colormaps = q->colormaps ? q->colormaps : CALLOC(hdr->num_meshes * 8, sizeof(vec4)); // up to 8 colormaps per mesh
 
+    texture_t tex = {0};
     GLuint *out = q->textures;
 
     const char *str = hdr->ofs_text ? (char *)&q->buf[hdr->ofs_text] : "";
@@ -20375,7 +21994,8 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
         if( reused ) continue;
 
         // decode texture+material
-        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT|TEXTURE_ANISOTROPY; // LINEAR, NEAREST
+        int load_as_srgb = _flags & MODEL_NO_PBR ? 0 : TEXTURE_SRGB;
+        int flags = TEXTURE_MIPMAPS|TEXTURE_REPEAT|TEXTURE_ANISOTROPY|load_as_srgb; // LINEAR, NEAREST
         if (!(_flags & MODEL_NO_FILTERING))
             flags |= TEXTURE_LINEAR;
         int invalid = texture_checker().id;
@@ -20388,7 +22008,8 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
             array(char) embedded_texture = base64_decode(material_embedded_texture, strlen(material_embedded_texture));
             //printf("%s %d\n", material_embedded_texture, array_count(embedded_texture));
             //hexdump(embedded_texture, array_count(embedded_texture));
-            *out = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), flags ).id;
+            tex = texture_compressed_from_mem( embedded_texture, array_count(embedded_texture), flags );
+            *out = tex.id;
             array_free(embedded_texture);
         }
 
@@ -20400,12 +22021,12 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
             material_color.r = ((material_color_hex[0] >= 'a') ? material_color_hex[0] - 'a' + 10 : material_color_hex[0] - '0') / 15.f;
             material_color.g = ((material_color_hex[1] >= 'a') ? material_color_hex[1] - 'a' + 10 : material_color_hex[1] - '0') / 15.f;
             material_color.b = ((material_color_hex[2] >= 'a') ? material_color_hex[2] - 'a' + 10 : material_color_hex[2] - '0') / 15.f;
+            material_color.a = ((material_color_hex[3] >= 'a') ? material_color_hex[3] - 'a' + 10 : material_color_hex[3] - '0') / 15.f;
             #if 0 // not enabled because of some .obj files like suzanne, with color_hex=9990 found
             if(material_color_hex[3])
             material_color.a = ((material_color_hex[3] >= 'a') ? material_color_hex[3] - 'a' + 10 : material_color_hex[3] - '0') / 15.f;
             else
             #endif
-            material_color.a = 1;
         }
 
         if( !material_embedded_texture ) {
@@ -20416,7 +22037,8 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
                 material_name = va("%s", &str[m->material]);
                 char* plus = strrchr(material_name, '+');
                 if (plus) { strcpy_safe(plus, file_ext(material_name)); }
-                *out = texture_compressed(material_name, flags).id;
+                tex = texture_compressed(material_name, flags);
+                *out = tex.id;
             }
             // else try right token
             if (*out == invalid) {
@@ -20424,12 +22046,14 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
                 char* plus = strrchr(material_name, '+'), *slash = strrchr(material_name, '/');
                 if (plus) {
                     strcpy_safe(slash ? slash + 1 : material_name, plus + 1);
-                    *out = texture_compressed(material_name, flags).id;
+                    tex = texture_compressed(material_name, flags);
+                    *out = tex.id;
                 }
             }
             // else last resort
             if (*out == invalid) {
-                *out = texture_compressed(material_name, flags).id; // needed?
+                tex = texture_compressed(material_name, flags);
+                *out = tex.id; // needed?
             }
         }
 
@@ -20438,7 +22062,8 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
         } else {
             PRINTF("warn: material[%d] not found: %s\n", i, &str[m->material]);
             PRINTF("warn: using placeholder material[%d]=texture_checker\n", i);
-            *out = texture_checker().id; // placeholder
+            tex = texture_checker();
+            *out = tex.id; // placeholder
         }
 
         inscribe_tex:;
@@ -20452,7 +22077,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
             // initialise basic texture layer
             mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.color = material_color_hex ? material_color : vec4(1,1,1,1);
             mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
-            mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id = *out++;
+            *mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = tex;
+            printf("texture_id: %d\n", mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id);
+            out++;
 
             array_push(model->materials, mt);
         }
@@ -20494,9 +22121,9 @@ bool model_load_textures(iqm_t *q, const struct iqmheader *hdr, model_t *model, 
     if( array_count(model->materials) == 0 ) {
         material_t mt = {0};
         mt.name = "placeholder";
-        mt.layer[0].map.color = vec4(1,1,1,1);
-        mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
-        mt.layer[0].map.texture->id = texture_checker().id;
+        mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.color = vec4(1,1,1,1);
+        mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
+        mt.layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id = texture_checker().id;
 
         array_push(model->materials, mt);
     }
@@ -20510,32 +22137,51 @@ void model_set_renderstates(model_t *m) {
         m->rs[i] = renderstate();
     }
 
-    // Normal pass
-    renderstate_t *normal_rs = &m->rs[RENDER_PASS_NORMAL];
+    // Opaque pass
+    renderstate_t *opaque_rs = &m->rs[RENDER_PASS_OPAQUE];
     {
-        normal_rs->blend_enabled = 1;
-        normal_rs->blend_src = GL_SRC_ALPHA;
-        normal_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
-        normal_rs->cull_face_mode = GL_BACK;
-        normal_rs->front_face = GL_CW;
+#if 1 // @todo: we should keep blend_enabled=0, however our transparency detection still needs work
+        opaque_rs->blend_enabled = 0;
+#else
+        opaque_rs->blend_enabled = 1;
+        opaque_rs->blend_src = GL_SRC_ALPHA;
+        opaque_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+#endif
+        opaque_rs->cull_face_mode = GL_BACK;
+        opaque_rs->front_face = GL_CW;
     }
 
-    // Shadow pass @todo
-    renderstate_t *shadow_rs = &m->rs[RENDER_PASS_SHADOW];
+    // Transparent pass
+    renderstate_t *transparent_rs = &m->rs[RENDER_PASS_TRANSPARENT];
     {
-        shadow_rs->blend_enabled = 1;
-        shadow_rs->blend_src = GL_SRC_ALPHA;
-        shadow_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
-        shadow_rs->cull_face_mode = GL_BACK;
-        shadow_rs->front_face = GL_CW;
+        transparent_rs->blend_enabled = 1;
+        transparent_rs->blend_src = GL_SRC_ALPHA;
+        transparent_rs->blend_dst = GL_ONE_MINUS_SRC_ALPHA;
+        transparent_rs->cull_face_mode = GL_BACK;
+        transparent_rs->front_face = GL_CW;
     }
 
-    // Lightmap pass
-    renderstate_t *lightmap_rs = &m->rs[RENDER_PASS_LIGHTMAP];
+    // Shadow pass
+    renderstate_t *csm_shadow_rs = &m->rs[RENDER_PASS_SHADOW_CSM];
     {
-        lightmap_rs->blend_enabled = 0;
-        lightmap_rs->cull_face_enabled = 0;
-        lightmap_rs->front_face = GL_CW;
+        csm_shadow_rs->blend_enabled = 0;
+        csm_shadow_rs->depth_test_enabled = true;
+        csm_shadow_rs->depth_write_enabled = true;
+        csm_shadow_rs->cull_face_enabled = 0;
+        csm_shadow_rs->cull_face_mode = GL_BACK;
+        csm_shadow_rs->front_face = GL_CW;
+        csm_shadow_rs->depth_clamp_enabled = 1;
+    }
+
+    renderstate_t *vsm_shadow_rs = &m->rs[RENDER_PASS_SHADOW_VSM];
+    {
+        vsm_shadow_rs->blend_enabled = 0;
+        vsm_shadow_rs->depth_test_enabled = true;
+        vsm_shadow_rs->depth_write_enabled = true;
+        vsm_shadow_rs->cull_face_enabled = 0;
+        vsm_shadow_rs->cull_face_mode = GL_BACK;
+        vsm_shadow_rs->front_face = GL_CW;
+        vsm_shadow_rs->depth_clamp_enabled = 1;
     }
 }
 
@@ -20543,7 +22189,7 @@ model_t model_from_mem(const void *mem, int len, int flags) {
     model_t m = {0};
 
     m.stored_flags = flags;
-    m.shading = SHADING_PHONG;
+    m.shading = !(flags & MODEL_NO_PBR) ? SHADING_PBR : SHADING_PHONG;
     model_set_renderstates(&m);
 
     const char *ptr = (const char *)mem;
@@ -20576,7 +22222,25 @@ model_t model_from_mem(const void *mem, int len, int flags) {
         }
     }
 
-    if( error ) {
+    if (flags & MODEL_PROCEDURAL) {
+        error = 0;
+
+        material_t mt = {0};
+        mt.name = "base";
+        mt.layer[0].map.color = vec4(1,1,1,1);
+        mt.layer[0].map.texture = CALLOC(1, sizeof(texture_t));
+        mt.layer[0].map.texture->id = texture_checker().id;
+
+        q->nummeshes = 1;
+        if (!q->textures) q->textures = CALLOC(1 * 8, sizeof(GLuint));
+        if (!q->colormaps) q->colormaps = CALLOC(1 * 8, sizeof(vec4));
+
+        q->textures[0] = mt.layer[0].map.texture->id;
+
+        array_push(m.materials, mt);
+    }
+
+    if(error) {
         PRINTF("Error: cannot load %s", "model");
         FREE(q), q = 0;
     } else {
@@ -20597,6 +22261,8 @@ model_t model_from_mem(const void *mem, int len, int flags) {
 
         //m.num_textures = q->nummeshes; // assume 1 texture only per mesh
         m.textures = (q->textures);
+        m.sky_env.id = 0;
+        m.sky_refl.id = 0;
 
         m.flags = flags;
 
@@ -20607,14 +22273,61 @@ model_t model_from_mem(const void *mem, int len, int flags) {
 
         glGenBuffers(1, &m.vao_instanced);
         model_set_state(m);
-        model_shading(&m, (flags & MODEL_PBR) ? SHADING_PBR : SHADING_PHONG);
+        model_setstyle(&m, !(flags & MODEL_NO_PBR) ? SHADING_PBR : SHADING_PHONG);
     }
     return m;
 }
 model_t model(const char *filename, int flags) {
+    if (!filename) {
+        return model_from_mem( NULL, 0, flags|MODEL_PROCEDURAL );
+    }
     int len;  // vfs_pushd(filedir(filename))
     char *ptr = vfs_load(filename, &len); // + vfs_popd
     return model_from_mem( ptr, len, flags );
+}
+
+uint32_t material_checksum(material_t *m) {
+    uint32_t checksum = 0;
+    for (int i = 0; i < MAX_CHANNELS_PER_MATERIAL; i++) {
+        checksum ^= hh_float(m->layer[i].value);
+        checksum ^= (m->layer[i].map.texture) ? m->layer[i].map.texture->id : 0;
+        checksum ^= hh_vec4(m->layer[i].map.color);
+    }
+    return checksum;
+}
+
+uint32_t model_checksum(model_t *m) {
+    uint32_t checksum = 0;
+    
+    // Basic properties
+    checksum ^= m->num_meshes ^ m->num_triangles ^ m->num_joints ^ m->num_anims ^ m->num_frames;
+    checksum ^= m->flags ^ (m->shadow_receiver << 1) ^ (m->billboard << 2);
+    
+    // VAO, IBO, VBO
+    checksum ^= m->vao ^ m->ibo ^ m->vbo;
+    
+    // Textures
+    for (int i = 0; i < m->num_textures; i++) {
+        checksum ^= (uint32_t)(uintptr_t)m->textures[i];
+    }
+    
+    // LOD
+    checksum ^= (uint32_t)(uintptr_t)m->lod_collapse_map ^ m->lod_num_verts ^ m->lod_num_tris;
+    
+    // Renderstates
+    checksum ^= renderstate_checksum(&m->rs[RENDER_PASS_OPAQUE]);
+    checksum ^= renderstate_checksum(&m->rs[RENDER_PASS_TRANSPARENT]);
+    checksum ^= renderstate_checksum(&m->rs[RENDER_PASS_CUSTOM]);
+    
+    // Materials
+    for (int i = 0; i < array_count(m->materials); i++) {
+        checksum ^= material_checksum(&m->materials[i]);
+    }
+    
+    // Shader uniforms
+    checksum ^= model_uniforms_checksum(array_count(m->uniforms), m->uniforms);
+    
+    return checksum;
 }
 
 bool model_get_bone_pose(model_t m, unsigned joint, mat34 *out) {
@@ -20624,6 +22337,20 @@ bool model_get_bone_pose(model_t m, unsigned joint, mat34 *out) {
     if(joint >= q->numjoints) return false;
 
     multiply34x2(*out, q->outframe[joint], q->baseframe[joint]);
+    return true;
+}
+
+bool model_get_bone_position(model_t m, unsigned joint, mat44 M, vec3 *out) {
+    if(!m.iqm) return false;
+    iqm_t *q = m.iqm;
+    
+    mat34 f;
+    if (!model_get_bone_pose(m, joint, &f)) return false;
+    vec3 pos = vec3(f[3],f[7],f[11]);
+
+    pos = transform344(M, pos);
+    *out = pos;
+
     return true;
 }
 
@@ -20805,63 +22532,261 @@ float model_animate(model_t m, float curframe) {
     return model_animate_clip(m, curframe, 0, q->numframes-1, true);
 }
 
-// @fixme: store uniform handles into model_t/colormap_t and rely on those directly
 static inline
-void shader_colormap_model_internal(const char *col_name, const char *bool_name, const char *tex_name, colormap_t c ) {
+void shader_colormap_model_internal(model_t *m,const char *col_name, const char *bool_name, const char *tex_name, colormap_t c, int slot ) {
     // assumes shader uses `struct { vec4 color; bool has_tex } name + sampler2D name_tex;`
     shader_vec4( col_name, c.color );
-    shader_bool( bool_name, c.texture != NULL );
-    if( c.texture ) shader_texture( tex_name, *c.texture );
+    shader_bool( bool_name, c.texture != NULL && (c.texture && c.texture->id != texture_checker().id) );
+    if( c.texture ) shader_texture_unit_kind_(GL_TEXTURE_2D, shader_uniform(tex_name), c.texture->id, slot);
+    else {
+        glUniform1i(shader_uniform(tex_name), slot);
+    }
+}
+
+
+typedef struct drawcall_t {
+    int mesh;
+    union {
+        uint64_t order;
+        struct {
+            uint32_t tex;
+            float distance;
+        };
+    };
+} drawcall_t;
+
+static
+int drawcall_compare(const void *a, const void *b) {
+    const drawcall_t *da = a, *db = b;
+    return da->order < db->order ? 1 : da->order > db->order ? -1 : 0;
+}
+
+bool model_has_transparency_mesh(model_t m, int mesh) {
+    if(!m.iqm) return false;
+    iqm_t *q = m.iqm;
+
+    if (m.flags & MODEL_TRANSPARENT) {
+        return true;
+    }
+    if (m.materials[mesh].layer[MATERIAL_CHANNEL_DIFFUSE].map.color.a < 1 || (m.materials[mesh].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture && m.materials[mesh].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->transparent)) {
+        return true;
+    }
+    if (m.shading == SHADING_PBR && (m.materials[mesh].layer[MATERIAL_CHANNEL_ALBEDO].map.color.a < 1 || (m.materials[mesh].layer[MATERIAL_CHANNEL_ALBEDO].map.texture && m.materials[mesh].layer[MATERIAL_CHANNEL_ALBEDO].map.texture->transparent))){
+        return true;
+    }
+
+    return false;
+}
+
+bool model_has_transparency(model_t m) {
+    if(!m.iqm) return false;
+    iqm_t *q = m.iqm;
+
+    for (int i = 0; i < q->nummeshes; i++) {
+        if (model_has_transparency_mesh(m, i)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+void model_set_frustum(model_t *m, frustum f) {
+    m->frustum_enabled = 1;
+    m->frustum_state = f;
+}
+
+void model_clear_frustum(model_t *m) {
+    m->frustum_enabled = 0;
+}
+
+static frustum global_frustum;
+static mat44 global_frustum_stored_mat_proj;
+static mat44 global_frustum_stored_mat_view;
+
+static inline
+bool model_is_visible(model_t m, mat44 model_mat, mat44 proj, mat44 view) {
+    if(!m.iqm) return false;
+
+    bool is_enabled = m.frustum_enabled;
+    frustum fr = m.frustum_state;
+
+#if GLOBAL_FRUSTUM_ENABLED
+    if (active_shadowmap) {
+        is_enabled = true;
+        fr = active_shadowmap->shadow_frustum;
+    }
+
+    if (!is_enabled) { /* custom frustum not provided, let's compute one from input call */
+        if (memcmp(global_frustum_stored_mat_proj, proj, sizeof(mat44)) != 0 ||
+            memcmp(global_frustum_stored_mat_view, view, sizeof(mat44)) != 0) {
+            copy44(global_frustum_stored_mat_proj, proj);
+            copy44(global_frustum_stored_mat_view, view);
+            mat44 proj_modified;
+            copy44(proj_modified, proj);
+            
+            // Increase FOV by GLOBAL_FRUSTUM_FOV_MULTIPLIER
+            float fov_scale = 1.0f / GLOBAL_FRUSTUM_FOV_MULTIPLIER;
+            proj_modified[0] *= fov_scale;
+            proj_modified[5] *= fov_scale;
+            mat44 projview; multiply44x2(projview, proj_modified, view);
+            global_frustum = frustum_build(projview);
+        }
+        fr = global_frustum;
+        is_enabled = true;
+    }
+#endif
+
+    if(!is_enabled) return true;
+
+    sphere s = model_bsphere(m, model_mat);
+
+    if (!frustum_test_sphere(fr, s)) {
+        return false;
+    }
+
+    aabb box = model_aabb(m, model_mat);
+
+    if (!frustum_test_aabb(fr, box)) {
+        return false;
+    }
+
+    return true;
+}
+
+static inline
+void model_set_mesh_material(model_t m, int mesh, int shader, int rs_idx) {
+    iqm_t *q = m.iqm;
+    int loc = -1;
+    int i = mesh;
+
+    if (m.shading != SHADING_PBR) {
+        int loc = glGetUniformLocation(shader, "u_texture2d");
+        shader_texture_unit_kind_(GL_TEXTURE_2D, loc, q->textures[i], MODEL_TEXTURE_DIFFUSE);
+
+        if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
+            bool textured = !!q->textures[i] && q->textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
+            glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
+            if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
+                glUniform4f(loc, m.materials[i].layer[0].map.color.r, m.materials[i].layer[0].map.color.g, m.materials[i].layer[0].map.color.b, m.materials[i].layer[0].map.color.a);
+            }
+        }
+
+    } else {
+        const material_t *material = &m.materials[i];
+        shader_colormap_model_internal(&m, "map_diffuse.color", "map_diffuse.has_tex", "map_diffuse_tex", material->layer[MATERIAL_CHANNEL_DIFFUSE].map, MODEL_TEXTURE_DIFFUSE);
+        shader_colormap_model_internal(&m, "map_albedo.color", "map_albedo.has_tex", "map_albedo_tex", material->layer[MATERIAL_CHANNEL_ALBEDO].map, MODEL_TEXTURE_ALBEDO);
+        if (rs_idx < RENDER_PASS_SHADOW_BEGIN || rs_idx > RENDER_PASS_SHADOW_END) {
+            shader_colormap_model_internal(&m, "map_normals.color", "map_normals.has_tex", "map_normals_tex", material->layer[MATERIAL_CHANNEL_NORMALS].map, MODEL_TEXTURE_NORMALS);
+            shader_colormap_model_internal(&m, "map_specular.color", "map_specular.has_tex", "map_specular_tex", material->layer[MATERIAL_CHANNEL_SPECULAR].map, MODEL_TEXTURE_SPECULAR);
+            shader_colormap_model_internal(&m, "map_roughness.color", "map_roughness.has_tex", "map_roughness_tex", material->layer[MATERIAL_CHANNEL_ROUGHNESS].map, MODEL_TEXTURE_ROUGHNESS);
+            shader_colormap_model_internal(&m, "map_metallic.color", "map_metallic.has_tex", "map_metallic_tex", material->layer[MATERIAL_CHANNEL_METALLIC].map, MODEL_TEXTURE_METALLIC);
+            shader_colormap_model_internal(&m, "map_ao.color", "map_ao.has_tex", "map_ao_tex", material->layer[MATERIAL_CHANNEL_AO].map, MODEL_TEXTURE_AO);
+            shader_colormap_model_internal(&m, "map_ambient.color", "map_ambient.has_tex", "map_ambient_tex", material->layer[MATERIAL_CHANNEL_AMBIENT].map, MODEL_TEXTURE_AMBIENT);
+            shader_colormap_model_internal(&m, "map_emissive.color", "map_emissive.has_tex", "map_emissive_tex", material->layer[MATERIAL_CHANNEL_EMISSIVE].map, MODEL_TEXTURE_EMISSIVE);
+            shader_colormap_model_internal(&m, "map_parallax.color", "map_parallax.has_tex", "map_parallax_tex", material->layer[MATERIAL_CHANNEL_PARALLAX].map, MODEL_TEXTURE_PARALLAX);
+            shader_float("parallax_scale", material->layer[MATERIAL_CHANNEL_PARALLAX].value);
+            shader_float("parallax_shadow_power", material->layer[MATERIAL_CHANNEL_PARALLAX].value2);
+        }
+    }
 }
 
 static
-void model_draw_call(model_t m, int shader) {
+void model_draw_call(model_t m, int shader, int pass, vec3 cam_pos, mat44 model_mat, mat44 proj, mat44 view) {
     if(!m.iqm) return;
     iqm_t *q = m.iqm;
 
     handle old_shader = last_shader;
     shader_bind(shader);
 
-    renderstate_t *rs = &m.rs[RENDER_PASS_NORMAL];
-
+    int rs_idx = model_getpass();
+    renderstate_t *rs = &m.rs[rs_idx];
     renderstate_apply(rs);
 
     glBindVertexArray( q->vao );
 
-    struct iqmtriangle *tris = NULL;
+    static array(int) required_rs = 0;
+    array_resize(required_rs, q->nummeshes);
+
     for(int i = 0; i < q->nummeshes; i++) {
         struct iqmmesh *im = &q->meshes[i];
+        required_rs[i] = rs_idx;
 
-        if (m.shading != SHADING_PBR) {
-            shader_texture_unit("u_texture2d", q->textures[i], texture_unit());
-            shader_texture("u_lightmap", m.lightmap);
+        if (required_rs[i] < RENDER_PASS_OVERRIDES_BEGIN) {
+            if (model_has_transparency_mesh(m, i)) {
+                required_rs[i] = RENDER_PASS_TRANSPARENT;
+            }
+        }
+    }
 
-            int loc;
-            if ((loc = glGetUniformLocation(shader, "u_textured")) >= 0) {
-                bool textured = !!q->textures[i] && q->textures[i] != texture_checker().id; // m.materials[i].layer[0].texture != texture_checker().id;
-                glUniform1i(loc, textured ? GL_TRUE : GL_FALSE);
-                if ((loc = glGetUniformLocation(shader, "u_diffuse")) >= 0) {
-                    glUniform4f(loc, m.materials[i].layer[0].map.color.r, m.materials[i].layer[0].map.color.g, m.materials[i].layer[0].map.color.b, m.materials[i].layer[0].map.color.a);
+    static array(drawcall_t) drawcalls = 0;
+    array_resize(drawcalls, 0);
+
+    if (rs_idx > RENDER_PASS_OVERRIDES_BEGIN) {
+        for(int i = 0; i < q->nummeshes; i++) {
+            array_push(drawcalls, (drawcall_t){i, -1});
+        }
+    } else {
+        if(pass == -1 || pass == RENDER_PASS_OPAQUE) {
+            for(int i = 0; i < q->nummeshes; i++) {
+                // collect opaque drawcalls
+                if (required_rs[i] == RENDER_PASS_OPAQUE) {
+                    drawcall_t call;
+                    call.mesh = i;
+                    call.tex = m.textures[i];
+                    call.distance = -1;
+                    if (m.shading == SHADING_PBR)
+                        call.tex = m.materials[i].layer[MATERIAL_CHANNEL_ALBEDO].map.texture ? m.materials[i].layer[MATERIAL_CHANNEL_ALBEDO].map.texture->id : m.materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture ? m.materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id : texture_checker().id;
+                    array_push(drawcalls, call);
                 }
             }
-
-        } else {
-            const material_t *material = &m.materials[i];
-            shader_colormap_model_internal( "map_diffuse.color", "map_diffuse.has_tex", "map_diffuse_tex", material->layer[MATERIAL_CHANNEL_DIFFUSE].map );
-            shader_colormap_model_internal( "map_normals.color", "map_normals.has_tex", "map_normals_tex", material->layer[MATERIAL_CHANNEL_NORMALS].map );
-            shader_colormap_model_internal( "map_specular.color", "map_specular.has_tex", "map_specular_tex", material->layer[MATERIAL_CHANNEL_SPECULAR].map );
-            shader_colormap_model_internal( "map_albedo.color", "map_albedo.has_tex", "map_albedo_tex", material->layer[MATERIAL_CHANNEL_ALBEDO].map );
-            shader_colormap_model_internal( "map_roughness.color", "map_roughness.has_tex", "map_roughness_tex", material->layer[MATERIAL_CHANNEL_ROUGHNESS].map );
-            shader_colormap_model_internal( "map_metallic.color", "map_metallic.has_tex", "map_metallic_tex", material->layer[MATERIAL_CHANNEL_METALLIC].map );
-            shader_colormap_model_internal( "map_ao.color", "map_ao.has_tex", "map_ao_tex", material->layer[MATERIAL_CHANNEL_AO].map );
-            shader_colormap_model_internal( "map_ambient.color", "map_ambient.has_tex", "map_ambient_tex", material->layer[MATERIAL_CHANNEL_AMBIENT].map );
-            shader_colormap_model_internal( "map_emissive.color", "map_emissive.has_tex", "map_emissive_tex", material->layer[MATERIAL_CHANNEL_EMISSIVE].map );
-            // shader_float( "specular_shininess", material->specular_shininess ); // unused, basic_specgloss.fs only
         }
+        
+        if(pass == -1 || pass == RENDER_PASS_TRANSPARENT) {
+            for(int i = 0; i < q->nummeshes; i++) {
+                // collect transparent drawcalls
+                if (required_rs[i] == RENDER_PASS_TRANSPARENT) {
+                    drawcall_t call;
+                    call.mesh = i;
+                    call.tex = m.textures[i];
+                    struct iqmmesh *im = &q->meshes[i];
+                    
+                    // calculate distance from camera
+                    {
+                        vec3 pos = ptr3(((struct iqm_vertex*)m.verts)[im->first_vertex].position);
+                        call.distance = len3sq(sub3(cam_pos, transform344(model_mat, pos)));
+                    }
+
+                    if (m.shading == SHADING_PBR)
+                        call.tex = m.materials[i].layer[MATERIAL_CHANNEL_ALBEDO].map.texture ? m.materials[i].layer[MATERIAL_CHANNEL_ALBEDO].map.texture->id : m.materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture ? m.materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture->id : texture_checker().id;
+                    array_push(drawcalls, call);
+                }
+            }
+        }
+    }
+
+    // sort drawcalls by order
+    array_sort(drawcalls, drawcall_compare);
+
+    struct iqmtriangle *tris = NULL;
+    for(int di = 0; di < array_count(drawcalls); di++) {
+        int i = drawcalls[di].mesh;
+        struct iqmmesh *im = &q->meshes[i];
+
+        if (pass != -1 && pass != required_rs[i]) continue;
+        
+        if (rs_idx != required_rs[i]) {
+            rs_idx = required_rs[i];
+            rs = &m.rs[rs_idx];
+            renderstate_apply(rs);
+        }
+        
+        model_set_mesh_material(m, i, shader, rs_idx);
 
         glDrawElementsInstanced(GL_TRIANGLES, 3*im->num_triangles, GL_UNSIGNED_INT, &tris[im->first_triangle], m.num_instances);
         profile_incstat("Render.num_drawcalls", +1);
-        profile_incstat("Render.num_triangles", +im->num_triangles);
+        profile_incstat("Render.num_triangles", +im->num_triangles*m.num_instances);
     }
 
     glBindVertexArray( 0 );
@@ -20869,158 +22794,260 @@ void model_draw_call(model_t m, int shader) {
     shader_bind(old_shader);
 }
 
-void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, int shader, unsigned count) {
-    if(!m.iqm) return;
-    iqm_t *q = m.iqm;
+static mat44 *pass_model_matrices = NULL;
 
-    mat44 mv; multiply44x2(mv, view, models[0]);
+void model_render_instanced_pass(model_t mdl, mat44 proj, mat44 view, mat44* models, unsigned count, int pass) {
+    if(!mdl.iqm) return;
+    iqm_t *q = mdl.iqm;
 
-    if( count != m.num_instances ) {
-        m.num_instances = count;
-        m.instanced_matrices = (float*)models;
-        model_set_state(m);
+    if (q->vbo == 0 || q->ibo == 0) {
+        return;
     }
 
-    model_set_uniforms(m, shader > 0 ? shader : m.program, mv, proj, view, models[0]);
-    model_draw_call(m, shader > 0 ? shader : m.program);
+    if (active_shadowmap && active_shadowmap->skip_render) {
+        return;
+    }
+
+    pass_model_matrices = array_resize(pass_model_matrices, count); //@leak
+    memcpy(pass_model_matrices, models, count * sizeof(mat44));
+
+    for (int i = 0; i < count; i++) {
+        bool visible = model_is_visible(mdl, pass_model_matrices[i], proj, view);
+        if (!visible) {
+            array_erase_fast(pass_model_matrices, i);
+            i--;
+            count--;
+        }
+    }
+
+    if (count == 0) {
+        return;
+    }
+
+    mdl.iqm->texture_unit = 0;
+
+    mat44 mv; multiply44x2(mv, view, pass_model_matrices[0]);
+
+    if( count != mdl.num_instances ) {
+        mdl.num_instances = count;
+        mdl.instanced_matrices = (float*)pass_model_matrices;
+        model_set_state(mdl);
+    }
+
+    int shader = mdl.iqm->program;
+    if (model_getpass() > RENDER_PASS_SHADOW_BEGIN && model_getpass() < RENDER_PASS_SHADOW_END) {
+        shader = mdl.iqm->shadow_program;
+        model_set_uniforms(mdl, shader, mv, proj, view, pass_model_matrices[0]);
+        model_draw_call(mdl, shader, pass, pos44(view), pass_model_matrices[0], proj, view);
+        return;
+    }
+
+    shader_bind(shader);
+
+    if (mdl.lights.count > 0) {
+        light_update(&q->light_ubo, mdl.lights.count, mdl.lights.base);
+    }
+
+    model_set_uniforms(mdl, shader, mv, proj, view, pass_model_matrices[0]);
+    model_draw_call(mdl, shader, pass, pos44(view), pass_model_matrices[0], proj, view);
+    
+    if (q->light_ubo) {
+        ubo_unbind(q->light_ubo);
+    }
 }
 
-void model_render(model_t m, mat44 proj, mat44 view, mat44 model, int shader) {
-    model_render_instanced(m, proj, view, (mat44*)model, shader, 1);
+void model_render_instanced(model_t m, mat44 proj, mat44 view, mat44* models, unsigned count) {
+    model_render_instanced_pass(m, proj, view, models, count, -1);
 }
 
-static inline
-void model_init_uniforms(model_t *m) {
-    for (int i=0; i<NUM_MODEL_UNIFORMS; ++i) m->uniforms[i] = -1;
-    unsigned shader = m->program;
-    int loc;
-    if ((loc = glGetUniformLocation(shader, "u_mv")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MV] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "MV")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MV] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_mvp")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MVP] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "MVP")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MVP] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_vp")) >= 0)
-        m->uniforms[MODEL_UNIFORM_VP] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "VP")) >= 0)
-        m->uniforms[MODEL_UNIFORM_VP] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_cam_pos")) >= 0)
-        m->uniforms[MODEL_UNIFORM_CAM_POS] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "cam_pos")) >= 0)
-        m->uniforms[MODEL_UNIFORM_CAM_POS] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_cam_dir")) >= 0)
-        m->uniforms[MODEL_UNIFORM_CAM_DIR] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "cam_dir")) >= 0)
-        m->uniforms[MODEL_UNIFORM_CAM_DIR] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_billboard")) >= 0)
-        m->uniforms[MODEL_UNIFORM_BILLBOARD] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "billboard")) >= 0)
-        m->uniforms[MODEL_UNIFORM_BILLBOARD] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_texlit")) >= 0)
-        m->uniforms[MODEL_UNIFORM_TEXLIT] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "texlit")) >= 0)
-        m->uniforms[MODEL_UNIFORM_TEXLIT] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "M")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MODEL] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "model")) >= 0)
-        m->uniforms[MODEL_UNIFORM_MODEL] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "V")) >= 0)
-        m->uniforms[MODEL_UNIFORM_VIEW] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "view")) >= 0)
-        m->uniforms[MODEL_UNIFORM_VIEW] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "inv_view")) >= 0)
-        m->uniforms[MODEL_UNIFORM_INV_VIEW] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "P")) >= 0)
-        m->uniforms[MODEL_UNIFORM_PROJ] = loc;
-    else
-    if ((loc = glGetUniformLocation(shader, "proj")) >= 0)
-        m->uniforms[MODEL_UNIFORM_PROJ] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "SKINNED")) >= 0)
-        m->uniforms[MODEL_UNIFORM_SKINNED] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "vsBoneMatrix")) >= 0)
-        m->uniforms[MODEL_UNIFORM_VS_BONE_MATRIX] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "u_matcaps")) >= 0)
-        m->uniforms[MODEL_UNIFORM_U_MATCAPS] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "has_tex_skysphere")) >= 0)
-        m->uniforms[MODEL_UNIFORM_HAS_TEX_SKYSPHERE] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "has_tex_skyenv")) >= 0)
-        m->uniforms[MODEL_UNIFORM_HAS_TEX_SKYENV] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "tex_skysphere")) >= 0)
-        m->uniforms[MODEL_UNIFORM_TEX_SKYSPHERE] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "skysphere_mip_count")) >= 0)
-        m->uniforms[MODEL_UNIFORM_SKYSPHERE_MIP_COUNT] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "tex_skyenv")) >= 0)
-        m->uniforms[MODEL_UNIFORM_TEX_SKYENV] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "tex_brdf_lut")) >= 0)
-        m->uniforms[MODEL_UNIFORM_TEX_BRDF_LUT] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "frame_count")) >= 0)
-        m->uniforms[MODEL_UNIFORM_FRAME_COUNT] = loc;
-
-    if ((loc = glGetUniformLocation(shader, "resolution")) >= 0)
-        m->uniforms[MODEL_UNIFORM_RESOLUTION] = loc;
+void model_render_pass(model_t m, mat44 proj, mat44 view, mat44 model, int pass) {
+    model_render_instanced_pass(m, proj, view, (mat44*)model, 1, pass);
 }
 
-void model_shading(model_t *m, int shading) {
+void model_render(model_t m, mat44 proj, mat44 view, mat44 model) {
+    model_render_pass(m, proj, view, model, -1);
+}
+
+void model_setshader(model_t *m, int shading, const char *vs, const char *fs, const char *defines) {
+    if (!m->iqm) return;
+    iqm_t *q = m->iqm;
+
     m->shading = shading;
     int flags = m->stored_flags;
 
     // load pbr material if SHADING_PBR was selected
     if (shading == SHADING_PBR) {
         for (int i = 0; i < array_count(m->materials); ++i) {
-            model_load_pbr(&m->materials[i]);
+            model_load_pbr(m, &m->materials[i], i);
         }
     }
 
-    // rebind shader
-    // @fixme: app crashes rn
-    // glUseProgram(0);
-    // glDeleteProgram(m->program);
-    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
-    int shaderprog = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
-        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
-        va("%s,%s", shading == SHADING_PBR ? "SHADING_PBR" : "SHADING_PHONG", (flags&MODEL_RIMLIGHT)?"RIM":""));
-    m->program = shaderprog;
-    model_init_uniforms(m);
-}
-
-void model_skybox(model_t *mdl, skybox_t sky, bool load_sh) {
-    if (load_sh) {
-        shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
+    if (!vs) {
+        vs = vfs_read("shaders/vs_323444143_16_3322_model.glsl");
     }
 
+    if (!fs) {
+        fs = vfs_read("shaders/fs_32_4_model.glsl");
+    }
+
+    /* needs to match SHADING_MODE */
+    const char *shading_defines[] = {
+        "SHADING_NONE",
+        "SHADING_PHONG",
+        "SHADING_VERTEXLIT",
+        "SHADING_PBR",
+    };
+
+    ASSERT(shading < countof(shading_defines));
+    const char *shading_define = shading_defines[shading];
+
+    // rebind shader
+    glUseProgram(0);
+    if (q->program) {
+        glDeleteProgram(q->program);
+    }
+    
+    {
+        int shaderprog = shader(vs, fs,
+            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
+            va("%s,%s,%s", (flags & MODEL_RIMLIGHT) ? "RIM" : "NORIM", defines ? defines : "NO_CUSTOM_DEFINES", shading_define));
+        q->program = shaderprog;
+    }
+
+    {
+        int shaderprog = shader(vs, vfs_read("shaders/fs_shadow_pass.glsl"),
+            "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragcolor",
+            va("SHADOW_CAST,%s", defines ? defines : "NO_CUSTOM_DEFINES"));
+        q->shadow_program = shaderprog;
+    }
+    model_init_uniforms(q, 0, q->program);
+    model_init_uniforms(q, 1, q->shadow_program);
+
+    unsigned block_index = glGetUniformBlockIndex(q->program, "LightBuffer");
+    glUniformBlockBinding(q->program, block_index, 0);
+}
+
+void model_setstyle(model_t *m, int shading) {
+    model_setshader(m, shading, NULL, NULL, NULL);
+}
+
+void model_skybox(model_t *mdl, skybox_t sky) {
+    model_cubemap(mdl, &sky.cubemap);
+    mdl->sky_cubemap.id = sky.cubemap.id;
     mdl->sky_refl = sky.refl;
     mdl->sky_env = sky.env;
+}
+
+void model_cubemap(model_t *mdl, cubemap_t *c) {
+    static char coef_names[9][128] = {0};
+    do_once {
+        for (int i = 0; i < 9; i++) {
+            sprintf(coef_names[i], "u_coefficients_sh[%d]", i);
+        }
+    }
+    for (int i = 0; i < 9; i++) {
+        model_adduniform(mdl, model_uniform(coef_names[i], UNIFORM_VEC3, .v3 = c ? c->sh[i] : vec3(0,0,0)));
+    }
+}
+
+void model_probe(model_t *mdl, vec3 center, float radius, unsigned count, cubemap_t *c) {
+    vec3 sh[9] = {0};
+    cubemap_sh_blend(center, radius, count, c, sh);
+    cubemap_t sh_cubemap = {0};
+    memcpy(sh_cubemap.sh, sh, sizeof(sh));
+    model_cubemap(mdl, &sh_cubemap);
+}
+
+void model_shadow(model_t *mdl, shadowmap_t *sm) {
+    if (sm) {
+        mdl->shadow_receiver = true;
+        mdl->shadow_map = sm;
+    } else {
+        mdl->shadow_receiver = false;
+        mdl->shadow_map = NULL;
+    }
+}
+
+void model_light(model_t *mdl, unsigned count, light_t *lights) {
+    mdl->lights.base = lights;
+    mdl->lights.count = count;
+}
+
+void model_rimlight(model_t *mdl, vec3 rim_range, vec3 rim_color, vec3 rim_pivot, bool rim_ambient) {
+    model_adduniform(mdl, model_uniform("u_rimrange", UNIFORM_VEC3, .v3 = rim_range));
+    model_adduniform(mdl, model_uniform("u_rimcolor", UNIFORM_VEC3, .v3 = rim_color));
+    model_adduniform(mdl, model_uniform("u_rimpivot", UNIFORM_VEC3, .v3 = rim_pivot));
+    model_adduniform(mdl, model_uniform("u_rimambient", UNIFORM_BOOL, .i = rim_ambient));
+}
+
+void model_fog(model_t *mdl, unsigned mode, vec3 color, float start, float end, float density) {
+    model_adduniform(mdl, model_uniform("u_fog_color", UNIFORM_VEC3, .v3 = color));
+    model_adduniform(mdl, model_uniform("u_fog_density", UNIFORM_FLOAT, .f = density));
+    model_adduniform(mdl, model_uniform("u_fog_start", UNIFORM_FLOAT, .f = start));
+    model_adduniform(mdl, model_uniform("u_fog_end", UNIFORM_FLOAT, .f = end));
+    model_adduniform(mdl, model_uniform("u_fog_type", UNIFORM_INT, .i = mode));
+}
+
+void model_applyuniform(model_t m, const model_uniform_t *t) {
+    if (!m.iqm) return;
+    iqm_t *q = m.iqm;
+
+    int oldprog = last_shader;
+    shader_bind(q->program);
+
+    switch (t->kind) {
+    case UNIFORM_FLOAT:
+        glUniform1f(shader_uniform(t->name), t->f);
+        break;
+    case UNIFORM_INT:
+    case UNIFORM_BOOL:
+        glUniform1i(shader_uniform(t->name), t->i);
+    case UNIFORM_UINT:
+        glUniform1ui(shader_uniform(t->name), t->u);
+        break;
+    case UNIFORM_VEC2:
+        glUniform2fv(shader_uniform(t->name), 1, &t->v2.x);
+        break;
+    case UNIFORM_VEC3:
+        glUniform3fv(shader_uniform(t->name), 1, &t->v3.x);
+        break;
+    case UNIFORM_VEC4:
+        glUniform4fv(shader_uniform(t->name), 1, &t->v4.x);
+        break;
+    case UNIFORM_MAT3:
+        glUniformMatrix3fv(shader_uniform(t->name), 1, GL_FALSE, t->m33);
+        break;
+    case UNIFORM_MAT4:
+        glUniformMatrix4fv(shader_uniform(t->name), 1, GL_FALSE, t->m44);
+        break;
+    case UNIFORM_SAMPLER2D:
+        shader_texture_unit_kind_(GL_TEXTURE_2D, shader_uniform(t->name), t->u, model_texture_unit(&m));
+        break;
+    case UNIFORM_SAMPLER3D:
+        shader_texture_unit_kind_(GL_TEXTURE_3D, shader_uniform(t->name), t->u, model_texture_unit(&m));
+        break;
+    case UNIFORM_SAMPLERCUBE:
+        shader_texture_unit_kind_(GL_TEXTURE_CUBE_MAP, shader_uniform(t->name), t->u, model_texture_unit(&m));
+        break;
+    }
+
+    shader_bind(oldprog);
+}
+
+void model_adduniform(model_t* m, model_uniform_t uniform) {
+    for (unsigned i = 0; i < array_count(m->uniforms); i++) {
+        if (strcmp(m->uniforms[i].name, uniform.name) == 0) {
+            m->uniforms[i] = uniform;
+            return;
+        }
+    }
+    array_push(m->uniforms, uniform);
+}
+
+void model_adduniforms(model_t* m, unsigned count, model_uniform_t* uniforms) {
+    for (unsigned i = 0; i < count; i++) {
+        model_adduniform(m, uniforms[i]);
+    }
 }
 
 // static
@@ -21053,12 +23080,194 @@ aabb model_aabb(model_t m, mat44 transform) {
     return aabb(vec3(0,0,0),vec3(0,0,0));
 }
 
+sphere model_bsphere(model_t m, mat44 transform) {
+    iqm_t *q = m.iqm;
+    if( q && q->bounds ) {
+    int f = ( (int)m.curframe ) % (q->numframes + !q->numframes);
+    vec3 bbmin = ptr3(q->bounds[f].bbmin);
+    vec3 bbmax = ptr3(q->bounds[f].bbmax);
+    aabb box = aabb_transform(aabb(bbmin,bbmax), transform);
+    return sphere(scale3(add3(box.min, box.max), 0.5f), 0.5f * (len3(sub3(box.min, box.max))));
+    }
+    return sphere(vec3(0,0,0), 0);
+}
+
+static inline int MapReduce(array(int) collapse_map, int n, int mx) {
+    while( n >= mx ) n = collapse_map[n];
+    return n;
+}
+
+API void ProgressiveMesh(int vert_n, int vert_stride, const float *v, int tri_n, const int *tri, int *map, int *permutation);
+
+static inline
+void MorphVertex(struct iqm_vertex *v, struct iqm_vertex *v0, struct iqm_vertex *v1, float t) {
+    v->position[0] = mixf(v0->position[0], v1->position[0], t);
+    v->position[1] = mixf(v0->position[1], v1->position[1], t);
+    v->position[2] = mixf(v0->position[2], v1->position[2], t);
+
+    v->normal[0] = mixf(v0->normal[0], v1->normal[0], t);
+    v->normal[1] = mixf(v0->normal[1], v1->normal[1], t);
+    v->normal[2] = mixf(v0->normal[2], v1->normal[2], t);
+
+    v->tangent[0] = mixf(v0->tangent[0], v1->tangent[0], t);
+    v->tangent[1] = mixf(v0->tangent[1], v1->tangent[1], t);
+    v->tangent[2] = mixf(v0->tangent[2], v1->tangent[2], t);
+
+    v->texcoord[0] = mixf(v0->texcoord[0], v1->texcoord[0], t);
+    v->texcoord[1] = mixf(v0->texcoord[1], v1->texcoord[1], t);
+}
+
+void model_lod(model_t *mdl, float lo_detail, float hi_detail, float morph) {
+    assert(mdl->num_meshes == 1);
+    if (array_count(mdl->lod_collapse_map) == 0) {
+        array(int) permutation = 0;
+            array(float) positions = 0;
+            array_resize(mdl->lod_collapse_map, mdl->num_verts);
+            array_resize(permutation, mdl->num_verts);
+            array_resize(positions, mdl->num_verts*3);
+            for (int i = 0; i < mdl->num_verts; i++) {
+                struct iqm_vertex *v = (struct iqm_vertex *)((char *)mdl->verts + i*mdl->stride);
+                positions[i*3 + 0] = v->position[0];
+                positions[i*3 + 1] = v->position[1];
+                positions[i*3 + 2] = v->position[2];
+            }
+            ProgressiveMesh(mdl->num_verts, sizeof(float)*3, (const float *)positions, mdl->num_tris, (const int *)mdl->tris, mdl->lod_collapse_map, permutation);
+            array_free(positions);
+            // PermuteVertices {
+                ASSERT(array_count(permutation) == mdl->num_verts);
+                // rearrange the vertex Array
+                char *tmp = REALLOC(0, mdl->stride*mdl->num_verts);
+                char *verts = (char *)mdl->verts;
+                memcpy(tmp, verts, mdl->stride*mdl->num_verts);
+
+                for(int i = 0; i < mdl->num_verts; i++) {
+                    int index = permutation[i];
+                    int src_offset = i * mdl->stride;
+                    int offset = index * mdl->stride;
+
+                    memcpy(verts + offset, tmp + src_offset, mdl->stride);
+                }
+                int *tris = (int *)mdl->tris;
+                // update the changes in the entries in the triangle Array
+                for (int i = 0; i < mdl->num_tris; i++) {
+                    tris[i*3 + 0] = permutation[tris[i*3 + 0]];
+                    tris[i*3 + 1] = permutation[tris[i*3 + 1]];
+                    tris[i*3 + 2] = permutation[tris[i*3 + 2]];
+                }
+
+                // upload modified data
+                glBindVertexArray(mdl->vao);
+                glBindBuffer(GL_ARRAY_BUFFER, mdl->vbo);
+                glBufferData(GL_ARRAY_BUFFER, mdl->num_verts*mdl->stride, mdl->verts, GL_STATIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mdl->ibo);
+                glBufferData(GL_ELEMENT_ARRAY_BUFFER, mdl->num_tris*3*sizeof(int), mdl->tris, GL_STATIC_DRAW);
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                glBindVertexArray(0);
+
+                FREE(tmp);
+            // } PermuteVertices
+        array_free(permutation);
+    }
+    
+    ASSERT(array_count(mdl->lod_collapse_map));
+
+    int max_verts_to_render = hi_detail * mdl->num_verts;
+    int min_verts_to_render = lo_detail * mdl->num_verts;
+
+    if( max_verts_to_render <= 0 || min_verts_to_render <= 0 )
+        return;
+
+    FREE(mdl->lod_verts);
+    FREE(mdl->lod_tris);
+
+    char *verts = (char *)mdl->verts;
+    int *tris = (int *)mdl->tris;
+    int max_lod_tris = 0;
+
+    //@fixme: optimise
+    for( unsigned int i = 0; i < mdl->num_tris; i++ ) {
+        int p0 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 0], max_verts_to_render);
+        int p1 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 1], max_verts_to_render);
+        int p2 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 2], max_verts_to_render);
+        if(p0==p1 || p0==p2 || p1==p2) continue;
+        ++max_lod_tris;
+    }
+
+    mdl->lod_verts = REALLOC(0, max_lod_tris*3*mdl->stride);
+    mdl->lod_tris = REALLOC(0, max_lod_tris*3*sizeof(int));
+    mdl->lod_num_verts = 0;
+    mdl->lod_num_tris = 0;
+
+    struct iqm_vertex *lod_verts = (struct iqm_vertex *)mdl->lod_verts;
+    int *lod_tris = (int *)mdl->lod_tris;
+
+    for( int i = 0; i < mdl->num_tris; i++ ) {
+        int p0 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 0], max_verts_to_render);
+        int p1 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 1], max_verts_to_render);
+        int p2 = MapReduce(mdl->lod_collapse_map, tris[i*3 + 2], max_verts_to_render);
+        if(p0==p1 || p0==p2 || p1==p2) continue;
+
+        int q0 = MapReduce(mdl->lod_collapse_map, p0, min_verts_to_render);
+        int q1 = MapReduce(mdl->lod_collapse_map, p1, min_verts_to_render);
+        int q2 = MapReduce(mdl->lod_collapse_map, p2, min_verts_to_render);
+        // if(q0==q1 || q0==q2 || q1==q2) continue;
+
+        struct iqm_vertex v0 = *(struct iqm_vertex *)(verts + (p0*mdl->stride));
+        struct iqm_vertex v1 = *(struct iqm_vertex *)(verts + (p1*mdl->stride));
+        struct iqm_vertex v2 = *(struct iqm_vertex *)(verts + (p2*mdl->stride));
+        
+        struct iqm_vertex u0 = *(struct iqm_vertex *)(verts + (q0*mdl->stride));
+        struct iqm_vertex u1 = *(struct iqm_vertex *)(verts + (q1*mdl->stride));
+        struct iqm_vertex u2 = *(struct iqm_vertex *)(verts + (q2*mdl->stride));
+            
+        struct iqm_vertex f0=v0,f1=v1,f2=v2;
+
+        if (morph == 0.0f) {
+            f0=u0,f1=u1,f2=u2;
+        }
+        else if (morph < 1.0f) {
+            MorphVertex(&f0, &v0, &u0, 1.0f - morph);
+            MorphVertex(&f1, &v1, &u1, 1.0f - morph);
+            MorphVertex(&f2, &v2, &u2, 1.0f - morph);
+        }
+
+        lod_verts[mdl->lod_num_verts + 0] = f0;
+        lod_verts[mdl->lod_num_verts + 1] = f1;
+        lod_verts[mdl->lod_num_verts + 2] = f2;
+
+        int idx = mdl->lod_num_verts;
+        lod_tris[mdl->lod_num_tris*3 + 0] = idx+0;
+        lod_tris[mdl->lod_num_tris*3 + 1] = idx+1;
+        lod_tris[mdl->lod_num_tris*3 + 2] = idx+2;
+        mdl->lod_num_verts += 3;
+        ++mdl->lod_num_tris;
+    }
+
+    // upload modified data
+    glBindVertexArray(mdl->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, mdl->vbo);
+    glBufferData(GL_ARRAY_BUFFER, mdl->lod_num_verts*mdl->stride, mdl->lod_verts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mdl->ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mdl->lod_num_tris*3*sizeof(int), mdl->lod_tris, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+
 void model_destroy(model_t m) {
     FREE(m.verts);
     for( int i = 0, end = array_count(m.texture_names); i < end; ++i ) {
         FREE(m.texture_names[i]);
     }
     array_free(m.texture_names);
+
+    if (m.iqm->light_ubo) {
+        ubo_destroy(m.iqm->light_ubo);
+    }
 
     iqm_t *q = m.iqm;
 //    if(m.mesh) mesh_destroy(m.mesh);
@@ -21072,9 +23281,10 @@ void model_destroy(model_t m) {
     FREE(q->frames);
     FREE(q->buf);
     FREE(q);
+    array_free(m.uniforms);
 }
 
-static unsigned model_renderpass = RENDER_PASS_NORMAL;
+static unsigned model_renderpass = RENDER_PASS_OPAQUE;
 
 unsigned model_getpass() {
     return model_renderpass;
@@ -21082,123 +23292,11 @@ unsigned model_getpass() {
 
 unsigned model_setpass(unsigned pass) {
     ASSERT(pass < NUM_RENDER_PASSES);
+    ASSERT(pass != RENDER_PASS_OVERRIDES_BEGIN && pass != RENDER_PASS_OVERRIDES_END);
     unsigned old_pass = model_renderpass;
     model_renderpass = pass;
     return old_pass;
 }
-
-anims_t animations(const char *pathfile, int flags) {
-    anims_t a = {0};
-    a.anims = animlist(pathfile);
-    if(a.anims) a.speed = 1.0;
-    return a;
-}
-
-// -----------------------------------------------------------------------------
-// lightmapping utils
-// @fixme: support xatlas uv packing, add UV1 coords to vertex model specs
-lightmap_t lightmap(int hmsize, float cnear, float cfar, vec3 color, int passes, float threshold, float distmod) {
-    lightmap_t lm = {0};
-    lm.ctx = lmCreate(hmsize, cnear, cfar, color.x, color.y, color.z, passes, threshold, distmod);
-
-    if (!lm.ctx) {
-        PANIC("Error: Could not initialize lightmapper.\n");
-        return lm;
-    }
-
-    const char *symbols[] = { "{{include-shadowmap}}", vfs_read("shaders/fs_0_0_shadowmap_lit.glsl") }; // #define RIM
-    lm.shader = shader(strlerp(1,symbols,vfs_read("shaders/vs_323444143_16_3322_model.glsl")), strlerp(1,symbols,vfs_read("shaders/fs_32_4_model.glsl")), //fs,
-        "att_position,att_texcoord,att_normal,att_tangent,att_instanced_matrix,,,,att_indexes,att_weights,att_vertexindex,att_color,att_bitangent,att_texcoord2","fragColor",
-        va("%s", "LIGHTMAP_BAKING"));
-
-    return lm;
-}
-
-void lightmap_destroy(lightmap_t *lm) {
-    lmDestroy(lm->ctx);
-    shader_destroy(lm->shader);
-    //
-}
-
-void lightmap_setup(lightmap_t *lm, int w, int h) {
-    lm->ready=1;
-    //@fixme: prep atlas for lightmaps
-    lm->w = w;
-    lm->h = h;
-}
-
-void lightmap_bake(lightmap_t *lm, int bounces, void (*drawscene)(lightmap_t *lm, model_t *m, float *view, float *proj, void *userdata), void (*progressupdate)(float progress), void *userdata) {
-    ASSERT(lm->ready);
-    // @fixme: use xatlas to UV pack all models, update their UV1 and upload them to GPU.
-
-    int w = lm->w, h = lm->h;
-    for (int i = 0; i < array_count(lm->models); i++) {
-        model_t *m = lm->models[i];
-        if (m->lightmap.w != 0) {
-            texture_destroy(&m->lightmap);
-        }
-        m->lightmap = texture_create(w, h, 4, 0, TEXTURE_LINEAR|TEXTURE_FLOAT);
-        glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
-        unsigned char emissive[] = { 0, 0, 0, 255 };
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, emissive);
-        glBindTexture(GL_TEXTURE_2D, 0);
-    }
-
-    unsigned old_pass = model_setpass(RENDER_PASS_LIGHTMAP);
-
-    for (int b = 0; b < bounces; b++) {
-        for (int i = 0; i < array_count(lm->models); i++) {
-            model_t *m = lm->models[i];
-            if (!m->lmdata) {
-                m->lmdata = CALLOC(w*h*4, sizeof(float));
-            }
-            memset(m->lmdata, 0, w*h*4);
-            lmSetTargetLightmap(lm->ctx, m->lmdata, w, h, 4);
-            lmSetGeometry(lm->ctx, m->pivot,
-                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, position), sizeof(iqm_vertex),
-                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, normal), sizeof(iqm_vertex),
-                LM_FLOAT, (uint8_t*)m->verts + offsetof(iqm_vertex, texcoord), sizeof(iqm_vertex),
-                m->num_tris*3, LM_UNSIGNED_INT, m->tris);
-
-            int vp[4];
-            float view[16], projection[16];
-            while (lmBegin(lm->ctx, vp, view, projection))
-            {
-                // render to lightmapper framebuffer
-                glViewport(vp[0], vp[1], vp[2], vp[3]);
-                drawscene(lm, m, view, projection, userdata);
-                if (progressupdate) progressupdate(lmProgress(lm->ctx));
-                lmEnd(lm->ctx);
-            }
-        }
-
-        model_setpass(old_pass);
-
-        // postprocess texture
-        for (int i = 0; i < array_count(lm->models); i++) {
-            model_t *m = lm->models[i];
-            float *temp = CALLOC(w * h * 4, sizeof(float));
-            for (int i = 0; i < 16; i++)
-            {
-                lmImageDilate(m->lmdata, temp, w, h, 4);
-                lmImageDilate(temp, m->lmdata, w, h, 4);
-            }
-            lmImageSmooth(m->lmdata, temp, w, h, 4);
-            lmImageDilate(temp, m->lmdata, w, h, 4);
-            lmImagePower(m->lmdata, w, h, 4, 1.0f / 2.2f, 0x7); // gamma correct color channels
-            FREE(temp);
-
-            // save result to a file
-            // if (lmImageSaveTGAf("result.tga", m->lmdata, w, h, 4, 1.0f))
-            //     printf("Saved result.tga\n");
-            // upload result
-            glBindTexture(GL_TEXTURE_2D, m->lightmap.id);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_FLOAT, m->lmdata);
-            FREE(m->lmdata); m->lmdata = NULL;
-        }
-    }
-}
-
 #line 0
 
 #line 1 "fwk_renderdd.c"
@@ -22209,11 +24307,16 @@ camera_t camera() {
     static camera_t cam = {0};
     do_once {
         cam.speed = 0.50f;
+        cam.accel = 0.5f;
         cam.position = vec3(10,10,10);
         cam.updir = vec3(0,1,0);
+        cam.rightdir = vec3(1,0,0);
         cam.fov = 45;
+        cam.frustum_fov_multiplier = 1.0f;
         cam.orthographic = false;
         cam.distance = 3; // len3(cam.position);
+        cam.near_clip = 0.1f;
+        cam.far_clip = 1000.f;
 
         cam.damping = false;
         cam.move_friction = 0.09f;
@@ -22302,6 +24405,35 @@ void camera_enable(camera_t *cam) {
     camera_fps(cam, 0, 0);
 }
 
+void camera_freefly(camera_t *cam) {
+    bool active = ui_active() || ui_hover() || gizmo_active() ? false : input(MOUSE_L) || input(MOUSE_M) || input(MOUSE_R);
+    window_cursor( !active );
+    int mult_speed = input(KEY_LSHIFT) || input(KEY_LALT);
+
+    static float speed_buildup = 1.0f;
+    if( active ) cam->speed = clampf(cam->speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
+    vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
+    vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam->speed);
+    if ( len3sq(wasdecq) ) speed_buildup += (cam->speed * cam->accel * (2.0f * mult_speed + 1.0f) * window_delta());
+    // if (!active) speed_buildup = 1.0f;
+    else speed_buildup = 1.0f;
+    camera_moveby(cam, scale3(wasdecq, window_delta() * 60 * speed_buildup * (2.0f * mult_speed + 1.0f)));
+    camera_fps(cam, mouse.x,mouse.y);
+}
+
+frustum camera_frustum_build(camera_t *cam) {
+    float aspect = window_width() / ((float)window_height()+!window_height());
+    float fov = cam->fov * cam->frustum_fov_multiplier;
+    mat44 proj;
+    if( cam->orthographic ) {
+        ortho44(proj, -fov * aspect, fov * aspect, -fov, fov, cam->near_clip, cam->far_clip);
+    } else {
+        perspective44(proj, fov, aspect, cam->near_clip, cam->far_clip);
+    }
+    mat44 projview; multiply44x2(projview, proj, cam->view);
+    return frustum_build(projview);
+}
+
 void camera_fov(camera_t *cam, float fov) {
     last_camera = cam;
 
@@ -22310,12 +24442,12 @@ void camera_fov(camera_t *cam, float fov) {
     cam->fov = fov;
 
     if( cam->orthographic ) {
-        ortho44(cam->proj, -cam->fov * aspect, cam->fov * aspect, -cam->fov, cam->fov, 0.01f, 2000);
+        ortho44(cam->proj, -cam->fov * aspect, cam->fov * aspect, -cam->fov, cam->fov, cam->near_clip, cam->far_clip);
         // [ref] https://commons.wikimedia.org/wiki/File:Isometric_dimetric_camera_views.png
         // float pitch = cam->dimetric ? 30.000f : 35.264f; // dimetric or isometric
         // cam->pitch = -pitch; // quickly reorient towards origin
     } else {
-        perspective44(cam->proj, cam->fov, aspect, 0.01f, 2000.f);
+        perspective44(cam->proj, cam->fov, aspect, cam->near_clip, cam->far_clip);
     }
 }
 
@@ -22348,6 +24480,7 @@ void camera_fps2(camera_t *cam, float yaw, float pitch, float roll) {
         float cosfa = cosf(r);
         float sinfa = sinf(r);
         vec3 right = cross3(cam->lookdir, up);
+        cam->rightdir = right;
         float th = dot3(cam->lookdir, up);
 
         cam->updir.x = up.x * cosfa + right.x * sinfa + cam->lookdir.x * th * (1.0f - cosfa);
@@ -22422,8 +24555,6 @@ void object_update(object_t *obj) {
     quat p = eulerq(vec3(obj->pivot.x,obj->pivot.y,obj->pivot.z));
     quat e = eulerq(vec3(obj->euler.x,obj->euler.y,obj->euler.z));
     compose44(obj->transform, obj->pos, mulq(e, p), obj->sca);
-
-
 }
 
 object_t object() {
@@ -22432,9 +24563,28 @@ object_t object() {
     //obj.rot = idq();
     obj.sca = vec3(1,1,1);
     //obj.bounds = aabb(vec3(0,0,0),vec3(1,1,1)); // defaults to small 1-unit cube
-object_rotate(&obj, vec3(0,0,0));
+    object_rotate(&obj, vec3(0,0,0));
     //array_init(obj.textures);
+    obj.cast_shadows = true;
+    obj.batchable = true;
     return obj;
+}
+
+bool object_compare(object_t *obj1, object_t *obj2) {
+    // if (obj1->renderbucket != obj2->renderbucket) return false;
+    // if (memcmp(obj1->transform, obj2->transform, sizeof(mat44))) return false;
+    // if (memcmp(&obj1->rot, &obj2->rot, sizeof(quat))) return false;
+    // if (memcmp(&obj1->sca, &obj2->sca, sizeof(vec3))) return false;
+    // if (memcmp(&obj1->pos, &obj2->pos, sizeof(vec3))) return false;
+    // if (memcmp(&obj1->euler, &obj2->euler, sizeof(vec3))) return false;
+    // if (memcmp(&obj1->pivot, &obj2->pivot, sizeof(vec3))) return false;
+    // if (memcmp(&obj1->bounds, &obj2->bounds, sizeof(aabb))) return false;
+    if (memcmp(&obj1->anim, &obj2->anim, sizeof(anim_t))) return false;
+    // if (obj1->anim_speed != obj2->anim_speed) return false;
+    if (obj1->billboard != obj2->billboard) return false;
+    if (obj1->fullbright != obj2->fullbright) return false;
+    if (obj1->checksum != obj2->checksum) return false;
+    return true;
 }
 
 void object_pivot(object_t *obj, vec3 euler) {
@@ -22465,6 +24615,10 @@ void object_scale(object_t *obj, vec3 sca) {
     object_update(obj);
 }
 
+void object_batchable(object_t *obj, bool batchable) {
+    obj->batchable = batchable;
+}
+
 vec3 object_position(object_t *obj) {
     return vec3(obj->transform[12], obj->transform[13], obj->transform[14]);
 }
@@ -22479,7 +24633,7 @@ void object_anim(object_t *obj, anim_t anim, float speed) {
 }
 
 void object_push_diffuse(object_t *obj, texture_t tex) {
-    array_push(obj->textures, tex.id);
+    array_push(obj->textures, tex);
 }
 
 void object_pop_diffuse(object_t *obj) {
@@ -22493,90 +24647,6 @@ void object_diffuse(object_t *obj, texture_t tex) {
 
 void object_billboard(object_t *obj, unsigned mode) {
     obj->billboard = mode;
-}
-
-// -----------------------------------------------------------------------------
-
-light_t light() {
-    light_t l = {0};
-    l.diffuse = vec3(1,1,1);
-    l.dir = vec3(1,-1,-1);
-    l.falloff.constant = 1.0f;
-    l.falloff.linear = 0.09f;
-    l.falloff.quadratic = 0.0032f;
-    l.specularPower = 32.f;
-    l.innerCone = 0.9f; // 25 deg
-    l.outerCone = 0.85f; // 31 deg
-
-    return l;
-}
-
-void light_type(light_t* l, char type) {
-    l->cached = 0;
-    l->type = type;
-}
-
-void light_diffuse(light_t* l, vec3 color) {
-    l->cached = 0;
-    l->diffuse = color;
-}
-
-void light_specular(light_t* l, vec3 color) {
-    l->cached = 0;
-    l->specular = color;
-}
-
-void light_ambient(light_t* l, vec3 color) {
-    l->cached = 0;
-    l->ambient = color;
-}
-
-void light_teleport(light_t* l, vec3 pos) {
-    l->cached = 0;
-    l->pos = pos;
-}
-
-void light_dir(light_t* l, vec3 dir) {
-    l->cached = 0;
-    l->dir = dir;
-}
-
-void light_power(light_t* l, float power) {
-    l->cached = 0;
-    l->specularPower = power;
-}
-
-void light_falloff(light_t* l, float constant, float linear, float quadratic) {
-    l->cached = 0;
-    l->falloff.constant = constant;
-    l->falloff.linear = linear;
-    l->falloff.quadratic = quadratic;
-}
-
-void light_cone(light_t* l, float innerCone, float outerCone) {
-    l->cached = 0;
-    l->innerCone = acos(innerCone);
-    l->outerCone = acos(outerCone);
-}
-
-void light_update(unsigned num_lights, light_t *lv) {
-    shader_int("u_num_lights", num_lights);
-
-    for (unsigned i=0; i < num_lights; ++i) {
-        lv[i].cached = 1;
-        shader_int(va("u_lights[%d].type", i), lv[i].type);
-        shader_vec3(va("u_lights[%d].pos", i), lv[i].pos);
-        shader_vec3(va("u_lights[%d].dir", i), lv[i].dir);
-        shader_vec3(va("u_lights[%d].diffuse", i), lv[i].diffuse);
-        shader_vec3(va("u_lights[%d].specular", i), lv[i].specular);
-        shader_vec3(va("u_lights[%d].ambient", i), lv[i].ambient);
-        shader_float(va("u_lights[%d].power", i), lv[i].specularPower);
-        shader_float(va("u_lights[%d].constant", i), lv[i].falloff.constant);
-        shader_float(va("u_lights[%d].linear", i), lv[i].falloff.linear);
-        shader_float(va("u_lights[%d].quadratic", i), lv[i].falloff.quadratic);
-        shader_float(va("u_lights[%d].innerCone", i), lv[i].innerCone);
-        shader_float(va("u_lights[%d].outerCone", i), lv[i].outerCone);
-    }
 }
 
 // -----------------------------------------------------------------------------
@@ -22628,6 +24698,8 @@ int scene_merge(const char *source) {
             vec3 scale = scale3(vec3(1,1,1), json_float("/[%d]/scale",i));
             bool opt_swap_zy = json_int("/[%d]/swapzy",i);
             bool opt_flip_uv = json_int("/[%d]/flipuv",i);
+            bool opt_fullbright = json_int("/[%d]/fullbright",i);
+            bool opt_pbr = json_int("/[%d]/pbr", i);
             PRINTF("Scene %d/%d Loading: %s\n", i, e, mesh_file);
             PRINTF("Scene %d/%d Texture: %s\n", i, e, texture_file);
             PRINTF("Scene %d/%d Animation: %s\n", i, e, animation_file);
@@ -22636,7 +24708,7 @@ int scene_merge(const char *source) {
             PRINTF("Scene %d/%d Scale: (%f,%f,%f)\n", i, e, scale.x, scale.y, scale.z);
             PRINTF("Scene %d/%d Swap_ZY: %d\n", i, e, opt_swap_zy );
             PRINTF("Scene %d/%d Flip_UV: %d\n", i, e, opt_flip_uv );
-            model_t m = model_from_mem(vfs_read(mesh_file), vfs_size(mesh_file), 0/*opt_swap_zy*/);
+            model_t m = model_from_mem(vfs_read(mesh_file), vfs_size(mesh_file), opt_pbr ? 0 : MODEL_NO_PBR); /*opt_swap_zy*/
             //char *a = archive_read(animation_file);
             object_t *o = scene_spawn();
             object_model(o, m);
@@ -22644,6 +24716,7 @@ int scene_merge(const char *source) {
             object_scale(o, scale);
             object_teleport(o, position);
             object_pivot(o, rotation); // object_rotate(o, rotation);
+            o->fullbright = opt_fullbright;
             //object_name(x), scene_find(name)
 // o->bounds = aabb(mul3(m.bounds.min,o->sca),mul3(m.bounds.max,o->sca));
 // PRINTF("aabb={%f,%f,%f},{%f,%f,%f}\n", o->bounds.min.x, o->bounds.min.y, o->bounds.min.z, o->bounds.max.x, o->bounds.max.y, o->bounds.max.z);
@@ -22689,6 +24762,15 @@ light_t* scene_spawn_light() {
     return array_back(last_scene->lights);
 }
 
+void scene_merge_lights(const char *source) {
+    light_t *lights = lightlist(source);
+    for (unsigned i = 0; i < array_count(lights); ++i) {
+        light_t *l = &lights[i];
+        array_push(last_scene->lights, *l);
+    }
+    array_free(lights);
+}
+
 unsigned scene_count_light() {
     return array_count(last_scene->lights);
 }
@@ -22699,8 +24781,29 @@ light_t* scene_index_light(unsigned light_index) {
     return &last_scene->lights[light_index];
 }
 
+void scene_skybox(skybox_t sky) {
+    skybox_destroy(&last_scene->skybox);
+    last_scene->skybox = sky;
+}
+
+static
+int scene_obj_distance_compare(const void *a, const void *b) {
+    const object_t *da = a, *db = b;
+    return da->distance < db->distance ? 1 : da->distance > db->distance ? -1 : 0;
+}
+
 void scene_render(int flags) {
     camera_t *cam = camera_get_active();
+
+    shadowmap_t *sm = &last_scene->shadowmap;
+
+    if (flags & SCENE_CAST_SHADOWS) {
+        if (sm->vsm_texture_width == 0) {
+            *sm = shadowmap(512, 4096);
+        }
+    } else {
+        sm = NULL;
+    }
 
     if(flags & SCENE_BACKGROUND) {
         if(last_scene->skybox.program) {
@@ -22724,49 +24827,158 @@ void scene_render(int flags) {
         for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
             object_t *obj = scene_index(j);
             model_t *model = &obj->model;
+            obj->was_batched = false;
+            // array_resize(obj->pair_instance, obj_count);
+
+            model->billboard = obj->billboard;
+            for (int p = 0; p < RENDER_PASS_OVERRIDES_BEGIN; ++p) {
+                model->rs[p].cull_face_enabled = flags&SCENE_CULLFACE ? 1 : 0;
+                model->rs[p].polygon_mode_draw = flags&SCENE_WIREFRAME ? GL_LINE : GL_FILL;
+            }
+            obj->checksum = obj->model.iqm ? model_checksum(&obj->model) : 0;
+        }
+
+        for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
+            object_t *obj = scene_index(j);
+            model_t *model = &obj->model;
             anim_t *anim = &obj->anim;
             mat44 *views = (mat44*)(&cam->view);
 
-            // @todo: avoid heap allocs here?
-            static array(handle) old_textures = 0;
-
-            int do_retexturing = model->iqm && array_count(obj->textures) > 0;
-            if( do_retexturing ) {
-                for(int i = 0; i < model->iqm->nummeshes; ++i) {
-                    array_push(old_textures, model->iqm->textures[i]);
-                    model->iqm->textures[i] = *array_back(obj->textures);
-                }
-            }
-
-            if ( do_relighting || !obj->light_cached ) {
-                obj->light_cached = 1;
-                shader_bind(model->program);
-                light_update(array_count(last_scene->lights), last_scene->lights);
-            }
-
-            if ( flags&SCENE_UPDATE_SH_COEF ) {
-                shader_bind(model->program);
-                shader_vec3v("u_coefficients_sh", 9, last_scene->skybox.cubemap.sh);
-            }
-     
-            model_skybox(model, last_scene->skybox, 0);
+            if (obj->skip_draw) continue;
+            if (obj->was_batched) continue;
 
             if (anim) {
                 float delta = window_delta() * obj->anim_speed;
                 model->curframe = model_animate_clip(*model, model->curframe + delta, anim->from, anim->to, anim->flags & ANIM_LOOP );
             }
 
+            if (!obj->fullbright) {
+                model_skybox(model, last_scene->skybox);
+            } else {
+                skybox_t sb = {0};
+                model_skybox(model, sb);
+            }
+            
+            array_resize(obj->instances, 64);
+            copy44(obj->instances[0], obj->transform);
 
-            model->billboard = obj->billboard;
-            model->rs[RENDER_PASS_NORMAL].cull_face_enabled = flags&SCENE_CULLFACE ? 1 : 0;
-            model->rs[RENDER_PASS_NORMAL].polygon_mode_draw = flags&SCENE_WIREFRAME ? GL_LINE : GL_FILL;
-            model_render(*model, cam->proj, cam->view, obj->transform, model->program);
+            int num_instances = 1;
+            for (unsigned k = j+1; k < obj_count; ++k) {
+                object_t *obj2 = scene_index(k);
+                if (!obj2->batchable || obj2->skip_draw || !object_compare(obj, obj2)) {
+                    continue;
+                }
+                if (num_instances >= array_count(obj->instances)) {
+                    array_resize(obj->instances, array_count(obj->instances) + 64);
+                }
+                copy44(obj->instances[num_instances++], obj2->transform);
+                obj2->was_batched = true;
+            }
 
+            int do_retexturing = model->iqm && array_count(obj->textures) > 0;
             if( do_retexturing ) {
                 for(int i = 0; i < model->iqm->nummeshes; ++i) {
-                    model->iqm->textures[i] = old_textures[i];
+                    array_push(obj->old_texture_ids, model->iqm->textures[i]);
+                    model->iqm->textures[i] = (*array_back(obj->textures)).id;
+                    if (!model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture) {
+                        model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = CALLOC(1, sizeof(texture_t));
+                        *model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = texture_checker();
+                    }
+                    array_push(obj->old_textures, *model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture);
+                    *model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = (*array_back(obj->textures));
                 }
-                array_resize(old_textures, 0);
+            }
+
+            if ( do_relighting || !obj->light_cached ) {
+                obj->light_cached = 1;
+                // shader_bind(model->iqm->program);
+                // light_update(array_count(last_scene->lights), last_scene->lights);
+                // @todo: rework light caching
+            }
+        }
+
+        /* Build shadowmaps */
+        if (flags & SCENE_CAST_SHADOWS) { 
+            shadowmap_begin(sm);
+            for (unsigned j = 0; j < array_count(last_scene->lights); ++j) {
+                light_t *l = &last_scene->lights[j];
+                while (shadowmap_step(sm)) {
+                    shadowmap_light(sm, l, cam->proj, cam->view);
+                    for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
+                        object_t *obj = scene_index(j);
+                        model_t *model = &obj->model;
+                        if (obj->model.iqm && obj->cast_shadows && !obj->was_batched) {
+                            model_render_instanced(*model, cam->proj, cam->view, obj->instances, array_count(obj->instances));
+                        }
+                    }
+                }
+            }
+            shadowmap_end(sm);
+        }
+
+        /* Collect all transparency enabled models and sort them by distance */
+        static array(object_t*) transparent_objects = 0;
+        for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
+            object_t *obj = scene_index(j);
+            model_t *model = &obj->model;
+
+            if (!model->iqm) continue;
+            if (obj->skip_draw) continue;
+            if (obj->was_batched) continue;
+
+            if (model_has_transparency(*model)) {
+                obj->distance = len3sq(sub3(cam->position, transform344(model->pivot, obj->pos)));
+                array_push(transparent_objects, obj);
+            }
+        }
+
+        array_sort(transparent_objects, scene_obj_distance_compare);
+
+        /* Opaque pass */
+        for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
+            object_t *obj = scene_index(j);
+            model_t *model = &obj->model;
+            if (!model->iqm) continue;
+            if (obj->skip_draw) continue;
+            if (obj->was_batched) continue;
+
+            model_shadow(model, sm);
+            model_light(model, array_count(last_scene->lights), last_scene->lights);
+            model_render_instanced_pass(*model, cam->proj, cam->view, obj->instances, array_count(obj->instances), RENDER_PASS_OPAQUE);
+        }
+
+        /* Transparency pass */
+        for (unsigned j = 0; j < array_count(transparent_objects); ++j) {
+            object_t *obj = transparent_objects[j];
+            model_t *model = &obj->model;
+            if (!model->iqm) continue;
+            if (obj->skip_draw) continue;
+            if (obj->was_batched) continue;
+
+            model_shadow(model, sm);
+            model_light(model, array_count(last_scene->lights), last_scene->lights);
+            model_render_instanced_pass(*model, cam->proj, cam->view, obj->instances, array_count(obj->instances), RENDER_PASS_TRANSPARENT);
+        }
+
+        array_resize(transparent_objects, 0);
+
+        for(unsigned j = 0, obj_count = scene_count(); j < obj_count; ++j ) {
+            object_t *obj = scene_index(j);
+            model_t *model = &obj->model;
+            if (obj->skip_draw) continue;
+            if (obj->was_batched) continue;
+
+            int do_retexturing = model->iqm && model->shading != SHADING_PBR && array_count(obj->textures) > 0;
+            if( do_retexturing ) {
+                for(int i = 0; i < model->iqm->nummeshes; ++i) {
+                    model->iqm->textures[i] = obj->old_texture_ids[i];
+                    if (i < array_count(obj->old_textures)) {
+                        if (model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture)
+                            *model->materials[i].layer[MATERIAL_CHANNEL_DIFFUSE].map.texture = obj->old_textures[i];
+                    }
+                }
+                array_resize(obj->old_texture_ids, 0);
+                array_resize(obj->old_textures, 0);
             }
         }
         glBindVertexArray(0);
@@ -25242,12 +27454,12 @@ static void debugbreak(void) { // break if debugger present
 }
 #endif
 
-void alert(const char *message) { // @todo: move to app_, besides die()
+void alert_caption(const char *caption, const char *message) { // @todo: move to app_, besides die()
     window_visible(false);
     message = message[0] == '!' ? (const char*)va("%s\n%s", message+1, callstack(+48)) : message;
 
 #if is(win32)
-    MessageBoxA(0, message, 0,0);
+    MessageBoxA(0, message, caption,0);
 #elif is(ems)
     emscripten_run_script(va("alert('%s')", message));
 #elif is(linux)
@@ -25258,6 +27470,10 @@ void alert(const char *message) { // @todo: move to app_, besides die()
 #endif
 
     window_visible(true);
+}
+
+void alert(const char *message) { // @todo: move to app_, besides die()
+    alert_caption(NULL, message);
 }
 
 void breakpoint() {
@@ -25320,11 +27536,14 @@ int (PANIC)(const char *error, const char *file, int line) {
     error += error[0] == '!';
     fprintf(stderr, "Error: %s (%s:%d) (errno:%s)\n", error, file, line, strerror(errno));
     fprintf(stderr, "%s", callstack(+16)); // no \n
+    fprintf(stderr, "\n(This error has been copied to your clipboard)");
     fflush(0); // fflush(stderr);
 
     tty_color(0);
 
-    alert(error);
+    glfwSetClipboardString(window_handle(), error);
+
+    alert_caption("PANIC! (This error has been copied to your clipboard)", error);
     breakpoint();
 
     exit(-line);
@@ -26533,10 +28752,11 @@ void window_unhook(void (*func)()) {
 #endif
 
 static GLFWwindow *window;
-static int w, h, xpos, ypos, paused;
+static int w, h, xpos, ypos, paused, win_flags;
 static int fullscreen, xprev, yprev, wprev, hprev;
 static uint64_t frame_count;
 static double t, dt, fps, hz = 0.00;
+static char msaa = 0;
 static char title[128] = {0};
 static char screenshot_file[DIR_MAX];
 static int locked_aspect_ratio = 0;
@@ -26646,9 +28866,9 @@ void window_hints(unsigned flags) {
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     // glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE); // makes it non-resizable
-    if(flags & WINDOW_MSAA2) glfwWindowHint(GLFW_SAMPLES, 2); // x2 AA
-    if(flags & WINDOW_MSAA4) glfwWindowHint(GLFW_SAMPLES, 4); // x4 AA
-    if(flags & WINDOW_MSAA8) glfwWindowHint(GLFW_SAMPLES, 8); // x8 AA
+    if(flags & WINDOW_MSAA2) glfwWindowHint(GLFW_SAMPLES, 2), msaa = 2; // x2 AA
+    if(flags & WINDOW_MSAA4) glfwWindowHint(GLFW_SAMPLES, 4), msaa = 4; // x4 AA
+    if(flags & WINDOW_MSAA8) glfwWindowHint(GLFW_SAMPLES, 8), msaa = 8; // x8 AA
 
     g->flags = flags;
 }
@@ -26692,6 +28912,7 @@ void glNewFrame() {
     g->height = h;
 
     renderstate_apply(&window_rs);
+    // glEnable(GL_FRAMEBUFFER_SRGB);
 
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 }
@@ -26729,14 +28950,13 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         flags |= WINDOW_BORDERLESS;
     }
 
-/*
     if (tests_captureframes()) {
         winWidth = 1280;
         winHeight = 720;
     }
-*/
 
     window_hints(flags);
+    win_flags = flags;
 
     GLFWmonitor* monitor = NULL;
     #ifndef __EMSCRIPTEN__
@@ -26821,8 +29041,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
-    flags |= optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
-    flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE : 0;
+    flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE :
+             optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC :
+             DEFAULT_VSYNC;
     int has_adaptive_vsync = glfwExtensionSupported("WGL_EXT_swap_control_tear") || glfwExtensionSupported("GLX_EXT_swap_control_tear") || glfwExtensionSupported("EXT_swap_control_tear");
     int wants_adaptive_vsync = (flags & WINDOW_VSYNC_ADAPTIVE);
     int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC ? 1 : 0);
@@ -26834,8 +29055,20 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     PRINTF("GPU device: %s\n", glGetString(GL_RENDERER));
     PRINTF("GPU driver: %s\n", glGetString(GL_VERSION));
 
+    GLuint max_image_texture_units; glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_image_texture_units);
+    PRINTF("GPU texture units: %d\n", max_image_texture_units);
+
     #if !is(ems)
     PRINTF("GPU OpenGL: %d.%d\n", GLAD_VERSION_MAJOR(gl_version), GLAD_VERSION_MINOR(gl_version));
+
+    int max_blocks[2] = {0}, max_size = 0;
+    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_BLOCKS, &max_blocks[0]);
+    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_BLOCKS, &max_blocks[1]);
+    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &max_size);
+
+    PRINTF("UBO max_blocks[vs]: %d\n", max_blocks[0]);
+    PRINTF("UBO max_blocks[fs]: %d\n", max_blocks[1]);
+    PRINTF("UBO max_size_kb: %d\n", max_size / 1024);
 
     if( FLAGS_TRANSPARENT ) { // @transparent
         glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
@@ -26854,9 +29087,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     g->height = window_height();
     PRINTF("Window: %dx%d\n", g->width, g->height);
 
+#if !is(ems)
     if (glfwRawMouseMotionSupported()) {
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     }
+#endif
 
     // window_cursor(flags & WINDOW_NO_MOUSE ? false : true);
     glfwSetDropCallback(window, window_drop_callback);
@@ -27266,6 +29501,9 @@ void window_color(unsigned color) {
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
+char window_msaa() {
+    return msaa;
+}
 static int has_icon;
 int window_has_icon() {
     return has_icon;
@@ -27385,8 +29623,8 @@ int window_has_fullscreen() {
 #endif /* __EMSCRIPTEN__ */
 }
 
-void window_fullscreen(int enabled) {
-    if( window_has_fullscreen() == !!enabled ) return;
+void window_fullscreen(int mode) {
+    if( window_has_fullscreen() == !!mode ) return;
 
 #if is(ems)
 
@@ -27409,7 +29647,7 @@ void window_fullscreen(int enabled) {
         emscripten_exit_fullscreen();
     }
 #else
-    if( enabled )
+    if( !!mode == 1 )
     EM_ASM(Module.requestFullscreen(1, 1));
     else
     EM_ASM(Module.exitFullscreen());
@@ -27426,18 +29664,28 @@ void window_fullscreen(int enabled) {
         glfwSetWindowMonitor(g->window, NULL, 0, 0, g->width, g->height, GLFW_DONT_CARE);
     }
 #else
-    if( enabled ) {
-        int wx = 0, wy = 0; glfwGetWindowPos(window, &wx, &wy);
-        GLFWmonitor *monitor = window_find_monitor(wx, wy);
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *vidmode = glfwGetVideoMode(monitor);
+    int mwidth = vidmode->width, mheight = vidmode->height;
 
-        wprev = w, hprev = h, xprev = wx, yprev = wy; // save window context for further restoring
-
-        int width, height;
-        glfwGetMonitorWorkarea(monitor, NULL, NULL, &width, &height);
-        glfwSetWindowMonitor(window, monitor, 0, 0, width, height, GLFW_DONT_CARE);
-    } else {
-        glfwSetWindowMonitor(window, NULL, xpos, ypos, wprev, hprev, GLFW_DONT_CARE);
-        glfwSetWindowPos(window, xprev, yprev);
+    if (mode == 0) {
+        // Windowed mode (75% of monitor resolution)
+        int wwidth = mwidth * 0.75;
+        int wheight = mheight * 0.75;
+        glfwWindowHint(GLFW_DECORATED, !(win_flags & WINDOW_BORDERLESS));
+        glfwSetWindowMonitor(window, NULL, (mwidth - wwidth) / 2, (mheight - wheight) / 2, wwidth, wheight, GLFW_DONT_CARE);
+    } else if (mode == 1) {
+        // Borderless fullscreen
+        // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_FLOATING, GLFW_TRUE);
+        
+        // Move window to cover the entire monitor
+        glfwSetWindowPos(window, 0, 0);
+        glfwSetWindowSize(window, mwidth, mheight);
+    } else if (mode == 2) {
+        // Exclusive fullscreen
+        glfwSetWindowMonitor(window, monitor, 0, 0, mwidth, mheight, vidmode->refreshRate);
     }
 #endif
 
@@ -27561,6 +29809,14 @@ void window_maximize(int enabled) {
 }
 int window_has_maximize() {
     return ifdef(ems, 0, glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
+}
+
+void window_set_resolution(int width, int height) {
+    if (window) {
+        glfwSetWindowSize(window, width, height);
+        w = width;
+        h = height;
+    }
 }
 
 const char *window_clipboard() {
@@ -28696,7 +30952,7 @@ array(nearby_boid_t) get_nearby_boids(const swarm_t *self, const boid_t *b) {
 }
 
 static
-void update_boid(swarm_t *self, boid_t *b) {
+void update_boid(swarm_t *self, boid_t *b, float delta) {
     vec3 separation_sum = {0};
     vec3 heading_sum = {0};
     vec3 position_sum = {0};
@@ -28745,10 +31001,10 @@ void update_boid(swarm_t *self, boid_t *b) {
 
     // calculate boid acceleration
     vec3 acceleration;
-    acceleration = scale3(separation, self->separation_weight);
-    acceleration = add3(acceleration, scale3(alignment, self->alignment_weight));
-    acceleration = add3(acceleration, scale3(cohesion, self->cohesion_weight));
-    acceleration = add3(acceleration, scale3(steering, self->steering_weight));
+    acceleration = scale3(separation, self->separation_weight*delta);
+    acceleration = add3(acceleration, scale3(alignment, self->alignment_weight*delta));
+    acceleration = add3(acceleration, scale3(cohesion, self->cohesion_weight*delta));
+    acceleration = add3(acceleration, scale3(steering, self->steering_weight*delta));
     b->acceleration = clamplen3(acceleration, self->max_acceleration);
 }
 
@@ -28778,7 +31034,7 @@ swarm_t swarm() {
     return self;
 }
 
-void swarm_update_acceleration_only(swarm_t *self) {
+void swarm_update_acceleration_only(swarm_t *self, float delta) {
     self->perception_radius += !self->perception_radius; // 0->1
 
     // build voxel cache
@@ -28795,17 +31051,17 @@ void swarm_update_acceleration_only(swarm_t *self) {
     // update all boids
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
-        update_boid(self, b);
+        update_boid(self, b, delta);
     }
 }
 
 void swarm_update_acceleration_and_velocity_only(swarm_t *self, float delta) {
     self->blindspot_angledeg_compare_value_ = cosf(C_PI * 2 * self->blindspot_angledeg / 360.0f);
-    swarm_update_acceleration_only(self);
+    swarm_update_acceleration_only(self, delta);
 
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
-        b->velocity = clamplen3(add3(b->velocity, scale3(b->acceleration, delta)), self->max_velocity);
+        b->velocity = clamplen3(add3(b->velocity, b->acceleration), self->max_velocity);
     }
 }
 
@@ -28815,7 +31071,7 @@ void swarm_update(swarm_t *self, float delta) {
     for( int i = 0, end = array_count(self->boids); i < end; ++i ) {
         boid_t *b = &(self->boids)[i];
         b->prev_position = b->position;
-        b->position = add3(b->position, scale3(b->velocity, delta));
+        b->position = add3(b->position, b->velocity);
     }
 }
 
@@ -30408,10 +32664,14 @@ const char* editor_recv(int jobid, double timeout_ss) {
 }
 
 // plain and ctrl keys
-EDITOR_BIND(play, "down(F5)",                               { window_pause(0); /* if(!editor.slomo) editor.active = 0; */ editor.slomo = 1; } );
-EDITOR_BIND(stop, "down(ESC)",                              { if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; editor_select("**"); editor_destroy_selected(); }} );
+EDITOR_BIND(play, "down(F5)",                               { 
+        if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; window_cursor(1); editor_select("**"); editor_destroy_selected(); }
+        window_pause(0); /* if(!editor.slomo) editor.active = 0; */ editor.slomo = 1; 
+    }
+);
+EDITOR_BIND(stop, "down(ESC)",                              { if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; window_cursor(1); editor_select("**"); editor_destroy_selected(); }} );
 EDITOR_BIND(eject, "down(F1)",                              { /*window_pause(!editor.active); editor.slomo = !!editor.active;*/ editor.active ^= 1; } );
-EDITOR_BIND(pause, "(held(CTRL) & down(P)) | down(PAUSE)",  { window_pause( window_has_pause() ^ 1 ); } );
+EDITOR_BIND(pause, "(held(CTRL) & down(P)) | down(PAUSE) | down(F6)",  { window_pause( window_has_pause() ^ 1 ); } );
 EDITOR_BIND(frame, "held(CTRL) & down(LEFT)",               { window_pause(1); editor.frame++, editor.t += (editor.dt = 1/60.f); } );
 EDITOR_BIND(slomo, "held(CTRL) & down(RIGHT)",              { window_pause(0); editor.slomo = maxf(fmod(editor.slomo * 2, 16), 0.125); } );
 EDITOR_BIND(reload, "held(CTRL) & down(F5)",                { window_reload(); } );

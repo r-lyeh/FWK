@@ -105,6 +105,8 @@ extern "C" {
 
 {{FILE:fwk_math.h}}
 
+{{FILE:fwk_hash.h}}
+
 {{FILE:fwk_obj.h}}
 
 

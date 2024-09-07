@@ -17,7 +17,7 @@ int main() {
     model_t sponza;
     sponza = model(option("--model","sponza.obj"), 0); // MODEL_NO_TEXTURES);
     translation44(sponza.pivot, 0,-1,0);
-    rotate44(sponza.pivot, -90,1,0,0);
+    // rotate44(sponza.pivot, -90,1,0,0);
     scale44(sponza.pivot, 10,10,10);
 
     // camera
@@ -48,7 +48,7 @@ int main() {
         if( active ) cam.speed = clampf(cam.speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
         vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
         vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam.speed);
-        camera_moveby(&cam, wasdecq);
+        camera_moveby(&cam, scale3(wasdecq, window_delta() * 60));
         camera_fps(&cam, mouse.x,mouse.y);
         window_cursor( !active );
 
@@ -63,10 +63,9 @@ int main() {
         float scale = 1.00;
         mat44 M; copy44(M, sponza.pivot); translate44(M, 0,0,0); scale44(M, scale,scale,scale);
 
-        shader_bind(sponza.program);
         shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
 
-        model_render(sponza, cam.proj, cam.view, M, 0);
+        model_render(sponza, cam.proj, cam.view, M);
 
         // post-fxs end here
         fx_end(0);

@@ -1,5 +1,8 @@
 // https://www.shadertoy.com/view/lslGzl
 
+uniform float u_whitePoint; /// set:11.2
+uniform float u_exposureBias; /// set:10.0
+
 vec3 uncharted2Tonemap(const vec3 x) {
     const float A = 0.15;
     const float B = 0.50;
@@ -11,8 +14,8 @@ vec3 uncharted2Tonemap(const vec3 x) {
 }
 
 vec3 tonemapUncharted2(const vec3 color) {
-    const float W = 11.2;
-    const float exposureBias = 2.0;
+    float W = u_whitePoint;
+    float exposureBias = u_exposureBias;
     vec3 curr = uncharted2Tonemap(exposureBias * color);
     vec3 whiteScale = 1.0 / uncharted2Tonemap(vec3(W));
     return curr * whiteScale;

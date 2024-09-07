@@ -108,10 +108,11 @@ void window_unhook(void (*func)()) {
 #endif
 
 static GLFWwindow *window;
-static int w, h, xpos, ypos, paused;
+static int w, h, xpos, ypos, paused, win_flags;
 static int fullscreen, xprev, yprev, wprev, hprev;
 static uint64_t frame_count;
 static double t, dt, fps, hz = 0.00;
+static char msaa = 0;
 static char title[128] = {0};
 static char screenshot_file[DIR_MAX];
 static int locked_aspect_ratio = 0;
@@ -221,9 +222,9 @@ void window_hints(unsigned flags) {
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     // glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE); // makes it non-resizable
-    if(flags & WINDOW_MSAA2) glfwWindowHint(GLFW_SAMPLES, 2); // x2 AA
-    if(flags & WINDOW_MSAA4) glfwWindowHint(GLFW_SAMPLES, 4); // x4 AA
-    if(flags & WINDOW_MSAA8) glfwWindowHint(GLFW_SAMPLES, 8); // x8 AA
+    if(flags & WINDOW_MSAA2) glfwWindowHint(GLFW_SAMPLES, 2), msaa = 2; // x2 AA
+    if(flags & WINDOW_MSAA4) glfwWindowHint(GLFW_SAMPLES, 4), msaa = 4; // x4 AA
+    if(flags & WINDOW_MSAA8) glfwWindowHint(GLFW_SAMPLES, 8), msaa = 8; // x8 AA
 
     g->flags = flags;
 }
@@ -267,6 +268,7 @@ void glNewFrame() {
     g->height = h;
 
     renderstate_apply(&window_rs);
+    // glEnable(GL_FRAMEBUFFER_SRGB);
 
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT );
 }
@@ -304,14 +306,13 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         flags |= WINDOW_BORDERLESS;
     }
 
-/*
     if (tests_captureframes()) {
         winWidth = 1280;
         winHeight = 720;
     }
-*/
 
     window_hints(flags);
+    win_flags = flags;
 
     GLFWmonitor* monitor = NULL;
     #ifndef __EMSCRIPTEN__
@@ -396,8 +397,9 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
-    flags |= optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
-    flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE : 0;
+    flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE :
+             optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC :
+             DEFAULT_VSYNC;
     int has_adaptive_vsync = glfwExtensionSupported("WGL_EXT_swap_control_tear") || glfwExtensionSupported("GLX_EXT_swap_control_tear") || glfwExtensionSupported("EXT_swap_control_tear");
     int wants_adaptive_vsync = (flags & WINDOW_VSYNC_ADAPTIVE);
     int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC ? 1 : 0);
@@ -409,8 +411,20 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     PRINTF("GPU device: %s\n", glGetString(GL_RENDERER));
     PRINTF("GPU driver: %s\n", glGetString(GL_VERSION));
 
+    GLuint max_image_texture_units; glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_image_texture_units);
+    PRINTF("GPU texture units: %d\n", max_image_texture_units);
+
     #if !is(ems)
     PRINTF("GPU OpenGL: %d.%d\n", GLAD_VERSION_MAJOR(gl_version), GLAD_VERSION_MINOR(gl_version));
+
+    int max_blocks[2] = {0}, max_size = 0;
+    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_BLOCKS, &max_blocks[0]);
+    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_BLOCKS, &max_blocks[1]);
+    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &max_size);
+
+    PRINTF("UBO max_blocks[vs]: %d\n", max_blocks[0]);
+    PRINTF("UBO max_blocks[fs]: %d\n", max_blocks[1]);
+    PRINTF("UBO max_size_kb: %d\n", max_size / 1024);
 
     if( FLAGS_TRANSPARENT ) { // @transparent
         glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
@@ -429,9 +443,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     g->height = window_height();
     PRINTF("Window: %dx%d\n", g->width, g->height);
 
+#if !is(ems)
     if (glfwRawMouseMotionSupported()) {
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     }
+#endif
 
     // window_cursor(flags & WINDOW_NO_MOUSE ? false : true);
     glfwSetDropCallback(window, window_drop_callback);
@@ -841,6 +857,9 @@ void window_color(unsigned color) {
     unsigned a = (color >> 24) & 255;
     winbgcolor = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 }
+char window_msaa() {
+    return msaa;
+}
 static int has_icon;
 int window_has_icon() {
     return has_icon;
@@ -960,8 +979,8 @@ int window_has_fullscreen() {
 #endif /* __EMSCRIPTEN__ */
 }
 
-void window_fullscreen(int enabled) {
-    if( window_has_fullscreen() == !!enabled ) return;
+void window_fullscreen(int mode) {
+    if( window_has_fullscreen() == !!mode ) return;
 
 #if is(ems)
 
@@ -984,7 +1003,7 @@ void window_fullscreen(int enabled) {
         emscripten_exit_fullscreen();
     }
 #else
-    if( enabled )
+    if( !!mode == 1 )
     EM_ASM(Module.requestFullscreen(1, 1));
     else
     EM_ASM(Module.exitFullscreen());
@@ -1001,18 +1020,28 @@ void window_fullscreen(int enabled) {
         glfwSetWindowMonitor(g->window, NULL, 0, 0, g->width, g->height, GLFW_DONT_CARE);
     }
 #else
-    if( enabled ) {
-        int wx = 0, wy = 0; glfwGetWindowPos(window, &wx, &wy);
-        GLFWmonitor *monitor = window_find_monitor(wx, wy);
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *vidmode = glfwGetVideoMode(monitor);
+    int mwidth = vidmode->width, mheight = vidmode->height;
 
-        wprev = w, hprev = h, xprev = wx, yprev = wy; // save window context for further restoring
-
-        int width, height;
-        glfwGetMonitorWorkarea(monitor, NULL, NULL, &width, &height);
-        glfwSetWindowMonitor(window, monitor, 0, 0, width, height, GLFW_DONT_CARE);
-    } else {
-        glfwSetWindowMonitor(window, NULL, xpos, ypos, wprev, hprev, GLFW_DONT_CARE);
-        glfwSetWindowPos(window, xprev, yprev);
+    if (mode == 0) {
+        // Windowed mode (75% of monitor resolution)
+        int wwidth = mwidth * 0.75;
+        int wheight = mheight * 0.75;
+        glfwWindowHint(GLFW_DECORATED, !(win_flags & WINDOW_BORDERLESS));
+        glfwSetWindowMonitor(window, NULL, (mwidth - wwidth) / 2, (mheight - wheight) / 2, wwidth, wheight, GLFW_DONT_CARE);
+    } else if (mode == 1) {
+        // Borderless fullscreen
+        // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_FLOATING, GLFW_TRUE);
+        
+        // Move window to cover the entire monitor
+        glfwSetWindowPos(window, 0, 0);
+        glfwSetWindowSize(window, mwidth, mheight);
+    } else if (mode == 2) {
+        // Exclusive fullscreen
+        glfwSetWindowMonitor(window, monitor, 0, 0, mwidth, mheight, vidmode->refreshRate);
     }
 #endif
 
@@ -1136,6 +1165,14 @@ void window_maximize(int enabled) {
 }
 int window_has_maximize() {
     return ifdef(ems, 0, glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
+}
+
+void window_set_resolution(int width, int height) {
+    if (window) {
+        glfwSetWindowSize(window, width, height);
+        w = width;
+        h = height;
+    }
 }
 
 const char *window_clipboard() {

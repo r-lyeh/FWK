@@ -1,5 +1,3 @@
-//version 330 core
-
 in vec3 in_pos;
 
 uniform mat4 mat_mvp;

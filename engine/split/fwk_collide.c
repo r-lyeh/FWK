@@ -668,17 +668,25 @@ frustum frustum_build(mat44 pv) {
     for (int i = 0; i < 6; i++) f.pl[i] = scale4(f.pl[i], 1 / len3(f.pl[i].xyz));
     return f;
 }
+
 int frustum_test_sphere(frustum f, sphere s) {
     for(int i = 0; i < 6; i++) {
         if((dot3(f.pl[i].xyz, s.c) + f.pl[i].w + s.r) < 0) return 0;
     }
+#if GLOBAL_FRUSTUM_DEBUG_DRAW
+    ddraw_sphere(s.c, s.r);
+#endif
     return 1;
 }
+
 int frustum_test_aabb(frustum f, aabb a) {
     for(int i = 0; i < 6; i++) {
         vec3 v = vec3(f.pl[i].x > 0 ? a.max.x : a.min.x, f.pl[i].y > 0 ? a.max.y : a.min.y, f.pl[i].z > 0 ? a.max.z : a.min.z);
         if((dot3(f.pl[i].xyz, v) + f.pl[i].w) < 0) return 0;
     }
+#if GLOBAL_FRUSTUM_DEBUG_DRAW
+    ddraw_aabb(a.min, a.max);
+#endif
     return 1;
 }
 

@@ -25,7 +25,7 @@
 
 int verbose = 0;
 int need_to_bake_skin = 0;
-int save_all_bones = 0;
+int save_all_bones = 1;
 int dolowprec = 0;
 
 int dostatic = 0; // export without skeleton
@@ -36,6 +36,9 @@ int dobone = 0; // export skeleton
 int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 int doflipUV = 0; // export flipped UVs
 int doanimlist = 0; // generate list of animations with properties
+int dolights = 0; // export lights only
+int dofixaxis = 0; // fix axis from Y up to Z up
+int noaxis = 0; // don't apply axis conversion (usually used for fbx)
 
 int doaxis = 0; // flip bone axis from X to Y to match blender
 int dounscale = 0; // remove scaling from bind pose
@@ -74,6 +77,13 @@ static struct aiMatrix4x4 yup_to_zup = {
     0, 0, -1, 0,
     0, 1, 0, 0,
     0, 0, 0, 1
+};
+
+static struct aiMatrix4x4 flip_z_forward = {
+    -1, 0,  0, 0,
+     0, 1,  0, 0,
+     0, 0, -1, 0,
+     0, 0,  0, 1
 };
 
 static struct aiMatrix4x4 axis_x_to_y = {
@@ -974,7 +984,7 @@ void export_custom_vertexarrays(FILE *out, const struct aiScene *scene)
             if (mesh->mColors[t]) {
                 if (!seen[custom]) {
                     if (first) { fprintf(out, "\n"); first = 0; }
-                    fprintf(out, "vertexarray custom%d ubyte 4 \"color.%d\"\n", custom, t);
+                    fprintf(out, "vertexarray custom%d float 4 \"color.%d\"\n", custom, t);
                     seen[custom] = 1;
                 }
             }
@@ -1062,6 +1072,7 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 
 #if 1 // material colors
             char colorbuffer[32] = {0};
+            float opacity = 0.0f;
             struct aiColor4D color;
             struct aiColor4D translucentColor;
             enum aiReturn result = AI_FAILURE, result2 = AI_FAILURE;
@@ -1070,6 +1081,9 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
                 result2 = aiGetMaterialColor( material, AI_MATKEY_COLOR_TRANSPARENT, &translucentColor );
                 if (result2 == AI_SUCCESS)
                 color.a = (1.0 - translucentColor.r);
+                result2 = aiGetMaterialFloat( material, AI_MATKEY_OPACITY, &opacity );
+                if (result2 == AI_SUCCESS)
+                color.a = opacity;
                 //printf("diffuse:%d, transp:%d, ", result == AI_SUCCESS, result2 == AI_SUCCESS);
             }
             if( result == AI_FAILURE ) { result = aiGetMaterialColor( material, AI_MATKEY_COLOR_REFLECTIVE, &color ); /*printf("reflective:%d, ", result == AI_SUCCESS);*/ }
@@ -1192,19 +1206,19 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
             }
 
             if (mesh->mColors[0]) {
-                float r = mesh->mColors[0][k].r; r = floorf(r * 255) / 255;
-                float g = mesh->mColors[0][k].g; g = floorf(g * 255) / 255;
-                float b = mesh->mColors[0][k].b; b = floorf(b * 255) / 255;
-                float a = mesh->mColors[0][k].a; a = floorf(a * 255) / 255;
-                fprintf(out, "vc %.9g %.9g %.9g %.9g\n", r, g, b, a);
+                float r = mesh->mColors[0][k].r;
+                float g = mesh->mColors[0][k].g;
+                float b = mesh->mColors[0][k].b;
+                float a = mesh->mColors[0][k].a;
+                fprintf(out, "vc %.02f %.02f %.02f %.02f\n", r, g, b, a);
             }
             for (t = 1; t <= MAX_COL; t++) {
                 if (mesh->mColors[t]) {
-                    float r = mesh->mColors[t][k].r; r = floorf(r * 255) / 255;
-                    float g = mesh->mColors[t][k].g; g = floorf(g * 255) / 255;
-                    float b = mesh->mColors[t][k].b; b = floorf(b * 255) / 255;
-                    float a = mesh->mColors[t][k].a; a = floorf(a * 255) / 255;
-                    fprintf(out, "v%d %.9g %.9g %.9g %.9g\n", FIRST_COL+t-1, r, g, b, a);
+                    float r = mesh->mColors[t][k].r;
+                    float g = mesh->mColors[t][k].g;
+                    float b = mesh->mColors[t][k].b;
+                    float a = mesh->mColors[t][k].a;
+                    fprintf(out, "v%d %.02f %.02f %.02f %.02f\n", FIRST_COL+t-1, r, g, b, a);
                 }
             }
 
@@ -1285,6 +1299,155 @@ void export_position_list(const struct aiScene *scene)
     }
 }
 
+
+static inline
+const struct aiNode* light_find_node(const struct aiNode* node, const char* lightName) {
+    unsigned int i;
+    const struct aiNode* foundNode;
+
+    if (strcmp(node->mName.data, lightName) == 0) {
+        return node;
+    }
+
+    for (i = 0; i < node->mNumChildren; i++) {
+        foundNode = light_find_node(node->mChildren[i], lightName);
+        if (foundNode) {
+            return foundNode;
+        }
+    }
+
+    return NULL;
+}
+
+static inline
+void get_node_xform(const struct aiNode* node, struct aiMatrix4x4* transform) {
+    const struct aiNode* currentNode = node;
+
+    *transform = node->mTransformation;
+
+    while (currentNode->mParent) {
+        struct aiMatrix4x4 parentTransform = currentNode->mParent->mTransformation;
+        aiMultiplyMatrix4(transform, &parentTransform);
+        currentNode = currentNode->mParent;
+    }
+}
+
+static inline
+void aiMatrix4x4_Decompose(const struct aiMatrix4x4* transform, struct aiVector3D* scaling, struct aiQuaternion* rotation, struct aiVector3D* position) {
+    // Extract scaling
+    scaling->x = sqrtf(transform->a1 * transform->a1 + transform->b1 * transform->b1 + transform->c1 * transform->c1);
+    scaling->y = sqrtf(transform->a2 * transform->a2 + transform->b2 * transform->b2 + transform->c2 * transform->c2);
+    scaling->z = sqrtf(transform->a3 * transform->a3 + transform->b3 * transform->b3 + transform->c3 * transform->c3);
+
+    // Create rotation matrix (remove scaling)
+    struct aiMatrix3x3 rotMat;
+    rotMat.a1 = transform->a1 / scaling->x; rotMat.a2 = transform->a2 / scaling->y; rotMat.a3 = transform->a3 / scaling->z;
+    rotMat.b1 = transform->b1 / scaling->x; rotMat.b2 = transform->b2 / scaling->y; rotMat.b3 = transform->b3 / scaling->z;
+    rotMat.c1 = transform->c1 / scaling->x; rotMat.c2 = transform->c2 / scaling->y; rotMat.c3 = transform->c3 / scaling->z;
+
+    // Convert rotation matrix to quaternion
+    float trace = rotMat.a1 + rotMat.b2 + rotMat.c3;
+    
+    if (trace > 0) {
+        float s = 0.5f / sqrtf(trace + 1.0f);
+        rotation->w = 0.25f / s;
+        rotation->x = (rotMat.c2 - rotMat.b3) * s;
+        rotation->y = (rotMat.a3 - rotMat.c1) * s;
+        rotation->z = (rotMat.b1 - rotMat.a2) * s;
+    } else {
+        if (rotMat.a1 > rotMat.b2 && rotMat.a1 > rotMat.c3) {
+            float s = 2.0f * sqrtf(1.0f + rotMat.a1 - rotMat.b2 - rotMat.c3);
+            rotation->w = (rotMat.c2 - rotMat.b3) / s;
+            rotation->x = 0.25f * s;
+            rotation->y = (rotMat.a2 + rotMat.b1) / s;
+            rotation->z = (rotMat.a3 + rotMat.c1) / s;
+        } else if (rotMat.b2 > rotMat.c3) {
+            float s = 2.0f * sqrtf(1.0f + rotMat.b2 - rotMat.a1 - rotMat.c3);
+            rotation->w = (rotMat.a3 - rotMat.c1) / s;
+            rotation->x = (rotMat.a2 + rotMat.b1) / s;
+            rotation->y = 0.25f * s;
+            rotation->z = (rotMat.b3 + rotMat.c2) / s;
+        } else {
+            float s = 2.0f * sqrtf(1.0f + rotMat.c3 - rotMat.a1 - rotMat.b2);
+            rotation->w = (rotMat.b1 - rotMat.a2) / s;
+            rotation->x = (rotMat.a3 + rotMat.c1) / s;
+            rotation->y = (rotMat.b3 + rotMat.c2) / s;
+            rotation->z = 0.25f * s;
+        }
+    }
+
+    // Extract position
+    position->x = transform->a4;
+    position->y = transform->b4;
+    position->z = transform->c4;
+}
+
+static inline
+void aiQuaternion_Rotate(const struct aiQuaternion* q, const struct aiVector3D* v, struct aiVector3D* result) {
+    // Rotate vector v by quaternion q
+    float x = q->x, y = q->y, z = q->z, w = q->w;
+    float vx = v->x, vy = v->y, vz = v->z;
+
+    // Calculate quaternion * vector
+    float qvx = w*vx + y*vz - z*vy;
+    float qvy = w*vy + z*vx - x*vz;
+    float qvz = w*vz + x*vy - y*vx;
+    float qvw = -x*vx - y*vy - z*vz;
+
+    // Calculate result = quaternion * vector * conjugate(quaternion)
+    result->x = qvx*w + qvw*-x + qvy*-z - qvz*-y;
+    result->y = qvy*w + qvw*-y + qvz*-x - qvx*-z;
+    result->z = qvz*w + qvw*-z + qvx*-y - qvy*-x;
+}
+
+void export_lights(FILE *out, const struct aiScene *scene)
+{
+    for (int i = 0; i < scene->mNumLights; i++) {
+        const struct aiLight* light = scene->mLights[i];
+        const struct aiNode* lightNode = light_find_node(scene->mRootNode, light->mName.data);
+        struct aiMatrix4x4 transform;
+        struct aiVector3D position, scaling;
+        struct aiQuaternion rotation;
+        struct aiVector3D direction;
+        struct aiVector3D color;
+        int type = 0;
+
+        switch (light->mType) {
+            case aiLightSource_DIRECTIONAL:
+                type = 0;
+                break;
+            case aiLightSource_POINT:
+                type = 1;
+                break;
+            case aiLightSource_SPOT:
+                type = 2;
+                break;
+            default: continue;
+        }
+
+        if (lightNode) {
+            get_node_xform(lightNode, &transform);
+            aiMatrix4x4_Decompose(&transform, &scaling, &rotation, &position);
+            aiQuaternion_Rotate(&rotation, &light->mDirection, &direction);
+        } else {
+            position = light->mPosition;
+            direction = light->mDirection;
+        }
+
+        // float attenuation_constant = light->mAttenuationConstant;
+        // float attenuation_linear = light->mAttenuationLinear;
+        // float attenuation_quadratic = light->mAttenuationQuadratic;
+
+        float power = sqrtf(light->mColorDiffuse.r * light->mColorDiffuse.r + light->mColorDiffuse.g * light->mColorDiffuse.g + light->mColorDiffuse.b * light->mColorDiffuse.b);
+        color.x = light->mColorDiffuse.r/power;
+        color.y = light->mColorDiffuse.g/power;
+        color.z = light->mColorDiffuse.b/power;
+
+        fprintf(out, "light: %d %f %f %f %f %f %f %f %f %f %f %s\n", type, position.x, position.y, position.z, direction.x, direction.y, direction.z, color.x, color.y, color.z, power, light->mName.data);
+    }
+
+}
+
 void usage()
 {
     fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
@@ -1303,9 +1466,12 @@ void usage()
     fprintf(stderr, "\t-f -- export counter-clockwise winding triangles\n");
     fprintf(stderr, "\t-r -- export rigid nodes too (experimental)\n");
     fprintf(stderr, "\t-l -- low precision mode (for smaller animation files)\n");
+    fprintf(stderr, "\t-I -- export lights only\n");
     fprintf(stderr, "\t-x -- flip bone orientation from x to y\n");
     fprintf(stderr, "\t-s -- remove scaling from bind pose\n");
     fprintf(stderr, "\t-u -- unmark bone (force it to be excluded)\n");
+    fprintf(stderr, "\t-X -- flip axis from Y up to Z up\n");
+    fprintf(stderr, "\t-Z -- no axis conversion\n");
     fprintf(stderr, "\t-o filename -- save output to file\n");
     exit(1);
 }
@@ -1349,7 +1515,7 @@ int main(int argc, char **argv)
     int onlyanim = 0;
     int onlymesh = 0;
 
-    while ((c = getopt(argc, argv, "AHLMPSUabflmn:o:rvxsu:")) != -1) {
+    while ((c = getopt(argc, argv, "AHLMPSUZIXabflmn:o:rvxsu:")) != -1) {
         switch (c) {
         case 'A': save_all_bones++; break;
         case 'H': dohips = 1; break;
@@ -1366,8 +1532,11 @@ case 'U': doflipUV = 1; puts("using flipUV"); break;
         case 'r': dorigid = 1; break;
         case 'l': dolowprec = 1; break;
         case 'L': doanimlist = 1; break;
+        case 'I': dolights = 1; break;
         case 'v': verbose++; break;
         case 'x': doaxis = 1; break;
+        case 'X': dofixaxis = 1; break;
+        case 'Z': noaxis = 1; break;
         case 's': dounscale = 1; break;
         case 'u': untaglist[numuntags++] = optarg++; break;
         default: usage(); break;
@@ -1405,21 +1574,26 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
 #else
     int flags = 0
         | aiProcessPreset_TargetRealtime_MaxQuality
-        | aiProcess_JoinIdenticalVertices
+        // | aiProcess_JoinIdenticalVertices
         | aiProcess_GenSmoothNormals
         | aiProcess_GenUVCoords
         | aiProcess_TransformUVCoords
         | aiProcess_LimitBoneWeights // #defined as AI_LMW_MAX_WEIGHTS 4
-        | aiProcess_ImproveCacheLocality
-        //| aiProcess_RemoveRedundantMaterials
+        // | aiProcess_ImproveCacheLocality
+        | aiProcess_RemoveRedundantMaterials
         | aiProcess_OptimizeMeshes // aiProcess_SplitLargeMeshes
         | (doflipUV ? aiProcess_FlipUVs : 0)
         | aiProcess_OptimizeGraph
         | aiProcess_PopulateArmatureData
         //| aiProcess_FlipWindingOrder
-        //| aiProcess_GenBoundingBoxes
+        // | aiProcess_GenBoundingBoxes
         | aiProcess_GlobalScale // AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY
         ;
+
+        // flags &= ~aiProcess_OptimizeMeshes;
+        // flags &= ~aiProcess_RemoveRedundantMaterials;
+        // flags &= ~aiProcess_ImproveCacheLocality;
+        // flags &= ~aiProcess_JoinIdenticalVertices;
 
         // | aiProcess_CalcTangentSpace
         // | aiProcess_Triangulate
@@ -1464,7 +1638,7 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
     // tweak:
     aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_STRICT_MODE, 1);
     // tweak: eliminate _$AssimpFBX$ nodes
-    aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
+    // aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
     // tweak: do not remove dummies
     aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, 0);
 // tweak: split meshes by bone count
@@ -1496,10 +1670,29 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
         return 0;
     }
 
+    if (dolights) {
+        fprintf(stderr, "exporting lights for %s ...\n", basename);
+        file = fopen(output, "w");
+        if (!file) {
+            fprintf(stderr, "cannot open output file: '%s'\n", output);
+            exit(1);
+        }
+        export_lights(file, scene);
+        return 0;
+    }
+
     if (getenv("DOANIM")) doanim = 1;
 
-    // Convert to Z-UP coordinate system
-    aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &yup_to_zup);
+    if (!noaxis) {
+        fprintf(stderr, "fixing root node axis\n");
+        if (dofixaxis) {
+            // Convert to Z-UP coordinate system
+            aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &yup_to_zup);
+        } else {
+            // Convert to the engine's coordinate system
+            aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &flip_z_forward);
+        }
+    }
 
     // Build a list of bones and compute the bind pose matrices.
     if (build_bone_list(scene) > 0)

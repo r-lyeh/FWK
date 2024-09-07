@@ -174,7 +174,7 @@ if [ "$(uname)" != "Darwin" ]; then
     chmod +x tools/premake5.linux
     chmod +x tools/ninja.linux
     chmod +x tools/ase2ini.linux
-    chmod +x tools/ark.linux
+    chmod +x tools/fuser.linux
     chmod +x demos/lua/luajit.linux
 
     export args="-lm -ldl -lpthread -lX11 -w -Iengine/ $args"
@@ -230,7 +230,7 @@ if [ "$(uname)" = "Darwin" ]; then
     chmod +x tools/ass2iqe.osx
     chmod +x tools/ase2ini.osx
     chmod +x tools/cook.osx
-    chmod +x tools/ark.osx
+    chmod +x tools/fuser.osx
     chmod +x tools/cuttlefish.osx
     chmod +x tools/ffmpeg.osx
     chmod +x tools/furnace.osx
@@ -467,7 +467,7 @@ if "%1"=="fuse" (
         setlocal enableDelayedExpansion
         del *.zip 2> nul 1> nul & tools\cook --cook-jobs=1
         md _fused 2> nul 1> nul
-        for %%i in (*.exe) do set "var=%%i" && ( copy /y !var! _fused\fused_!var! 2> nul 1> nul & tools\ark _fused\fused_!var! *.zip )
+        for %%i in (*.exe) do set "var=%%i" && ( copy /y !var! _fused\fused_!var! 2> nul 1> nul & tools\fuser _fused\fused_!var! *.zip )
     )
     exit /b
 )
@@ -885,40 +885,50 @@ set edit=-DCOOK_ON_DEMAND -DUI_FONT_SMALL !edit! && REM -DUI_ICONS_SMALL -DUI_LE
 
 rem demos
 if "!demos!"=="yes" (
-!echo! 00-loop       && !cc! !o! 00-loop.exe        demos\00-loop.c         !import! !args! || set rc=1
-!echo! 00-script     && !cc! !o! 00-script.exe      demos\00-script.c       !import! !args! || set rc=1
-!echo! 01-demo2d     && !cc! !o! 01-demo2d.exe      demos\01-demo2d.c       !import! !args! || set rc=1
-!echo! 01-ui         && !cc! !o! 01-ui.exe          demos\01-ui.c           !import! !args! || set rc=1
-!echo! 01-easing     && !cc! !o! 01-easing.exe      demos\01-easing.c       !import! !args! || set rc=1
-!echo! 01-font       && !cc! !o! 01-font.exe        demos\01-font.c         !import! !args! || set rc=1
-!echo! 02-ddraw      && !cc! !o! 02-ddraw.exe       demos\02-ddraw.c        !import! !args! || set rc=1
-!echo! 02-frustum    && !cc! !o! 02-frustum.exe     demos\02-frustum.c      !import! !args! || set rc=1
-!echo! 03-anims      && !cc! !o! 03-anims.exe       demos\03-anims.c        !import! !args! || set rc=1
-!echo! 04-actor      && !cc! !o! 04-actor.exe       demos\04-actor.c        !import! !args! || set rc=1
-!echo! 06-scene      && !cc! !o! 06-scene.exe       demos\06-scene.c        !import! !args! || set rc=1
-!echo! 06-material   && !cc! !o! 06-material.exe    demos\06-material.c     !import! !args! || set rc=1
-!echo! 07-network    && !cc! !o! 07-network.exe     demos\07-network.c      !import! !args! || set rc=1
-!echo! 07-netsync    && !cc! !o! 07-netsync.exe     demos\07-netsync.c      !import! !args! || set rc=1
-!echo! 08-audio      && !cc! !o! 08-audio.exe       demos\08-audio.c        !import! !args! || set rc=1
-!echo! 08-video      && !cc! !o! 08-video.exe       demos\08-video.c        !import! !args! || set rc=1
-!echo! 09-cubemap    && !cc! !o! 09-cubemap.exe     demos\09-cubemap.c      !import! !args! || set rc=1
-!echo! 09-shadertoy  && !cc! !o! 09-shadertoy.exe   demos\09-shadertoy.c    !import! !args! || set rc=1
 
-!echo! 99-bt         && !cc! !o! 99-bt.exe          demos\99-bt.c           !import! !args! || set rc=1
-!echo! 99-controller && !cc! !o! 99-controller.exe  demos\99-controller.c   !import! !args! || set rc=1
-!echo! 99-demo       && !cc! !o! 99-demo.exe        demos\99-demo.c         !import! !args! || set rc=1
-!echo! 99-lod        && !cc! !o! 99-lod.exe         demos\99-lod.c          !import! !args! || set rc=1
-!echo! 99-pbr        && !cc! !o! 99-pbr.exe         demos\99-pbr.c          !import! !args! || set rc=1
-!echo! 99-spine      && !cc! !o! 99-spine.exe       demos\99-spine.c        !import! !args! || set rc=1
-!echo! 99-sprite     && !cc! !o! 99-sprite.exe      demos\99-sprite.c       !import! !args! || set rc=1
-!echo! 99-sprite3d   && !cc! !o! 99-sprite3d.exe    demos\99-sprite3d.c     !import! !args! || set rc=1
-!echo! 99-geom       && !cc! !o! 99-geom.exe        demos\99-geom.c         !import! !args! || set rc=1
-!echo! 99-compute    && !cc! !o! 99-compute.exe     demos\99-compute.c      !import! !args! || set rc=1
-!echo! 99-pathfind   && !cc! !o! 99-pathfind.exe    demos\99-pathfind.c     !import! !args! || set rc=1
-!echo! 99-sponza     && !cc! !o! 99-sponza.exe      demos\99-sponza.c       !import! !args! || set rc=1
-!echo! 99-gui        && !cc! !o! 99-gui.exe         demos\99-gui.c          !import! !args! || set rc=1
-!echo! 99-lmap       && !cc! !o! 99-lmap.exe        demos\99-lmap.c         !import! !args! || set rc=1
-!echo! 99-steam      && !cc! !o! 99-steam.exe       demos\99-steam.c        !import! !args! || set rc=1
+!echo! 00-loop          && !cc! !o! 00-loop.exe       demos\00-loop.c          !import! !args! || set rc=1
+!echo! 00-script        && !cc! !o! 00-script.exe     demos\00-script.c        !import! !args! || set rc=1
+!echo! 01-demo2d        && !cc! !o! 01-demo2d.exe     demos\01-demo2d.c        !import! !args! || set rc=1
+!echo! 01-easing        && !cc! !o! 01-easing.exe     demos\01-easing.c        !import! !args! || set rc=1
+!echo! 01-font          && !cc! !o! 01-font.exe       demos\01-font.c          !import! !args! || set rc=1
+!echo! 01-ui            && !cc! !o! 01-ui.exe         demos\01-ui.c            !import! !args! || set rc=1
+!echo! 02-ddraw         && !cc! !o! 02-ddraw.exe      demos\02-ddraw.c         !import! !args! || set rc=1
+!echo! 02-frustum       && !cc! !o! 02-frustum.exe    demos\02-frustum.c       !import! !args! || set rc=1
+!echo! 03-anims         && !cc! !o! 03-anims.exe      demos\03-anims.c         !import! !args! || set rc=1
+!echo! 03-batching      && !cc! !o! 03-batching.exe   demos\03-batching.c      !import! !args! || set rc=1
+!echo! 03-mesh          && !cc! !o! 03-mesh.exe       demos\03-mesh.c          !import! !args! || set rc=1
+!echo! 04-actor         && !cc! !o! 04-actor.exe      demos\04-actor.c         !import! !args! || set rc=1
+!echo! 06-material      && !cc! !o! 06-material.exe   demos\06-material.c      !import! !args! || set rc=1
+!echo! 06-parallax      && !cc! !o! 06-parallax.exe   demos\06-parallax.c      !import! !args! || set rc=1
+!echo! 06-scene         && !cc! !o! 06-scene.exe      demos\06-scene.c         !import! !args! || set rc=1
+!echo! 06-scene-sorting && !cc! !o! 06-scene-sorting.exe  demos\06-scene-sorting.c !import! !args! || set rc=1
+!echo! 06-sorting       && !cc! !o! 06-sorting.exe    demos\06-sorting.c       !import! !args! || set rc=1
+!echo! 07-netsync       && !cc! !o! 07-netsync.exe    demos\07-netsync.c       !import! !args! || set rc=1
+!echo! 07-network       && !cc! !o! 07-network.exe    demos\07-network.c       !import! !args! || set rc=1
+!echo! 08-audio         && !cc! !o! 08-audio.exe      demos\08-audio.c         !import! !args! || set rc=1
+!echo! 08-video         && !cc! !o! 08-video.exe      demos\08-video.c         !import! !args! || set rc=1
+!echo! 09-cubemap       && !cc! !o! 09-cubemap.exe    demos\09-cubemap.c       !import! !args! || set rc=1
+!echo! 09-envmap        && !cc! !o! 09-envmap.exe     demos\09-envmap.c        !import! !args! || set rc=1
+!echo! 09-lights        && !cc! !o! 09-lights.exe     demos\09-lights.c        !import! !args! || set rc=1
+!echo! 09-shadertoy     && !cc! !o! 09-shadertoy.exe  demos\09-shadertoy.c     !import! !args! || set rc=1
+!echo! 09-shadows       && !cc! !o! 09-shadows.exe    demos\09-shadows.c       !import! !args! || set rc=1
+!echo! 09-shadows-scene && !cc! !o! 09-shadows-scene.exe  demos\09-shadows-scene.c !import! !args! || set rc=1
+!echo! 99-bt            && !cc! !o! 99-bt.exe         demos\99-bt.c            !import! !args! || set rc=1
+!echo! 99-compute       && !cc! !o! 99-compute.exe    demos\99-compute.c       !import! !args! || set rc=1
+!echo! 99-controller    && !cc! !o! 99-controller.exe demos\99-controller.c    !import! !args! || set rc=1
+!echo! 99-geom          && !cc! !o! 99-geom.exe       demos\99-geom.c          !import! !args! || set rc=1
+!echo! 99-gizmo         && !cc! !o! 99-gizmo.exe      demos\99-gizmo.c         !import! !args! || set rc=1
+!echo! 99-gui           && !cc! !o! 99-gui.exe        demos\99-gui.c           !import! !args! || set rc=1
+!echo! 99-lod           && !cc! !o! 99-lod.exe        demos\99-lod.c           !import! !args! || set rc=1
+!echo! 99-pathfind      && !cc! !o! 99-pathfind.exe   demos\99-pathfind.c      !import! !args! || set rc=1
+!echo! 99-spine         && !cc! !o! 99-spine.exe      demos\99-spine.c         !import! !args! || set rc=1
+!echo! 99-splines       && !cc! !o! 99-splines.exe    demos\99-splines.c       !import! !args! || set rc=1
+!echo! 99-sponza        && !cc! !o! 99-sponza.exe     demos\99-sponza.c        !import! !args! || set rc=1
+!echo! 99-sprite        && !cc! !o! 99-sprite.exe     demos\99-sprite.c        !import! !args! || set rc=1
+!echo! 99-sprite3d      && !cc! !o! 99-sprite3d.exe   demos\99-sprite3d.c      !import! !args! || set rc=1
+!echo! 99-steam         && !cc! !o! 99-steam.exe      demos\99-steam.c         !import! !args! || set rc=1
+rem !echo! 99-lmap      && !cc! !o! 99-lmap.exe       demos\99-lmap.c          !import! !args! || set rc=1
+
 )
 
 rem hello

@@ -111,7 +111,7 @@ void game(void *userdata) {
 
 int main() {
 #if is(ems)
-    window_create(0.75f, WINDOW_MSAA4);
+    window_create(0.75f, 0);
     window_loop(game, NULL);
 #else
     for( window_create(0.75, 0); window_swap(); ) {

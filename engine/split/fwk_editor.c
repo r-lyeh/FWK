@@ -450,10 +450,14 @@ const char* editor_recv(int jobid, double timeout_ss) {
 }
 
 // plain and ctrl keys
-EDITOR_BIND(play, "down(F5)",                               { window_pause(0); /* if(!editor.slomo) editor.active = 0; */ editor.slomo = 1; } );
-EDITOR_BIND(stop, "down(ESC)",                              { if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; editor_select("**"); editor_destroy_selected(); }} );
+EDITOR_BIND(play, "down(F5)",                               { 
+        if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; window_cursor(1); editor_select("**"); editor_destroy_selected(); }
+        window_pause(0); /* if(!editor.slomo) editor.active = 0; */ editor.slomo = 1; 
+    }
+);
+EDITOR_BIND(stop, "down(ESC)",                              { if(editor.t > 0) { window_pause(1), editor.frame = 0, editor.t = 0, editor.dt = 0, editor.slomo = 0, editor.active = 1; window_cursor(1); editor_select("**"); editor_destroy_selected(); }} );
 EDITOR_BIND(eject, "down(F1)",                              { /*window_pause(!editor.active); editor.slomo = !!editor.active;*/ editor.active ^= 1; } );
-EDITOR_BIND(pause, "(held(CTRL) & down(P)) | down(PAUSE)",  { window_pause( window_has_pause() ^ 1 ); } );
+EDITOR_BIND(pause, "(held(CTRL) & down(P)) | down(PAUSE) | down(F6)",  { window_pause( window_has_pause() ^ 1 ); } );
 EDITOR_BIND(frame, "held(CTRL) & down(LEFT)",               { window_pause(1); editor.frame++, editor.t += (editor.dt = 1/60.f); } );
 EDITOR_BIND(slomo, "held(CTRL) & down(RIGHT)",              { window_pause(0); editor.slomo = maxf(fmod(editor.slomo * 2, 16), 0.125); } );
 EDITOR_BIND(reload, "held(CTRL) & down(F5)",                { window_reload(); } );

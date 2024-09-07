@@ -734,12 +734,12 @@ static void debugbreak(void) { // break if debugger present
 }
 #endif
 
-void alert(const char *message) { // @todo: move to app_, besides die()
+void alert_caption(const char *caption, const char *message) { // @todo: move to app_, besides die()
     window_visible(false);
     message = message[0] == '!' ? (const char*)va("%s\n%s", message+1, callstack(+48)) : message;
 
 #if is(win32)
-    MessageBoxA(0, message, 0,0);
+    MessageBoxA(0, message, caption,0);
 #elif is(ems)
     emscripten_run_script(va("alert('%s')", message));
 #elif is(linux)
@@ -750,6 +750,10 @@ void alert(const char *message) { // @todo: move to app_, besides die()
 #endif
 
     window_visible(true);
+}
+
+void alert(const char *message) { // @todo: move to app_, besides die()
+    alert_caption(NULL, message);
 }
 
 void breakpoint() {
@@ -812,11 +816,14 @@ int (PANIC)(const char *error, const char *file, int line) {
     error += error[0] == '!';
     fprintf(stderr, "Error: %s (%s:%d) (errno:%s)\n", error, file, line, strerror(errno));
     fprintf(stderr, "%s", callstack(+16)); // no \n
+    fprintf(stderr, "\n(This error has been copied to your clipboard)");
     fflush(0); // fflush(stderr);
 
     tty_color(0);
 
-    alert(error);
+    glfwSetClipboardString(window_handle(), error);
+
+    alert_caption("PANIC! (This error has been copied to your clipboard)", error);
     breakpoint();
 
     exit(-line);

@@ -4,3 +4,6 @@
 
 #define AS_NKCOLOR(color) \
     ((struct nk_color){ ((color>>0))&255,((color>>8))&255,((color>>16))&255,((color>>24))&255 })
+
+static inline
+char *file_preprocess(const char *src, const char *path, char* (*)(const char *), const char *parent_function);

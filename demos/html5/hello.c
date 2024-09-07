@@ -85,8 +85,8 @@ void gameloop(void *userdata)
 }
 
 int main() {
-    // window (80% sized, MSAA x4 flag)
-    window_create(80, WINDOW_MSAA4);
+    // window (80% sized, no MSAA)
+    window_create(80, 0);
     window_title(__FILE__);
 
     // load skybox: launch with --mie for rayleigh/mie scattering

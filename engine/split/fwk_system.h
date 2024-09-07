@@ -48,6 +48,7 @@ API int         callstackf( FILE *fp, int traces ); // write callstack to file. 
 
 API void        die(const char *message);
 API void        alert(const char *message);
+API void        alert_caption(const char *caption, const char *message);
 API void        hexdump( const void *ptr, unsigned len );
 API void        hexdumpf( FILE *fp, const void *ptr, unsigned len, int width );
 API void        breakpoint();

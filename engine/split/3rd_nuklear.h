@@ -5690,6 +5690,8 @@ struct nk_context {
 #define NK_PI 3.141592654f
 #define NK_UTF_INVALID 0xFFFD
 #define NK_MAX_FLOAT_PRECISION 2
+#define NK_MAX_FLOAT_PRECISION2 6 // zak
+#define NK_FLOAT_DECIMAL_POS_THRESHOLD 0.0005 // zak
 
 #define NK_UNUSED(x) ((void)(x))
 #define NK_SATURATE(x) (NK_MAX(0, NK_MIN(1.0f, x)))
@@ -28148,11 +28150,11 @@ nk_do_property(nk_flags *ws,
             break;
         case NK_PROPERTY_FLOAT:
             NK_DTOA(string, (double)variant->value.f);
-            num_len = nk_string_float_limit(string, NK_MAX_FLOAT_PRECISION);
+            num_len = nk_string_float_limit(string, variant->step.f <= NK_FLOAT_DECIMAL_POS_THRESHOLD ? NK_MAX_FLOAT_PRECISION2 : NK_MAX_FLOAT_PRECISION); // zak
             break;
         case NK_PROPERTY_DOUBLE:
             NK_DTOA(string, variant->value.d);
-            num_len = nk_string_float_limit(string, NK_MAX_FLOAT_PRECISION);
+            num_len = nk_string_float_limit(string, variant->step.f <= NK_FLOAT_DECIMAL_POS_THRESHOLD ? NK_MAX_FLOAT_PRECISION2 : NK_MAX_FLOAT_PRECISION); // zak
             break;
         }
         size = font->width(font->userdata, font->height, string, num_len);
@@ -28248,12 +28250,12 @@ nk_do_property(nk_flags *ws,
             variant->value.i = NK_CLAMP(variant->min_value.i, variant->value.i, variant->max_value.i);
             break;
         case NK_PROPERTY_FLOAT:
-            nk_string_float_limit(buffer, NK_MAX_FLOAT_PRECISION);
+            nk_string_float_limit(buffer, variant->step.f <= NK_FLOAT_DECIMAL_POS_THRESHOLD ? NK_MAX_FLOAT_PRECISION2 : NK_MAX_FLOAT_PRECISION); // zak
             variant->value.f = nk_strtof(buffer, 0);
             variant->value.f = NK_CLAMP(variant->min_value.f, variant->value.f, variant->max_value.f);
             break;
         case NK_PROPERTY_DOUBLE:
-            nk_string_float_limit(buffer, NK_MAX_FLOAT_PRECISION);
+            nk_string_float_limit(buffer, variant->step.f <= NK_FLOAT_DECIMAL_POS_THRESHOLD ? NK_MAX_FLOAT_PRECISION2 : NK_MAX_FLOAT_PRECISION); // zak
             variant->value.d = nk_strtod(buffer, 0);
             variant->value.d = NK_CLAMP(variant->min_value.d, variant->value.d, variant->max_value.d);
             break;

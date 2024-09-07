@@ -1,4 +1,4 @@
-// playground tests for FWK
+// playground tests
 // - rlyeh, public domain
 //
 // # quickstart
@@ -28,7 +28,7 @@ int main() {
 
     // animated models loading
     model_t girl = model("kgirl/kgirls01.fbx", no_flags);
-    compose44( girl.pivot, vec3(0,0,0), eulerq(vec3(-90,0,0)), vec3(2,2,2)); // position, rotation, scale
+    compose44( girl.pivot, vec3(0,0,0), eulerq(vec3(0,90,-90)), vec3(2,2,2)); // position, rotation, scale
 
     // camera
     camera_t cam = camera();
@@ -57,7 +57,7 @@ int main() {
         if( active ) cam.speed = clampf(cam.speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
         vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
         vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam.speed);
-        camera_moveby(&cam, wasdecq);
+        camera_moveby(&cam, scale3(wasdecq, window_delta() * 60));
         camera_fps(&cam, mouse.x,mouse.y);
         window_cursor( !active );
 
@@ -77,7 +77,7 @@ int main() {
             girl.curframe = model_animate(girl, girl.curframe + delta);
 
             // draw girl
-            model_render(girl, cam.proj, cam.view, girl.pivot, no_flags);
+            model_render(girl, cam.proj, cam.view, girl.pivot);
 
         // post-fxs end here
         fx_end();

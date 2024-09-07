@@ -4,7 +4,7 @@
 cd `dirname $0`
 
 git clone https://github.com/assimp/assimp && cd assimp && git checkout 05115b07
-cmake -DCMAKE_BUILD_TYPE=Release -DASSIMP_BUILD_TESTS=OFF .
+cmake -DCMAKE_BUILD_TYPE=Release -DASSIMP_BUILD_TESTS=OFF -D_FORTIFY_SOURCE=0 .
 make -j 8
 cp bin/libassimp.so    ../libassimp.so
 cp bin/libassimp.so    ../libassimp.so.5
@@ -28,9 +28,17 @@ exit
 cd "%~dp0"
 
 if not exist assimp-vc14?-mt.lib (
-if not exist "fart.exe" echo fart tool required && exit /b
+where /q "fart.exe" || (echo cannot find fart.exe tool in path && exit /b)
 
-git clone https://github.com/assimp/assimp && md assimp\.build && pushd assimp\.build && git checkout 05115b07
+if not exist assimp (
+git clone https://github.com/assimp/assimp && md assimp\.build && pushd assimp\.build && git checkout 05115b07 && popd
+)
+
+if not exist assimp (
+	echo assimp/ folder not found && exit /b
+)
+
+pushd assimp\.build
 cmake .. -DCMAKE_BUILD_TYPE=Release && (make || msbuild assimp.sln -m -p:Configuration=Release)
 popd
 

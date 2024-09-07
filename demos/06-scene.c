@@ -24,25 +24,23 @@ int main() {
         },
         {
             position:[-5.0,-2.0,2.0],
-            rotation: [90.0,0.0,180.0],
+            rotation: [90.0,-90.0,0.0],
             scale:0.20,
-            //anchor/pivot:[],
-            // vertex:'p3 t2',
             mesh:'models/witch/witch.obj',
             texture:'models/witch/witch_diffuse.tga.png',
-//            swapzy:true,
             flipuv:false,
+            fullbright:true,
+            pbr:false,
         },
         {
             position:[-5.0,-2.0,2.0],
-            rotation: [90.0,0.0,180.0],
+            rotation: [90.0,-90.0,0.0],
             scale:2.20,
-            //anchor/pivot:[],
-            // vertex:'p3 t2',
             mesh:'models/witch/witch_object.obj',
             texture:'models/witch/witch_object_diffuse.tga.png',
-//            swapzy:true,
             flipuv:false,
+            fullbright:true,
+            pbr:false,
         },
     ]);
     int num_spawned = scene_merge(my_scene);
@@ -50,14 +48,15 @@ int main() {
     object_t *obj2 = scene_index(1);
 
     // manual spawn & loading
-    model_t m1 = model("kgirl/kgirls01.fbx", 0); //MODEL_NO_ANIMS);
+    model_t m1 = model("kgirl/kgirls01.fbx", MODEL_NO_PBR); //MODEL_NO_ANIMS);
     texture_t t1 = texture("kgirl/g01_texture.png", 0);
     object_t* obj3 = scene_spawn();
+    obj3->fullbright = true;
     object_model(obj3, m1);
     object_diffuse(obj3, t1);
     object_scale(obj3, vec3(3,3,3));
     object_move(obj3, vec3(-10,0,-10));
-    object_pivot(obj3, vec3(-90+180,180,0));
+    object_pivot(obj3, vec3(0,90,-90));
 
     // camera
     camera_t cam = camera();
@@ -75,7 +74,7 @@ int main() {
         if( active ) cam.speed = clampf(cam.speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
         vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
         vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam.speed);
-        camera_moveby(&cam, wasdecq);
+        camera_moveby(&cam, scale3(wasdecq, window_delta() * 60));
         camera_fps(&cam, mouse.x,mouse.y);
 
         // queue model scale bounces
@@ -118,9 +117,9 @@ int main() {
 
         profile("Skeletal update") if(!window_has_pause()) {
             float delta = window_delta() * 30 ; // 30fps anim
-            m1.curframe = model_animate(m1, m1.curframe + delta);
+            obj3->model.curframe = model_animate(obj3->model, obj3->model.curframe + delta);
 
-            ddraw_text(vec3(-10,5,-10), 0.05, va("Frame: %.1f", m1.curframe));
+            ddraw_text(vec3(-10,5,-10), 0.05, va("Frame: %.1f", obj3->model.curframe));
         }
 
         // post-fxs end here
@@ -185,7 +184,7 @@ object_pivot(obj3, vec3(0,90,0));
 // @todo: add shadertoy material
         static model_t cube; do_once cube = model("cube.obj", 0);
         static shadertoy_t s; do_once s = shadertoy("shadertoys/4ttGWM.fs", 256);
-        model_set_texture(cube, shadertoy_render(&s, window_delta())->tx);
+        model_set_texture(&cube, shadertoy_render(&s, window_delta())->tx);
         model_render(cube, cam.proj, cam.view, cube.pivot,  0);
 
 while(window_swap() && !input(KEY_ESC)) {
@@ -203,7 +202,7 @@ while(window_swap() && !input(KEY_ESC)) {
 
 // load static scene
 // model_t sponza = model("sponza.obj", MODEL_MATCAPS);
-// model_set_texture(sponza, texture("matcaps/normals", 0));
+// model_set_texture(&sponza, texture("matcaps/normals", 0));
 // translation44(sponza.pivot, 0,-1,0);
 // rotate44(sponza.pivot, -90,1,0,0);
 // scale44(sponza.pivot, 10,10,10);

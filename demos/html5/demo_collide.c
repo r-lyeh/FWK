@@ -427,8 +427,8 @@ void game_loop(void *userdata) {
 
 
 int main(void) {
-    // 75% sized, msaa x4 enabled
-    window_create(0.75f, WINDOW_MSAA4);
+    // 75% sized, no msaa
+    window_create(0.75f, 0);
     window_title( "FWK - SPACE pauses simulation" );
 
     // fx_load("fx**.fs");
