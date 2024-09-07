@@ -18,14 +18,16 @@ enum WINDOW_FLAGS {
     WINDOW_FIXED = 0x200, // disable resizing
     WINDOW_TRANSPARENT = 0x400,
     WINDOW_BORDERLESS = 0x800,
+    WINDOW_TRUE_BORDERLESS = 0x4000,
 
-    WINDOW_VSYNC = 0,
+    WINDOW_VSYNC_DISABLED = 0,
     WINDOW_VSYNC_ADAPTIVE = 0x1000,
-    WINDOW_VSYNC_DISABLED = 0x2000,
+    WINDOW_VSYNC = 0x2000,
 };
 
 API bool     window_create(float scale, unsigned flags);
 API bool     window_create_from_handle(void *handle, float scale, unsigned flags);
+API void     window_destroy();
 API void     window_reload();
 
 API int      window_frame_begin();
@@ -78,6 +80,7 @@ API double   window_fps();
 API double   window_fps_target();
 API void     window_fps_lock(float fps);
 API void     window_fps_unlock();
+API void     window_fps_vsync(int vsync);
 
 API void     window_screenshot(const char* outfile_png); // , bool record_cursor
 API int      window_record(const char *outfile_mp4); // , bool record_cursor

@@ -32,7 +32,7 @@
 - [x] Platform: Windows, Linux and OSX. [Partial](https://github.com/r-lyeh/FWK/blob/main/demos/html5/README.md) HTML5/Web support.
 - [x] DS: hash, sort, array/vector, map, set.
 - [x] Math: rand, noise, ease, vec2/3/4, mat33/34/44, quat.
-- [x] Geometry: ray, line, plane, aabb, sphere, capsule, triangle and frustum.
+- [x] Geometry: ray, line, plane, aabb, sphere, capsule, triangle, poly and frustum.
 - [x] Window: windowed, soft/hard fullscreen, msaa, icon, cursor handling.
 - [x] Input: keyboard, mouse and gamepads. input bindings.
 - [x] Script: Lua scripting, Luajit/Python bindings.
@@ -53,6 +53,7 @@
 - [x] Render: 3D Debugdraw, batching and vectorial font.
 - [x] Render: 3D Sprites, spritesheets, AA zooming and batching: ASE.
 - [x] Render: 3D Tilemaps and tilesets: TMX, TSX.
+- [x] Render: Geometry and Compute shaders. SSBO support.
 - [x] Social: Steam/Steamworks.
 - [x] Time: Hires timers, tweens, easings, constant-time spline/catmulls.
 - [x] AI: Swarm/Boids, pathfinding, behavior trees (wip).

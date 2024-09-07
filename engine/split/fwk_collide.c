@@ -1,6 +1,51 @@
+/* poly */
+poly poly_alloc(int cnt) {
+    poly p = {0};
+    p.cnt = cnt;
+    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * cnt); // array_resize(p.verts, cnt);
+    return p;
+}
+
+void poly_free(poly *p) {
+    REALLOC(p->verts, 0); // array_free(p->verts);
+    poly z = {0};
+    *p = z;
+}
+
 /* plane */
 vec4 plane4(vec3 p, vec3 n) {
     return vec34(n, -dot3(n,p));
+}
+
+/* pyramid */
+poly pyramid(vec3 from, vec3 to, float size) {
+    /* calculate axis */
+    vec3 up, right, forward = norm3( sub3(to, from) );
+    ortho3(&right, &up, forward);
+
+    /* calculate extend */
+    vec3 xext = scale3(right, size);
+    vec3 yext = scale3(up, size);
+    vec3 nxext = scale3(right, -size);
+    vec3 nyext = scale3(up, -size);
+
+    /* calculate base vertices */
+    poly p = {0};
+    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * (5+1)); p.cnt = 5; /*+1 for diamond case*/ // array_resize(p.verts, 5+1); p.cnt = 5;
+    p.verts[0] = add3(add3(from, xext), yext); /*a*/
+    p.verts[1] = add3(add3(from, xext), nyext); /*b*/
+    p.verts[2] = add3(add3(from, nxext), nyext); /*c*/
+    p.verts[3] = add3(add3(from, nxext), yext); /*d*/
+    p.verts[4] = to; /*r*/
+    return p;
+}
+
+/* pyramid */
+poly diamond(vec3 from, vec3 to, float size) {
+    vec3 mid = add3(from, scale3(sub3(to, from), 0.5f));
+    poly p = pyramid(mid, to, size);
+    p.verts[5] = from; p.cnt = 6;
+    return p;
 }
 
 // ---

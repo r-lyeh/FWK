@@ -99,6 +99,8 @@ typedef float mat44[16];
  float signf (float a) ;
  float clampf (float v,float a,float b);
  float mixf (float a,float b,float t);
+ float unmixf (float a,float b,float t);
+ float mapf (float x,float a,float b,float c,float d);
  float slerpf (float a,float b,float t);
  float fractf (float a);
  vec2 ptr2 (const float *a );
@@ -456,6 +458,7 @@ typedef struct plane { vec3 p, n; } plane;
 typedef struct capsule { vec3 a, b; float r; } capsule;
 typedef struct ray { vec3 p, d; } ray;
 typedef struct triangle { vec3 p0,p1,p2; } triangle;
+typedef struct poly { vec3* verts; int cnt; } poly;
 typedef union frustum { struct { vec4 l, r, t, b, n, f; }; vec4 pl[6]; float v[24]; } frustum;
 typedef struct hit {
     union {
@@ -504,6 +507,10 @@ typedef struct hit {
  frustum frustum_build(mat44 projview);
  int frustum_test_sphere(frustum f, sphere s);
  int frustum_test_aabb(frustum f, aabb a);
+ poly poly_alloc(int cnt);
+ void poly_free(poly *p);
+ poly pyramid(vec3 from, vec3 to, float size);
+ poly diamond(vec3 from, vec3 to, float size);
  void collide_demo();
 enum COOK_FLAGS {
     COOK_SYNC = 0,
@@ -1433,6 +1440,9 @@ typedef struct lightmap_t {
  int ui_fxs();
  void* screenshot(int components);
  void* screenshot_async(int components);
+ void ddraw_line_width(float width);
+ void ddraw_line_width_push(float scale);
+ void ddraw_line_width_pop();
  void ddraw_color(unsigned rgb);
  void ddraw_color_push(unsigned rgb);
  void ddraw_color_pop();
@@ -1455,6 +1465,7 @@ typedef struct lightmap_t {
  void ddraw_cone(vec3 center, vec3 top, float radius);
  void ddraw_cube(vec3 center, float radius);
  void ddraw_cube33(vec3 center, vec3 radius, mat33 M);
+ void ddraw_diamond(vec3 from, vec3 to, float size);
  void ddraw_frustum(float projview[16]);
  void ddraw_ground(float scale);
  void ddraw_grid(float scale);
@@ -2036,12 +2047,14 @@ enum WINDOW_FLAGS {
     WINDOW_FIXED = 0x200,
     WINDOW_TRANSPARENT = 0x400,
     WINDOW_BORDERLESS = 0x800,
-    WINDOW_VSYNC = 0,
+    WINDOW_TRUE_BORDERLESS = 0x4000,
+    WINDOW_VSYNC_DISABLED = 0,
     WINDOW_VSYNC_ADAPTIVE = 0x1000,
-    WINDOW_VSYNC_DISABLED = 0x2000,
+    WINDOW_VSYNC = 0x2000,
 };
  bool window_create(float scale, unsigned flags);
  bool window_create_from_handle(void *handle, float scale, unsigned flags);
+ void window_destroy();
  void window_reload();
  int window_frame_begin();
  void window_frame_end();
@@ -2084,6 +2097,7 @@ enum WINDOW_FLAGS {
  double window_fps_target();
  void window_fps_lock(float fps);
  void window_fps_unlock();
+ void window_fps_vsync(int vsync);
  void window_screenshot(const char* outfile_png);
  int window_record(const char *outfile_mp4);
  vec2 window_dpi();

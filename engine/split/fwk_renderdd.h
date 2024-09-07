@@ -10,6 +10,9 @@
 // [*] (proper) gizmo,
 // [ ] camera, light bulb, light probe,
 
+API void ddraw_line_width(float width);
+API void ddraw_line_width_push(float scale);
+API void ddraw_line_width_pop();
 API void ddraw_color(unsigned rgb);
 API void ddraw_color_push(unsigned rgb);
 API void ddraw_color_pop();
@@ -35,6 +38,7 @@ API void ddraw_ring(vec3 pos, vec3 n, float radius);
 API void ddraw_cone(vec3 center, vec3 top, float radius);
 API void ddraw_cube(vec3 center, float radius);
 API void ddraw_cube33(vec3 center, vec3 radius, mat33 M);
+API void ddraw_diamond(vec3 from, vec3 to, float size);
 API void ddraw_frustum(float projview[16]);
 API void ddraw_ground(float scale);
 API void ddraw_grid(float scale);

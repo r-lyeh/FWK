@@ -2203,7 +2203,7 @@ void ui_notify_render() {
         struct ui_notify *n = array_back(ui_notifications);
 
         static double timeout = 0;
-        timeout += 1/60.f; // window_delta(); // @fixme: use editor_time() instead
+        timeout += window_delta(); // @fixme: use editor_time() instead
 
         ui_alpha_push( timeout >= n->timeout ? 1 - clampf(timeout - n->timeout,0,1) : 1 );
 
@@ -4716,9 +4716,54 @@ int ui_audio() {
 #line 0
 
 #line 1 "fwk_collide.c"
+/* poly */
+poly poly_alloc(int cnt) {
+    poly p = {0};
+    p.cnt = cnt;
+    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * cnt); // array_resize(p.verts, cnt);
+    return p;
+}
+
+void poly_free(poly *p) {
+    REALLOC(p->verts, 0); // array_free(p->verts);
+    poly z = {0};
+    *p = z;
+}
+
 /* plane */
 vec4 plane4(vec3 p, vec3 n) {
     return vec34(n, -dot3(n,p));
+}
+
+/* pyramid */
+poly pyramid(vec3 from, vec3 to, float size) {
+    /* calculate axis */
+    vec3 up, right, forward = norm3( sub3(to, from) );
+    ortho3(&right, &up, forward);
+
+    /* calculate extend */
+    vec3 xext = scale3(right, size);
+    vec3 yext = scale3(up, size);
+    vec3 nxext = scale3(right, -size);
+    vec3 nyext = scale3(up, -size);
+
+    /* calculate base vertices */
+    poly p = {0};
+    p.verts = REALLOC(p.verts, sizeof(p.verts[0]) * (5+1)); p.cnt = 5; /*+1 for diamond case*/ // array_resize(p.verts, 5+1); p.cnt = 5;
+    p.verts[0] = add3(add3(from, xext), yext); /*a*/
+    p.verts[1] = add3(add3(from, xext), nyext); /*b*/
+    p.verts[2] = add3(add3(from, nxext), nyext); /*c*/
+    p.verts[3] = add3(add3(from, nxext), yext); /*d*/
+    p.verts[4] = to; /*r*/
+    return p;
+}
+
+/* pyramid */
+poly diamond(vec3 from, vec3 to, float size) {
+    vec3 mid = add3(from, scale3(sub3(to, from), 0.5f));
+    poly p = pyramid(mid, to, size);
+    p.verts[5] = from; p.cnt = 6;
+    return p;
 }
 
 // ---
@@ -12143,6 +12188,8 @@ float pmodf    (float  a, float  b) { return (a < 0.0f ? 1.0f : 0.0f) + (float)f
 float signf    (float  a)           { return (a < 0) ? -1.f : 1.f; }
 float clampf(float v,float a,float b){return maxf(minf(b,v),a); }
 float mixf(float a,float b,float t) { return a*(1-t)+b*t; }
+float unmixf(float a,float b,float t) { return (t - a) / (b - a); }
+float mapf(float x,float a,float b,float c,float d) { return (x - a) / (b - a) * (d - c) + c; }
 float slerpf(float a,float b,float t) {
     a = fmod(a, 360); if (a < 0) a += 360;
     b = fmod(b, 360); if (b < 0) b += 360;
@@ -20285,7 +20332,8 @@ void model_load_pbr(material_t *mt) {
         if( strstri(t, "_N.") || strstri(t, "Normal") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0);
         if( strstri(t, "_S.") || strstri(t, "Specular") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0);
         if( strstri(t, "_A.") || strstri(t, "Albedo") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); // 0?
-        if( strstri(t, "_MR.")|| strstri(t, "Roughness") || strstri(t, "MetallicRoughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        if( strstri(t, "Roughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        if( strstri(t, "_MR.")|| strstri(t, "MetallicRoughness") || strstri(t, "OcclusionRoughnessMetallic") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
         else
         if( strstri(t, "_M.") || strstri(t, "Metallic") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0);
       //if( strstri(t, "_S.") || strstri(t, "Shininess") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
@@ -21191,13 +21239,27 @@ typedef struct text2d_cmd {
 
 static renderstate_t             dd_rs;
 static uint32_t                  dd_color = ~0u;
+static float                     dd_line_width = 1.0f;
 static GLuint                    dd_program = -1;
 static int                       dd_u_color = -1;
-static map(unsigned,array(vec3)) dd_lists[2][3] = {0}; // [0/1 ontop][0/1/2 thin lines/thick lines/points]
+static map(uint64_t,array(vec3)) dd_lists[2][3] = {0}; // [0/1 ontop][0/1/2 thin lines/thick lines/points]
 static bool                      dd_use_line = 0;
 static bool                      dd_ontop = 0;
 static array(text2d_cmd)         dd_text2d;
 static array(vec4)               dd_matrix2d;
+
+static inline
+uint64_t convert_key_from_color_width(uint32_t color, float width) {
+    union { float f; uint32_t i; } u = { .f = width };
+    return ((uint64_t)color << 32) | u.i;
+}
+
+static inline
+void convert_key_to_color_width(uint64_t key, uint32_t *color, float *width) {
+    *color = key >> 32;
+    union { float f; uint64_t i; } u = { .i = key };
+    *width = u.f;
+}
 
 void ddraw_push_2d() {
     float width = window_width();
@@ -21246,13 +21308,15 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
 
     for( int i = 0; i < 3; ++i ) { // [0] thin, [1] thick, [2] points
         GLenum mode = i < 2 ? GL_LINES : GL_POINTS;
-        dd_rs.line_width = (i == 1 ? 1 : 0.3); // 0.625);
-        renderstate_apply(&dd_rs);
-        for each_map(dd_lists[dd_ontop][i], unsigned, rgb, array(vec3), list) {
+        for each_map(dd_lists[dd_ontop][i], uint64_t, meta, array(vec3), list) {
             int count = array_count(list);
             if(!count) continue;
+                unsigned rgbi = 0;
+                convert_key_to_color_width(meta, &rgbi, &dd_line_width);
+                dd_rs.line_width = (i == 1 ? dd_line_width : 0.3); // 0.625);
+                renderstate_apply(&dd_rs);
                 // color
-                vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
+                vec3 rgbf = {((rgbi>>0)&255)/255.f,((rgbi>>8)&255)/255.f,((rgbi>>16)&255)/255.f};
                 glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                 // config vertex data
                 glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -21280,12 +21344,15 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         for( int i = 0; i < 3; ++i ) { // [0] thin, [1] thick, [2] points
             GLenum mode = i < 2 ? GL_LINES : GL_POINTS;
             dd_rs.line_width = (i == 1 ? 1 : 0.3); // 0.625);
-            for each_map(dd_lists[dd_ontop][i], unsigned, rgb, array(vec3), list) {
+            for each_map(dd_lists[dd_ontop][i], uint64_t, meta, array(vec3), list) {
                 int count = array_count(list);
                 if(!count) continue;
+                    unsigned rgbi = 0;
+                    convert_key_to_color_width(meta, &rgbi, &dd_line_width);
+                    dd_rs.line_width = (i == 1 ? dd_line_width : 0.3);
                     renderstate_apply(&dd_rs);
                     // color
-                    vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
+                    vec3 rgbf = {((rgbi>>0)&255)/255.f,((rgbi>>8)&255)/255.f,((rgbi>>16)&255)/255.f};
                     glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                     // config vertex data
                     glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -21320,6 +21387,19 @@ void ddraw_ontop_pop() {
     if(pop) dd_ontop = *pop;
 }
 
+static array(float) dd_line_scales;
+void ddraw_line_width(float width) {
+    dd_line_width = width;
+}
+void ddraw_line_width_push(float scale) {
+    array_push(dd_line_scales, dd_line_width);
+    dd_line_width = scale;
+}
+void ddraw_line_width_pop() {
+    float *pop = array_pop(dd_line_scales);
+    if(pop) dd_line_width = *pop;
+}
+
 static array(uint32_t) dd_colors;
 void ddraw_color(unsigned rgb) {
     dd_color = rgb;
@@ -21334,16 +21414,19 @@ void ddraw_color_pop() {
 }
 
 void ddraw_point(vec3 from) {
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][2], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][2], key, 0);
     array_push(*found, from);
 }
 void ddraw_line_thin(vec3 from, vec3 to) { // thin lines
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][0], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][0], key, 0);
     array_push(*found, from);
     array_push(*found, to);
 }
 void ddraw_line(vec3 from, vec3 to) { // thick lines
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][1], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][1], key, 0);
     array_push(*found, from);
     array_push(*found, to);
 }
@@ -21398,7 +21481,7 @@ void ddraw_text2d(vec2 pos, const char *text) {
     t.sca = 0.5f; // 0.5 is like vertical 12units each
     t.pos = vec3(pos.x, 0 - pos.y - 12, 0);
     t.str = text;
-    t.col = YELLOW;
+    t.col = dd_color;
     array_push(dd_text2d, t);
 }
 
@@ -21674,6 +21757,37 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
 void ddraw_cylinder(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
 }
+void ddraw_diamond(vec3 from, vec3 to, float size) {
+    poly p = diamond(from, to, size);
+    vec3 *dmd = p.verts;
+
+    vec3 *a = dmd + 0;
+    vec3 *b = dmd + 1;
+    vec3 *c = dmd + 2;
+    vec3 *d = dmd + 3;
+    vec3 *t = dmd + 4;
+    vec3 *f = dmd + 5;
+
+    /* draw vertices */
+    ddraw_line(*a, *b);
+    ddraw_line(*b, *c);
+    ddraw_line(*c, *d);
+    ddraw_line(*d, *a);
+
+    /* draw roof */
+    ddraw_line(*a, *t);
+    ddraw_line(*b, *t);
+    ddraw_line(*c, *t);
+    ddraw_line(*d, *t);
+
+    /* draw floor */
+    ddraw_line(*a, *f);
+    ddraw_line(*b, *f);
+    ddraw_line(*c, *f);
+    ddraw_line(*d, *f);
+
+    poly_free(&p);
+}
 void ddraw_cone(vec3 center, vec3 top, float radius) {
     vec3 diff3 = sub3(top, center);
     ddraw_prism(center, radius ? radius : 1, len3(diff3), norm3(diff3), 24);
@@ -21907,7 +22021,7 @@ void ddraw_position( vec3 position, float radius ) {
 void ddraw_init() {
     do_once {
     for( int i = 0; i < 2; ++i )
-    for( int j = 0; j < 3; ++j ) map_init(dd_lists[i][j], less_int, hash_int);
+    for( int j = 0; j < 3; ++j ) map_init(dd_lists[i][j], less_64, hash_64);
     dd_program = shader(dd_vs,dd_fs,"att_position","fragcolor", NULL);
     dd_u_color = glGetUniformLocation(dd_program, "u_color");
     ddraw_flush(); // alloc vao & vbo, also resets color
@@ -24503,13 +24617,7 @@ const char * app_exec( const char *cmd ) {
 
     // pick the fastest code path per platform
 #if is(osx)
-    for( FILE *fp = popen( cmd, "r" ); fp; rc = pclose(fp), fp = 0) {
-        // while( fgets(buf, 4096 - 1, fp) ) {}
-    }
-    // if( rc != 0 ) {
-    //     char *r = strrchr(buf, '\r'); if(r) *r = 0;
-    //     char *n = strrchr(buf, '\n'); if(n) *n = 0;
-    // }
+    rc = system(cmd);
 #elif is(win32)
     STARTUPINFOA si = {0}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {0};
@@ -26514,7 +26622,9 @@ void window_hints(unsigned flags) {
     #endif
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); //osx+ems
     glfwWindowHint(GLFW_STENCIL_BITS, 8); //osx
+#if !NDEBUG
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+#endif
 
     //glfwWindowHint( GLFW_RED_BITS, 8 );
     //glfwWindowHint( GLFW_GREEN_BITS, 8 );
@@ -26606,11 +26716,18 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     bool FLAGS_FULLSCREEN = scale > 100;
     bool FLAGS_FULLSCREEN_DESKTOP = scale == 100;
     bool FLAGS_WINDOWED = scale < 100;
+    bool FLAGS_TRUE_BORDERLESS = flags & WINDOW_TRUE_BORDERLESS;
     bool FLAGS_TRANSPARENT = flag("--transparent") || (flags & WINDOW_TRANSPARENT);
     if( FLAGS_TRANSPARENT ) FLAGS_FULLSCREEN = 0, FLAGS_FULLSCREEN_DESKTOP = 0, FLAGS_WINDOWED = 1;
     scale = (scale > 100 ? 100 : scale) / 100.f;
     int winWidth = window_canvas().w * scale;
     int winHeight = window_canvas().h * scale;
+
+    if (FLAGS_TRUE_BORDERLESS) {
+        FLAGS_FULLSCREEN = FLAGS_FULLSCREEN_DESKTOP = 0;
+        FLAGS_WINDOWED = 1;
+        flags |= WINDOW_BORDERLESS;
+    }
 
 /*
     if (tests_captureframes()) {
@@ -26643,6 +26760,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
         }
         if( flags & WINDOW_BORDERLESS ) {
+            // glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
             glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
         }
         #endif
@@ -26690,6 +26808,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     int gl_version = gladLoadGL(glfwGetProcAddress);
     #endif
 
+    // set black screen
+    glClearColor(0,0,0,1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glfwSwapBuffers(window);
+
     glDebugEnable();
 
     // setup nuklear ui
@@ -26698,11 +26821,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
-    flags |= optioni("--vsync", 1) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
+    flags |= optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
     flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE : 0;
     int has_adaptive_vsync = glfwExtensionSupported("WGL_EXT_swap_control_tear") || glfwExtensionSupported("GLX_EXT_swap_control_tear") || glfwExtensionSupported("EXT_swap_control_tear");
     int wants_adaptive_vsync = (flags & WINDOW_VSYNC_ADAPTIVE);
-    int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC_DISABLED ? 0 : 1);
+    int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC ? 1 : 0);
     glfwSwapInterval(interval);
 
     const GLFWvidmode *mode = glfwGetVideoMode(monitor ? monitor : glfwGetPrimaryMonitor());
@@ -26718,6 +26841,10 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
         if( scale >= 1 ) glfwMaximizeWindow(window);
     }
+    if ( FLAGS_TRUE_BORDERLESS ) {
+        if( scale >= 1 ) glfwMaximizeWindow(window);
+        glfwSetWindowSize(window, w, h);
+    }
     #endif
 
     g->ctx = ui_ctx;
@@ -26725,6 +26852,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     g->window = window;
     g->width = window_width();
     g->height = window_height();
+    PRINTF("Window: %dx%d\n", g->width, g->height);
+
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
 
     // window_cursor(flags & WINDOW_NO_MOUSE ? false : true);
     glfwSetDropCallback(window, window_drop_callback);
@@ -26791,6 +26923,12 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
 
 bool window_create(float scale, unsigned flags) {
     return window_create_from_handle(NULL, scale, flags);
+}
+
+void window_destroy() {
+    if( !window ) return;
+
+    glfwSetWindowShouldClose(window, GL_TRUE);
 }
 
 static double boot_time = 0;
@@ -26972,6 +27110,7 @@ void window_shutdown() {
         #endif
 
         window_loop_exit(); // finish emscripten loop automatically
+        glfwTerminate();
     }
 }
 
@@ -27051,7 +27190,7 @@ void window_loop(void (*user_function)(void* loopArg), void* loopArg ) {
 #else
     g->keep_running = true;
     while (g->keep_running)
-        window_swap(), user_function(loopArg);
+        user_function(loopArg);
 #endif /* __EMSCRIPTEN__ */
 }
 
@@ -27107,6 +27246,10 @@ void window_fps_unlock() {
 }
 double window_fps_target() {
     return hz;
+}
+
+void window_fps_vsync(int vsync) {
+    glfwSwapInterval(vsync);
 }
 
 uint64_t window_frame() {
@@ -29722,6 +29865,35 @@ static void fwk_post_init(float refresh_rate) {
 
     // display window
     glfwShowWindow(window);
+
+#if 0 // ENABLE_LEGAL_SCREEN
+    // set black screen
+    glClearColor(0,0,0,1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glfwSwapBuffers(window);
+
+    // background image+logo+headline+text
+    texture_t logo_bg = texture(LEGAL_SCREEN_BACKGROUND_IMG, 0);
+    if (logo_bg.id != texture_checker().id) {
+        texture_t logo_mask = texture(LEGAL_SCREEN_LOGO_IMG, 0);
+        font_face(FONT_FACE3, LEGAL_SCREEN_FONT_TTF, LEGAL_SCREEN_FONT_SIZE, FONT_EU | FONT_4096 | FONT_OVERSAMPLE_X | FONT_OVERSAMPLE_Y);
+        sprite(logo_bg, vec3(w/2.f, h/2.f, 0).array, 0.0f, 0xFFFFFFFF, SPRITE_CENTERED|SPRITE_RESOLUTION_INDEPENDANT);
+        sprite(logo_mask, vec3(w/2.f, h/2.f, 1).array, 0.0f, 0xFFFFFFFF, SPRITE_CENTERED|SPRITE_RESOLUTION_INDEPENDANT);
+        sprite_flush();
+        font_print(
+            FONT_BOTTOM FONT_CENTER FONT_FACE3 FONT_H3
+            LEGAL_SCREEN_HEADLINE "\n\n\n\n\n\n\n\n\n\n"
+        );
+
+        char *legalese = va(FONT_CENTER FONT_FACE3 FONT_H4 LEGAL_SCREEN_TEXT);
+        vec2 dims = font_rect(legalese);
+        font_goto(0, window_height()-dims.y);
+        font_print(legalese);
+
+        glfwSwapBuffers(window);
+    }
+#endif
+
     glfwGetFramebufferSize(window, &w, &h); //glfwGetWindowSize(window, &w, &h);
 
     randset(time_ns() * !tests_captureframes());

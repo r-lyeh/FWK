@@ -197,7 +197,9 @@ void window_hints(unsigned flags) {
     #endif
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); //osx+ems
     glfwWindowHint(GLFW_STENCIL_BITS, 8); //osx
+#if !NDEBUG
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+#endif
 
     //glfwWindowHint( GLFW_RED_BITS, 8 );
     //glfwWindowHint( GLFW_GREEN_BITS, 8 );
@@ -289,11 +291,18 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     bool FLAGS_FULLSCREEN = scale > 100;
     bool FLAGS_FULLSCREEN_DESKTOP = scale == 100;
     bool FLAGS_WINDOWED = scale < 100;
+    bool FLAGS_TRUE_BORDERLESS = flags & WINDOW_TRUE_BORDERLESS;
     bool FLAGS_TRANSPARENT = flag("--transparent") || (flags & WINDOW_TRANSPARENT);
     if( FLAGS_TRANSPARENT ) FLAGS_FULLSCREEN = 0, FLAGS_FULLSCREEN_DESKTOP = 0, FLAGS_WINDOWED = 1;
     scale = (scale > 100 ? 100 : scale) / 100.f;
     int winWidth = window_canvas().w * scale;
     int winHeight = window_canvas().h * scale;
+
+    if (FLAGS_TRUE_BORDERLESS) {
+        FLAGS_FULLSCREEN = FLAGS_FULLSCREEN_DESKTOP = 0;
+        FLAGS_WINDOWED = 1;
+        flags |= WINDOW_BORDERLESS;
+    }
 
 /*
     if (tests_captureframes()) {
@@ -326,6 +335,7 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
         }
         if( flags & WINDOW_BORDERLESS ) {
+            // glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
             glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
         }
         #endif
@@ -373,6 +383,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     int gl_version = gladLoadGL(glfwGetProcAddress);
     #endif
 
+    // set black screen
+    glClearColor(0,0,0,1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glfwSwapBuffers(window);
+
     glDebugEnable();
 
     // setup nuklear ui
@@ -381,11 +396,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     //glEnable(GL_TEXTURE_2D);
 
     // 0:disable vsync, 1:enable vsync, <0:adaptive (allow vsync when framerate is higher than syncrate and disable vsync when framerate drops below syncrate)
-    flags |= optioni("--vsync", 1) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
+    flags |= optioni("--vsync", 0) || flag("--vsync") ? WINDOW_VSYNC : WINDOW_VSYNC_DISABLED;
     flags |= optioni("--vsync-adaptive", 0) || flag("--vsync-adaptive") ? WINDOW_VSYNC_ADAPTIVE : 0;
     int has_adaptive_vsync = glfwExtensionSupported("WGL_EXT_swap_control_tear") || glfwExtensionSupported("GLX_EXT_swap_control_tear") || glfwExtensionSupported("EXT_swap_control_tear");
     int wants_adaptive_vsync = (flags & WINDOW_VSYNC_ADAPTIVE);
-    int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC_DISABLED ? 0 : 1);
+    int interval = has_adaptive_vsync && wants_adaptive_vsync ? -1 : (flags & WINDOW_VSYNC ? 1 : 0);
     glfwSwapInterval(interval);
 
     const GLFWvidmode *mode = glfwGetVideoMode(monitor ? monitor : glfwGetPrimaryMonitor());
@@ -401,6 +416,10 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
         glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE); // @todo: is decorated an attrib or a hint?
         if( scale >= 1 ) glfwMaximizeWindow(window);
     }
+    if ( FLAGS_TRUE_BORDERLESS ) {
+        if( scale >= 1 ) glfwMaximizeWindow(window);
+        glfwSetWindowSize(window, w, h);
+    }
     #endif
 
     g->ctx = ui_ctx;
@@ -408,6 +427,11 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
     g->window = window;
     g->width = window_width();
     g->height = window_height();
+    PRINTF("Window: %dx%d\n", g->width, g->height);
+
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
 
     // window_cursor(flags & WINDOW_NO_MOUSE ? false : true);
     glfwSetDropCallback(window, window_drop_callback);
@@ -474,6 +498,12 @@ bool window_create_from_handle(void *handle, float scale, unsigned flags) {
 
 bool window_create(float scale, unsigned flags) {
     return window_create_from_handle(NULL, scale, flags);
+}
+
+void window_destroy() {
+    if( !window ) return;
+
+    glfwSetWindowShouldClose(window, GL_TRUE);
 }
 
 static double boot_time = 0;
@@ -655,6 +685,7 @@ void window_shutdown() {
         #endif
 
         window_loop_exit(); // finish emscripten loop automatically
+        glfwTerminate();
     }
 }
 
@@ -734,7 +765,7 @@ void window_loop(void (*user_function)(void* loopArg), void* loopArg ) {
 #else
     g->keep_running = true;
     while (g->keep_running)
-        window_swap(), user_function(loopArg);
+        user_function(loopArg);
 #endif /* __EMSCRIPTEN__ */
 }
 
@@ -790,6 +821,10 @@ void window_fps_unlock() {
 }
 double window_fps_target() {
     return hz;
+}
+
+void window_fps_vsync(int vsync) {
+    glfwSwapInterval(vsync);
 }
 
 uint64_t window_frame() {

@@ -10,6 +10,7 @@ typedef struct plane    { vec3 p, n;                                            
 typedef struct capsule  { vec3 a, b; float r;                                         } capsule;
 typedef struct ray      { vec3 p, d;                                                  } ray;
 typedef struct triangle { vec3 p0,p1,p2;                                              } triangle;
+typedef struct poly     { vec3* verts; int cnt;                                       } poly;
 typedef union  frustum  { struct { vec4 l, r, t, b, n, f; }; vec4 pl[6]; float v[24]; } frustum;
 
 #define line(...)       C_CAST(line, __VA_ARGS__)
@@ -19,6 +20,7 @@ typedef union  frustum  { struct { vec4 l, r, t, b, n, f; }; vec4 pl[6]; float v
 #define capsule(...)    C_CAST(capsule, __VA_ARGS__)
 #define ray(p,normdir)  C_CAST(ray, p, normdir)
 #define triangle(...)   C_CAST(triangle, __VA_ARGS__)
+#define poly(...)       C_CAST(poly, __VA_ARGS__)
 #define frustum(...)    C_CAST(frustum, __VA_ARGS__)
 
 // ----------------------------------------------------------------------------
@@ -85,5 +87,11 @@ API vec4    plane4(vec3 p, vec3 n);
 API frustum frustum_build(mat44 projview);
 API int     frustum_test_sphere(frustum f, sphere s);
 API int     frustum_test_aabb(frustum f, aabb a);
+
+API poly    poly_alloc(int cnt);
+API void    poly_free(poly *p);
+
+API poly    pyramid(vec3 from, vec3 to, float size); // poly_free() required
+API poly    diamond(vec3 from, vec3 to, float size); // poly_free() required
 
 API void    collide_demo(); // debug draw collisions

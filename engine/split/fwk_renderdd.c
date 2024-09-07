@@ -35,13 +35,27 @@ typedef struct text2d_cmd {
 
 static renderstate_t             dd_rs;
 static uint32_t                  dd_color = ~0u;
+static float                     dd_line_width = 1.0f;
 static GLuint                    dd_program = -1;
 static int                       dd_u_color = -1;
-static map(unsigned,array(vec3)) dd_lists[2][3] = {0}; // [0/1 ontop][0/1/2 thin lines/thick lines/points]
+static map(uint64_t,array(vec3)) dd_lists[2][3] = {0}; // [0/1 ontop][0/1/2 thin lines/thick lines/points]
 static bool                      dd_use_line = 0;
 static bool                      dd_ontop = 0;
 static array(text2d_cmd)         dd_text2d;
 static array(vec4)               dd_matrix2d;
+
+static inline
+uint64_t convert_key_from_color_width(uint32_t color, float width) {
+    union { float f; uint32_t i; } u = { .f = width };
+    return ((uint64_t)color << 32) | u.i;
+}
+
+static inline
+void convert_key_to_color_width(uint64_t key, uint32_t *color, float *width) {
+    *color = key >> 32;
+    union { float f; uint64_t i; } u = { .i = key };
+    *width = u.f;
+}
 
 void ddraw_push_2d() {
     float width = window_width();
@@ -90,13 +104,15 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
 
     for( int i = 0; i < 3; ++i ) { // [0] thin, [1] thick, [2] points
         GLenum mode = i < 2 ? GL_LINES : GL_POINTS;
-        dd_rs.line_width = (i == 1 ? 1 : 0.3); // 0.625);
-        renderstate_apply(&dd_rs);
-        for each_map(dd_lists[dd_ontop][i], unsigned, rgb, array(vec3), list) {
+        for each_map(dd_lists[dd_ontop][i], uint64_t, meta, array(vec3), list) {
             int count = array_count(list);
             if(!count) continue;
+                unsigned rgbi = 0;
+                convert_key_to_color_width(meta, &rgbi, &dd_line_width);
+                dd_rs.line_width = (i == 1 ? dd_line_width : 0.3); // 0.625);
+                renderstate_apply(&dd_rs);
                 // color
-                vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
+                vec3 rgbf = {((rgbi>>0)&255)/255.f,((rgbi>>8)&255)/255.f,((rgbi>>16)&255)/255.f};
                 glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                 // config vertex data
                 glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -124,12 +140,15 @@ void ddraw_flush_projview(mat44 proj, mat44 view) {
         for( int i = 0; i < 3; ++i ) { // [0] thin, [1] thick, [2] points
             GLenum mode = i < 2 ? GL_LINES : GL_POINTS;
             dd_rs.line_width = (i == 1 ? 1 : 0.3); // 0.625);
-            for each_map(dd_lists[dd_ontop][i], unsigned, rgb, array(vec3), list) {
+            for each_map(dd_lists[dd_ontop][i], uint64_t, meta, array(vec3), list) {
                 int count = array_count(list);
                 if(!count) continue;
+                    unsigned rgbi = 0;
+                    convert_key_to_color_width(meta, &rgbi, &dd_line_width);
+                    dd_rs.line_width = (i == 1 ? dd_line_width : 0.3);
                     renderstate_apply(&dd_rs);
                     // color
-                    vec3 rgbf = {((rgb>>0)&255)/255.f,((rgb>>8)&255)/255.f,((rgb>>16)&255)/255.f};
+                    vec3 rgbf = {((rgbi>>0)&255)/255.f,((rgbi>>8)&255)/255.f,((rgbi>>16)&255)/255.f};
                     glUniform3fv(dd_u_color, GL_TRUE, &rgbf.x);
                     // config vertex data
                     glBufferData(GL_ARRAY_BUFFER, count * 3 * 4, list, GL_STATIC_DRAW);
@@ -164,6 +183,19 @@ void ddraw_ontop_pop() {
     if(pop) dd_ontop = *pop;
 }
 
+static array(float) dd_line_scales;
+void ddraw_line_width(float width) {
+    dd_line_width = width;
+}
+void ddraw_line_width_push(float scale) {
+    array_push(dd_line_scales, dd_line_width);
+    dd_line_width = scale;
+}
+void ddraw_line_width_pop() {
+    float *pop = array_pop(dd_line_scales);
+    if(pop) dd_line_width = *pop;
+}
+
 static array(uint32_t) dd_colors;
 void ddraw_color(unsigned rgb) {
     dd_color = rgb;
@@ -178,16 +210,19 @@ void ddraw_color_pop() {
 }
 
 void ddraw_point(vec3 from) {
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][2], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][2], key, 0);
     array_push(*found, from);
 }
 void ddraw_line_thin(vec3 from, vec3 to) { // thin lines
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][0], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][0], key, 0);
     array_push(*found, from);
     array_push(*found, to);
 }
 void ddraw_line(vec3 from, vec3 to) { // thick lines
-    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][1], dd_color, 0);
+    uint64_t key = convert_key_from_color_width(dd_color, dd_line_width);
+    array(vec3) *found = map_find_or_add(dd_lists[dd_ontop][1], key, 0);
     array_push(*found, from);
     array_push(*found, to);
 }
@@ -242,7 +277,7 @@ void ddraw_text2d(vec2 pos, const char *text) {
     t.sca = 0.5f; // 0.5 is like vertical 12units each
     t.pos = vec3(pos.x, 0 - pos.y - 12, 0);
     t.str = text;
-    t.col = YELLOW;
+    t.col = dd_color;
     array_push(dd_text2d, t);
 }
 
@@ -518,6 +553,37 @@ void ddraw_pyramid(vec3 center, float height, int segments) {
 void ddraw_cylinder(vec3 center, float height, int segments) {
     ddraw_prism(center, 1, -height, vec3(0,1,0), segments);
 }
+void ddraw_diamond(vec3 from, vec3 to, float size) {
+    poly p = diamond(from, to, size);
+    vec3 *dmd = p.verts;
+
+    vec3 *a = dmd + 0;
+    vec3 *b = dmd + 1;
+    vec3 *c = dmd + 2;
+    vec3 *d = dmd + 3;
+    vec3 *t = dmd + 4;
+    vec3 *f = dmd + 5;
+
+    /* draw vertices */
+    ddraw_line(*a, *b);
+    ddraw_line(*b, *c);
+    ddraw_line(*c, *d);
+    ddraw_line(*d, *a);
+
+    /* draw roof */
+    ddraw_line(*a, *t);
+    ddraw_line(*b, *t);
+    ddraw_line(*c, *t);
+    ddraw_line(*d, *t);
+
+    /* draw floor */
+    ddraw_line(*a, *f);
+    ddraw_line(*b, *f);
+    ddraw_line(*c, *f);
+    ddraw_line(*d, *f);
+
+    poly_free(&p);
+}
 void ddraw_cone(vec3 center, vec3 top, float radius) {
     vec3 diff3 = sub3(top, center);
     ddraw_prism(center, radius ? radius : 1, len3(diff3), norm3(diff3), 24);
@@ -751,7 +817,7 @@ void ddraw_position( vec3 position, float radius ) {
 void ddraw_init() {
     do_once {
     for( int i = 0; i < 2; ++i )
-    for( int j = 0; j < 3; ++j ) map_init(dd_lists[i][j], less_int, hash_int);
+    for( int j = 0; j < 3; ++j ) map_init(dd_lists[i][j], less_64, hash_64);
     dd_program = shader(dd_vs,dd_fs,"att_position","fragcolor", NULL);
     dd_u_color = glGetUniformLocation(dd_program, "u_color");
     ddraw_flush(); // alloc vao & vbo, also resets color

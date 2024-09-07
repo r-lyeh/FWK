@@ -3684,7 +3684,8 @@ void model_load_pbr(material_t *mt) {
         if( strstri(t, "_N.") || strstri(t, "Normal") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_NORMALS], t, 0);
         if( strstri(t, "_S.") || strstri(t, "Specular") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_SPECULAR], t, 0);
         if( strstri(t, "_A.") || strstri(t, "Albedo") )     model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ALBEDO], t, 1); // 0?
-        if( strstri(t, "_MR.")|| strstri(t, "Roughness") || strstri(t, "MetallicRoughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        if( strstri(t, "Roughness") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
+        if( strstri(t, "_MR.")|| strstri(t, "MetallicRoughness") || strstri(t, "OcclusionRoughnessMetallic") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);
         else
         if( strstri(t, "_M.") || strstri(t, "Metallic") )   model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_METALLIC], t, 0);
       //if( strstri(t, "_S.") || strstri(t, "Shininess") )  model_load_pbr_layer(&mt->layer[MATERIAL_CHANNEL_ROUGHNESS], t, 0);

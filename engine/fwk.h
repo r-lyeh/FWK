@@ -1023,6 +1023,8 @@ API float pmodf    (float  a, float  b);
 API float signf    (float  a)           ;
 API float clampf   (float v,float a,float b);
 API float mixf     (float a,float b,float t);
+API float unmixf   (float a,float b,float t);
+API float mapf     (float x,float a,float b,float c,float d);
 API float slerpf   (float a,float b,float t);
 API float fractf   (float a);
 
@@ -1767,6 +1769,7 @@ typedef struct plane    { vec3 p, n;                                            
 typedef struct capsule  { vec3 a, b; float r;                                         } capsule;
 typedef struct ray      { vec3 p, d;                                                  } ray;
 typedef struct triangle { vec3 p0,p1,p2;                                              } triangle;
+typedef struct poly     { vec3* verts; int cnt;                                       } poly;
 typedef union  frustum  { struct { vec4 l, r, t, b, n, f; }; vec4 pl[6]; float v[24]; } frustum;
 
 #define line(...)       C_CAST(line, __VA_ARGS__)
@@ -1776,6 +1779,7 @@ typedef union  frustum  { struct { vec4 l, r, t, b, n, f; }; vec4 pl[6]; float v
 #define capsule(...)    C_CAST(capsule, __VA_ARGS__)
 #define ray(p,normdir)  C_CAST(ray, p, normdir)
 #define triangle(...)   C_CAST(triangle, __VA_ARGS__)
+#define poly(...)       C_CAST(poly, __VA_ARGS__)
 #define frustum(...)    C_CAST(frustum, __VA_ARGS__)
 
 // ----------------------------------------------------------------------------
@@ -1842,6 +1846,12 @@ API vec4    plane4(vec3 p, vec3 n);
 API frustum frustum_build(mat44 projview);
 API int     frustum_test_sphere(frustum f, sphere s);
 API int     frustum_test_aabb(frustum f, aabb a);
+
+API poly    poly_alloc(int cnt);
+API void    poly_free(poly *p);
+
+API poly    pyramid(vec3 from, vec3 to, float size); // poly_free() required
+API poly    diamond(vec3 from, vec3 to, float size); // poly_free() required
 
 API void    collide_demo(); // debug draw collisions
 #line 0
@@ -3747,6 +3757,9 @@ API void*    screenshot_async(int components); // 3 RGB, 4 RGBA, -3 BGR, -4 BGRA
 // [*] (proper) gizmo,
 // [ ] camera, light bulb, light probe,
 
+API void ddraw_line_width(float width);
+API void ddraw_line_width_push(float scale);
+API void ddraw_line_width_pop();
 API void ddraw_color(unsigned rgb);
 API void ddraw_color_push(unsigned rgb);
 API void ddraw_color_pop();
@@ -3772,6 +3785,7 @@ API void ddraw_ring(vec3 pos, vec3 n, float radius);
 API void ddraw_cone(vec3 center, vec3 top, float radius);
 API void ddraw_cube(vec3 center, float radius);
 API void ddraw_cube33(vec3 center, vec3 radius, mat33 M);
+API void ddraw_diamond(vec3 from, vec3 to, float size);
 API void ddraw_frustum(float projview[16]);
 API void ddraw_ground(float scale);
 API void ddraw_grid(float scale);
@@ -4717,14 +4731,16 @@ enum WINDOW_FLAGS {
     WINDOW_FIXED = 0x200, // disable resizing
     WINDOW_TRANSPARENT = 0x400,
     WINDOW_BORDERLESS = 0x800,
+    WINDOW_TRUE_BORDERLESS = 0x4000,
 
-    WINDOW_VSYNC = 0,
+    WINDOW_VSYNC_DISABLED = 0,
     WINDOW_VSYNC_ADAPTIVE = 0x1000,
-    WINDOW_VSYNC_DISABLED = 0x2000,
+    WINDOW_VSYNC = 0x2000,
 };
 
 API bool     window_create(float scale, unsigned flags);
 API bool     window_create_from_handle(void *handle, float scale, unsigned flags);
+API void     window_destroy();
 API void     window_reload();
 
 API int      window_frame_begin();
@@ -4777,6 +4793,7 @@ API double   window_fps();
 API double   window_fps_target();
 API void     window_fps_lock(float fps);
 API void     window_fps_unlock();
+API void     window_fps_vsync(int vsync);
 
 API void     window_screenshot(const char* outfile_png); // , bool record_cursor
 API int      window_record(const char *outfile_mp4); // , bool record_cursor

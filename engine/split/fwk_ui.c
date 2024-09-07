@@ -995,7 +995,7 @@ void ui_notify_render() {
         struct ui_notify *n = array_back(ui_notifications);
 
         static double timeout = 0;
-        timeout += 1/60.f; // window_delta(); // @fixme: use editor_time() instead
+        timeout += window_delta(); // @fixme: use editor_time() instead
 
         ui_alpha_push( timeout >= n->timeout ? 1 - clampf(timeout - n->timeout,0,1) : 1 );
 

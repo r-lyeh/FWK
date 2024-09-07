@@ -17193,6 +17193,10 @@ void _glfwInputWindowFocus(_GLFWwindow* window, GLFWbool focused)
     if (window->callbacks.focus)
         window->callbacks.focus((GLFWwindow*) window, focused);
 
+    // zak: disable top-most if we lose focus
+    if (window->monitor)
+        _glfwPlatformSetWindowFloating(window, focused);
+
     if (!focused)
     {
         int key, button;
@@ -22344,7 +22348,7 @@ void _glfwPlatformSetWindowDecorated(_GLFWwindow* window, GLFWbool enabled)
 
 void _glfwPlatformSetWindowFloating(_GLFWwindow* window, GLFWbool enabled)
 {
-    const HWND after = enabled ? HWND_TOPMOST : HWND_NOTOPMOST;
+    const HWND after = HWND_NOTOPMOST; // zak: disable top-most if we lose focus
     SetWindowPos(window->win32.handle, after, 0, 0, 0, 0,
                  SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 }

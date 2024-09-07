@@ -109,13 +109,7 @@ const char * app_exec( const char *cmd ) {
 
     // pick the fastest code path per platform
 #if is(osx)
-    for( FILE *fp = popen( cmd, "r" ); fp; rc = pclose(fp), fp = 0) {
-        // while( fgets(buf, 4096 - 1, fp) ) {}
-    }
-    // if( rc != 0 ) {
-    //     char *r = strrchr(buf, '\r'); if(r) *r = 0;
-    //     char *n = strrchr(buf, '\n'); if(n) *n = 0;
-    // }
+    rc = system(cmd);
 #elif is(win32)
     STARTUPINFOA si = {0}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {0};
