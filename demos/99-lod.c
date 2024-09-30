@@ -1,4 +1,4 @@
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     window_create(80, WINDOW_MSAA4);
@@ -9,7 +9,7 @@ int main() {
     light_t *l = scene_spawn_light();
 
     // terrain model
-    model_t mdl = model("rabbit.obj", 0); {
+    model_t mdl = model("rabbit.obj", MODEL_NO_PBR); {
         model_light(&mdl, 1, l);
     }
 

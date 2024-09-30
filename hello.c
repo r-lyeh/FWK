@@ -11,103 +11,77 @@
 // - linux/tcc    : tcc hello.c -lm -ldl -lpthread -lX11 -D__STDC_NO_VLA__
 // - osx          : cc -ObjC hello.c -framework cocoa -framework iokit -framework audiotoolbox
 
-#define FWK_IMPLEMENTATION      // unrolls single-header implementation
-#include "engine/joint/fwk.h"   // single-header file
+#include "engine.h"
+
+#pragma warning(disable : 4716)
+#define main concat(app,__COUNTER__)
+
+#include "demos/00-loop.c"
+#include "demos/00-script.c"
+#include "demos/01-demo2d.c"
+#include "demos/01-easing.c"
+#include "demos/01-font.c"
+#include "demos/01-ui.c"
+#include "demos/02-ddraw.c"
+#include "demos/02-frustum.c"
+#include "demos/03-anims.c"
+#include "demos/03-batching.c"
+#include "demos/03-mesh.c"
+#include "demos/04-actor.c"
+#include "demos/06-material.c"
+#include "demos/06-parallax.c"
+#include "demos/06-scene-sorting.c"
+#include "demos/06-scene.c"
+#include "demos/06-sorting.c"
+#include "demos/07-netsync.c"
+#include "demos/07-network.c"
+#include "demos/08-audio.c"
+#include "demos/08-video.c"
+#include "demos/09-cubemap.c"
+#include "demos/09-envmap.c"
+#include "demos/09-lights.c"
+#include "demos/09-shadertoy.c"
+#include "demos/09-shadows-scene.c"
+#include "demos/09-shadows.c"
+#include "demos/99-bt.c"
+#include "demos/99-compute.c"
+#include "demos/99-controller.c"
+#include "demos/99-geom.c"
+#include "demos/99-gizmo.c"
+#include "demos/99-gui.c"
+#include "demos/99-lmap.c"
+#include "demos/99-lod.c"
+#include "demos/99-pathfind.c"
+#include "demos/99-spine.c"
+#include "demos/99-splines.c"
+#include "demos/99-sponza.c"
+#include "demos/99-sprite.c"
+#include "demos/99-sprite3d.c"
+#include "demos/99-steam.c"
+
+#undef main
 
 int main() {
-    // options
-    unsigned no_flags = 0;
-    bool do_debugdraw = 0;
+    int (*demos[])() = {
+        app2,app3,app4,app5,app6,app7,app8,app9,
+        app10,app11,app12,app13,app14,app15,app16,app17,app18,app19,
+        app20,app21,app22,app23,app24,app25,app26,app27,app28,app29,
+        app30,app31,app32,app33,app34,app35,app36,app37,app38,app39,
+        app40,app41,app42, };
 
-    // window (80% sized, MSAA x4 flag)
-    window_create(80, WINDOW_MSAA4);
-    window_title(__FILE__);
+    int demo = argc() > 1 && argv(1)[0] >= '0' && argv(1)[0] <= '9' ? atoi(argv(1)) : -1;
+    if( demo >= 0 && demo < countof(demos) ) return demos[demo]();
 
-    // load skybox: launch with --mie for rayleigh/mie scattering
-    skybox_t sky = skybox(flag("--mie") ? 0 : "cubemaps/stardust", no_flags);
-
-    // animated models loading
-    model_t girl = model("kgirl/kgirls01.fbx", no_flags);
-    compose44( girl.pivot, vec3(0,0,0), eulerq(vec3(0,90,-90)), vec3(2,2,2)); // position, rotation, scale
-
-    // camera
-    camera_t cam = camera();
-
-    // fx: load all post fx files in all subdirs.
-    fx_load("fx**.fs");
-
-    // audio (both clips & streams)
-    audio_t SFX1 = audio_clip( "coin.wav" ), SFX2 = audio_clip( "pew.sfxr" );
-    audio_t BGM1 = audio_stream( "waterworld-map.fur" ), BGM2 = audio_stream( "larry.mid" ), BGM = BGM1;
-    audio_play(SFX1, no_flags);
-    audio_play(BGM, no_flags);
-
-    // demo loop
-    while (window_swap())
-    {
-        // input
-        if( input_down(KEY_ESC) ) break;
-        if( input_down(KEY_F5) ) window_reload();
-        if( input_down(KEY_F11) ) window_fullscreen( window_has_fullscreen() ^ 1 );
-        if( input_down(KEY_X) && input_held(KEY_LALT) ) window_screenshot(__FILE__ ".png");
-        if( input_down(KEY_Z) && input_held(KEY_LALT) ) window_record(__FILE__ ".mp4");
-
-        // fps camera
-        bool active = ui_active() || ui_hover() || gizmo_active() ? false : input(MOUSE_L) || input(MOUSE_M) || input(MOUSE_R);
-        if( active ) cam.speed = clampf(cam.speed + input_diff(MOUSE_W) / 10, 0.05f, 5.0f);
-        vec2 mouse = scale2(vec2(input_diff(MOUSE_X), -input_diff(MOUSE_Y)), 0.2f * active);
-        vec3 wasdecq = scale3(vec3(input(KEY_D)-input(KEY_A),input(KEY_E)-(input(KEY_C)||input(KEY_Q)),input(KEY_W)-input(KEY_S)), cam.speed);
-        camera_moveby(&cam, scale3(wasdecq, window_delta() * 60));
-        camera_fps(&cam, mouse.x,mouse.y);
-        window_cursor( !active );
-
-        // apply post-fxs from here
-        fx_begin();
-
-            // debug draw
-            ddraw_ground(0);
-            if(do_debugdraw) ddraw_demo(); // showcase many debugdraw shapes
-            ddraw_flush();
-
-            // draw skybox
-            skybox_render(&sky, cam.proj, cam.view);
-
-            // animate girl
-            float delta = window_delta() * 30; // 30fps anim
-            girl.curframe = model_animate(girl, girl.curframe + delta);
-
-            // draw girl
-            model_render(girl, cam.proj, cam.view, girl.pivot);
-
-        // post-fxs end here
-        fx_end();
-
-        // font demo
-        font_print(va(FONT_BOTTOM FONT_RIGHT FONT_H6 "%5.2f FPS", window_fps()));
-
-        // draw ui demo (true=showcase windows)
-        ui_demo(true);
-
-        // draw ui
-        if( ui_panel("App ", PANEL_OPEN))
-        {
-            ui_section("DebugDraw");
-            if( ui_bool("Show debugdraw demo", &do_debugdraw) ) {}
-
-            ui_section("Script");
-            if( ui_button("Test Lua") ) script_run("ui_notify(nil, \"Hello from Lua! Version: \" .. _VERSION)");
-
-            ui_section("Audio");
-            if( ui_label2_toolbar("BGM: Waterworld Map", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM1, no_flags);
-            if( ui_label2_toolbar("BGM: Leisure Suit Larry", ICON_MD_VOLUME_UP)) audio_stop(BGM), audio_play(BGM = BGM2, no_flags);
-            if( ui_label2_toolbar("SFX: Coin", ICON_MD_VOLUME_UP)) audio_play(SFX1, no_flags);
-            if( ui_label2_toolbar("SFX: Pew", ICON_MD_VOLUME_UP)) audio_play(SFX2, no_flags);
-
-            ui_panel_end();
+    window_debug(0);
+    window_create(100, WINDOW_TRANSPARENT);
+    while( window_swap() && !input(KEY_ESC) ) {
+        static int open = 1;
+        if( ui_window("Demo Launcher", &open) ) {
+            for( int i = 0; i < countof(demos); ++i)
+            if( ui_button(va("#%02d",i+1)) ) system(va("%s %d", argv(0), i));
+            ui_separator();
+            ui_window_end();
         }
     }
-
-    data_tests();
-    script_tests();
-    network_tests();
+    return 0;
 }

@@ -10,7 +10,7 @@ void main() {
     vec4 diffuse = get_diffuse_map();
     diffuse.a *= u_global_alpha*u_global_opacity;
 
-    if (diffuse.a < 0.1)
+    if (diffuse.a < 0.25)
         discard;
 
     if (shadow_technique == SHADOW_VSM) {

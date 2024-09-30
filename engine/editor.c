@@ -1,4 +1,4 @@
-#include "fwk.h"
+#include "engine.h"
 #include "split/3rd_icon_mdi.h"
 
 #define SWAP(T,a,b) do { T c = (a); (a) = (b); (b) = c; } while(0)
@@ -14,8 +14,8 @@ static __thread char     mpoutbuf[256];
 #define UNPACKMSG(ptr,fmt,...) (mpin = (char*)ptr, mpinlen = strlen(ptr), mpout = mpoutbuf, mpoutlen = sizeof(mpoutbuf), mpoutlen = cobs_decode(mpin, mpinlen, mpout, mpoutlen), msgunpack_new(mpout, mpoutlen) && msgunpack(fmt, __VA_ARGS__))
 #endif
 
-TODO("COOK_ON_DEMAND 1: this directive should be on client, not within fwk.dll");
-TODO("ENABLE_AUTOTESTS 1: this directive should be on client, not within fwk.dll");
+TODO("COOK_ON_DEMAND 1: this directive should be on client, not within ENGINE.DLL");
+TODO("ENABLE_AUTOTESTS 1: this directive should be on client, not within ENGINE.DLL");
 
 // ----------------------------------------------------------------------------
 

@@ -1,27 +1,6 @@
 #ifndef BRDF_GLSL
 #define BRDF_GLSL
 
-struct ColorMap
-{
-    bool has_tex;
-    vec4 color;
-};
-
-uniform ColorMap map_diffuse;   uniform sampler2D map_diffuse_tex;
-uniform ColorMap map_albedo;    uniform sampler2D map_albedo_tex;
-uniform ColorMap map_specular;  uniform sampler2D map_specular_tex; // not used
-uniform ColorMap map_normals;   uniform sampler2D map_normals_tex;
-uniform ColorMap map_roughness; uniform sampler2D map_roughness_tex;
-uniform ColorMap map_metallic;  uniform sampler2D map_metallic_tex;
-uniform ColorMap map_ao;        uniform sampler2D map_ao_tex;
-uniform ColorMap map_ambient;   uniform sampler2D map_ambient_tex;
-uniform ColorMap map_emissive;  uniform sampler2D map_emissive_tex;
-uniform ColorMap map_parallax;  uniform sampler2D map_parallax_tex;
-
-#define sample_colormap(ColorMap_, uv_) \
-    (ColorMap_.has_tex ? texture( ColorMap_##_tex, uv_ ) : ColorMap_.color)
-
-
 #ifdef SHADING_PBR
 
 #include "utils.glsl"
@@ -204,7 +183,7 @@ vec3 specular_ibl( vec3 V, vec3 N, float roughness, vec3 fresnel, float metallic
         prefiltered = textureLod( tex_skycube, R, mip ).rgb * exposure;
     }
 
-    // prefiltered = pow(prefiltered, vec3(1.2));
+    prefiltered = pow(prefiltered, vec3(1.0 / 2.2));
 
     float NdotV = dot( N, V );
 
@@ -220,7 +199,7 @@ vec3 specular_ibl( vec3 V, vec3 N, float roughness, vec3 fresnel, float metallic
     // A precomputed lookup table contains a scale and a bias term for specular intensity (called "fresnel" here).
     // See equation (8) in Karis' course notes mentioned above.
     vec2 envBRDF = texture( tex_brdf_lut, vec2(NdotV, roughness) ).xy; // (NdotV,1-roughtness) for green top-left (NdotV,roughness) for green bottom-left
-    envBRDF = pow(envBRDF, vec2(2.2));
+    // envBRDF = pow(envBRDF, vec2(2.2));
     vec3 specular = prefiltered * (fresnel * envBRDF.x + vec3(envBRDF.y));
 
     return specular;

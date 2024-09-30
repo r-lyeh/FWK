@@ -1,6 +1,6 @@
 // render sponza
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     window_create(80, WINDOW_MSAA8);
@@ -15,7 +15,7 @@ int main() {
 
     // load static scene
     model_t sponza;
-    sponza = model(option("--model","sponza.obj"), 0); // MODEL_NO_TEXTURES);
+    sponza = model(option("--model","sponza.obj"), MODEL_NO_PBR); // MODEL_NO_TEXTURES);
     translation44(sponza.pivot, 0,-1,0);
     // rotate44(sponza.pivot, -90,1,0,0);
     scale44(sponza.pivot, 10,10,10);
@@ -63,11 +63,12 @@ int main() {
         float scale = 1.00;
         mat44 M; copy44(M, sponza.pivot); translate44(M, 0,0,0); scale44(M, scale,scale,scale);
 
-        shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
+        // model_uniform_shader(sponza);
+        // shader_vec3v("u_coefficients_sh", 9, sky.cubemap.sh);
 
         model_render(sponza, cam.proj, cam.view, M);
 
         // post-fxs end here
-        fx_end(0);
+        fx_end(0,0);
     }
 }

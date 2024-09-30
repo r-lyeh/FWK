@@ -8,7 +8,7 @@
 // @todo: instanced poses, instanced render_bones
 // @todo: ik, modify bone transform (bone space)
 
-#include "fwk.h"
+#include "engine.h"
 
 array(mat44)  M;     // instanced transforms
 
@@ -40,7 +40,7 @@ int main() {
 
     camera_t cam = camera();
     skybox_t sky = skybox("cubemaps/stardust", 0);
-    model_t  mdl = model("George.fbx", 0);
+    model_t  mdl = model("George.fbx", MODEL_NO_PBR); // NO_PBR for fastest rendering path
     anims_t    a = animations("George.fbx", 0);
 
     // 32*32 max instances
@@ -126,7 +126,7 @@ int main() {
                 }
             }
 
-        fx_end();
+        fx_end(0,0);
 
         if ( ui_panel("Rim lighting", 0) ) {
             ui_color3f("Color", &rim_color.x);

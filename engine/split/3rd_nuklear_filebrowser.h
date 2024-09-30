@@ -2,7 +2,7 @@
 // - rlyeh, public domain
 //
 // changelog:
-// - ported to FWK api
+// - ported to ENGINE api
 // - namespaced symbols
 // - diverse win32 fixes
 // - adaptive cols/rows
@@ -179,7 +179,7 @@ static void browser_reload_directory_content(struct browser *browser, const char
             // remove last '/' if present. ok to overwrite absolute var, file_*() API returns writeable strings.
             char *dir = absolute; if( dir[ strlen(dir) - 1 ] == '/' ) dir[ strlen(dir) - 1 ] = '\0';
 
-            dir = file_name(dir);  // /home/rlyeh/prj/fwk/art -> art
+            dir = file_name(dir);  // /home/rlyeh/project/art -> art
             BROWSER_PRINTF("%s\n", dir);
 
             if( dir[0] != '.' ) // skip special files, folders and internal files like .git or .art.zip

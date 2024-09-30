@@ -3,7 +3,7 @@
 //
 // @todo: fix leaks: poly_free()
 
-#include "fwk.h"
+#include "engine.h"
 
 // -- demo
 
@@ -429,7 +429,7 @@ void game_loop(void *userdata) {
 int main(void) {
     // 75% sized, no msaa
     window_create(0.75f, 0);
-    window_title( "FWK - SPACE pauses simulation" );
+    window_title( "SPACE pauses simulation" );
 
     // fx_load("fx**.fs");
 

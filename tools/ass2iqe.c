@@ -1579,7 +1579,7 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
         | aiProcess_GenUVCoords
         | aiProcess_TransformUVCoords
         | aiProcess_LimitBoneWeights // #defined as AI_LMW_MAX_WEIGHTS 4
-        // | aiProcess_ImproveCacheLocality
+        | aiProcess_ImproveCacheLocality
         | aiProcess_RemoveRedundantMaterials
         | aiProcess_OptimizeMeshes // aiProcess_SplitLargeMeshes
         | (doflipUV ? aiProcess_FlipUVs : 0)
@@ -1610,7 +1610,7 @@ flags |= (doflipUV ? aiProcess_FlipUVs : 0);
 
     struct aiPropertyStore *aiprops = aiCreatePropertyStore();
     // build defaults
-    aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, 1);
+    aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, 0);
     aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_ALL_GEOMETRY_LAYERS, 1);
     aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_ALL_MATERIALS, 0);
     aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_MATERIALS, 1);

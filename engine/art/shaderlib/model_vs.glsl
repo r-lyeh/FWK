@@ -16,36 +16,6 @@ uniform vec3 u_cam_dir;
 uniform float frame_time;
 uniform int u_billboard;
 
-#if 0
-// Fetch blend channels from all attached blend deformers.
-for (size_t di = 0; di < mesh->blend_deformers.count; di++) {
-    ufbx_blend_deformer *deformer = mesh->blend_deformers.data[di];
-    for (size_t ci = 0; ci < deformer->channels.count; ci++) {
-        ufbx_blend_channel *chan = deformer->channels.data[ci];
-        if (chan->keyframes.count == 0) continue;
-        if (num_blend_shapes < MAX_BLEND_SHAPES) {
-            blend_channels[num_blend_shapes] = chan;
-            vmesh->blend_channel_indices[num_blend_shapes] = (int32_t)chan->typed_id;
-            num_blend_shapes++;
-        }
-    }
-}
-if (num_blend_shapes > 0) {
-    vmesh->blend_shape_image = pack_blend_channels_to_image(mesh, blend_channels, num_blend_shapes);
-    vmesh->num_blend_shapes = num_blend_shapes;
-}
-
-
-ubo.f_num_blend_shapes = (float)mesh->num_blend_shapes;
-for (size_t i = 0; i < mesh->num_blend_shapes; i++) {
-    ubo.blend_weights[i] = view->scene.blend_channels[mesh->blend_channel_indices[i]].weight;
-}
-
-
-sg_image blend_shapes = mesh->num_blend_shapes > 0 ? mesh->blend_shape_image : view->empty_blend_shape_image;
-#endif
-
-
 // for blendshapes
 #ifndef MAX_BLENDSHAPES
 #define MAX_BLENDSHAPES 16
@@ -91,20 +61,6 @@ void do_shadow(mat4 modelMat, vec3 objPos, vec3 objNormal) {
     vpeye = view * modelMat * vec4(objPos, 1.0f);
     vneye = view * modelMat * vec4(objNormal, 0.0f);
 #endif
-}
-
-
-// blendshapes
-vec3 evaluate_blend_shape(int vertex_index) {
-    ivec2 coord = ivec2(vertex_index & (2048 - 1), vertex_index >> 11);
-    int num_blend_shapes = int(f_num_blend_shapes);
-    vec3 offset = vec3(0.0);
-    for (int i = 0; i < num_blend_shapes; i++) {
-        vec4 packedw = blend_weights[i >> 2];
-        float weight = packedw[i & 3];
-        offset += weight * texelFetch(blend_shapes, ivec3(coord, i), 0).xyz;
-    }
-    return offset;
 }
 
 vec3 get_object_pos() {

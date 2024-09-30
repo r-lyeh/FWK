@@ -5,7 +5,7 @@
 //    `make     demos\04-actor.c` (windows)
 // `sh MAKE.bat demos/04-actor.c` (linux, osx)
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     // create window (75% sized, MSAAx4)

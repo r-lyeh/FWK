@@ -795,6 +795,11 @@ enum { NETWORK_USERID = 7, NETWORK_COUNT , NETWORK_CAPACITY };
  void server_send_bin(int64_t handle, const void *ptr, int len);
  void server_drop(int64_t handle);
  int64_t client_join(const char *ip, int port);
+ void client_send_flags(const char *msg, uint64_t flags);
+ void client_send(const char *msg);
+ void client_send_bin_flags(const void *ptr, int len, uint64_t flags);
+ void client_send_bin(const void *ptr, int len);
+ void client_terminate();
 enum COMPRESS_FLAGS {
     COMPRESS_RAW = 0,
     COMPRESS_PPP = (1<<4),
@@ -1140,10 +1145,6 @@ typedef struct cubemap_t {
  void fbo_bind(unsigned id);
  void fbo_unbind();
  void fbo_destroy(unsigned id);
-enum {
-    MAX_LIGHTS = 96,
-    MAX_SHADOW_LIGHTS = 4,
-};
 enum LIGHT_TYPE {
     LIGHT_DIRECTIONAL,
     LIGHT_POINT,
@@ -1165,6 +1166,7 @@ typedef struct light_t {
     float specularPower;
     float innerCone, outerCone;
     bool cast_shadows;
+    bool hard_shadows;
     unsigned shadow_technique;
     float shadow_distance;
     float shadow_near_clip;
@@ -1220,7 +1222,7 @@ typedef struct shadowmap_t {
         handle texture;
         handle texture_2d[4];
         float cascade_distances[4];
-    } maps[MAX_SHADOW_LIGHTS];
+    } maps[8];
     handle saved_fb;
     handle saved_pass;
     int saved_vp[4];
@@ -1357,10 +1359,8 @@ typedef struct skybox_t {
  int skybox_push_state(skybox_t *sky, mat44 proj, mat44 view);
  int skybox_pop_state();
 enum MATERIAL_ENUMS {
-	MATERIAL_CHANNEL_DIFFUSE,
-	MATERIAL_CHANNEL_NORMALS,
-	MATERIAL_CHANNEL_SPECULAR,
 	MATERIAL_CHANNEL_ALBEDO,
+	MATERIAL_CHANNEL_NORMALS,
 	MATERIAL_CHANNEL_ROUGHNESS,
 	MATERIAL_CHANNEL_METALLIC,
 	MATERIAL_CHANNEL_AO,
@@ -1378,6 +1378,7 @@ typedef struct material_layer_t {
 typedef struct material_t {
     char *name;
     material_layer_t layer[MAX_CHANNELS_PER_MATERIAL];
+    bool _loaded;
 } material_t;
  uint32_t material_checksum(material_t *m);
  void ui_material(material_t *m);
@@ -1527,14 +1528,12 @@ enum MODEL_UNIFORMS {
     MODEL_UNIFORM_SHADOW_MAP_2D,
     MODEL_UNIFORM_SHADOW_MAP_2D_COUNT = MODEL_UNIFORM_SHADOW_MAP_2D+4,
     MODEL_UNIFORM_SHADOW_MAP_CUBEMAP,
-    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP_COUNT = MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+MAX_LIGHTS,
+    MODEL_UNIFORM_SHADOW_MAP_CUBEMAP_COUNT = MODEL_UNIFORM_SHADOW_MAP_CUBEMAP+96,
     NUM_MODEL_UNIFORMS
 };
 enum MODEL_TEXTURE_SLOTS {
-    MODEL_TEXTURE_DIFFUSE,
-    MODEL_TEXTURE_NORMALS,
-    MODEL_TEXTURE_SPECULAR,
     MODEL_TEXTURE_ALBEDO,
+    MODEL_TEXTURE_NORMALS,
     MODEL_TEXTURE_ROUGHNESS,
     MODEL_TEXTURE_METALLIC,
     MODEL_TEXTURE_AO,
@@ -1545,11 +1544,11 @@ enum MODEL_TEXTURE_SLOTS {
     MODEL_TEXTURE_SKYSPHERE,
     MODEL_TEXTURE_SKYENV,
     MODEL_TEXTURE_BRDF_LUT,
+    MODEL_TEXTURE_SHADOW_OFFSETS,
     MODEL_TEXTURE_SHADOW_MAP_2D,
     MODEL_TEXTURE_SHADOW_MAP_2D_COUNT = MODEL_TEXTURE_SHADOW_MAP_2D+4,
     MODEL_TEXTURE_SHADOW_MAP_CUBEMAP,
-    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP_COUNT = MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+MAX_SHADOW_LIGHTS,
-    MODEL_TEXTURE_SHADOW_OFFSETS,
+    MODEL_TEXTURE_SHADOW_MAP_CUBEMAP_COUNT = MODEL_TEXTURE_SHADOW_MAP_CUBEMAP+8,
     MODEL_TEXTURE_USER_DEFINED,
     NUM_MODEL_TEXTURE_SLOTS
 };
@@ -1557,11 +1556,17 @@ typedef struct lightarray_t {
     light_t *base;
     unsigned count;
 } lightarray_t;
+typedef struct model_shaderinfo_t {
+    int shading;
+    char *vs;
+    char *fs;
+    char *defines;
+    char** switches;
+} model_shaderinfo_t;
 typedef struct model_t {
     struct iqm_t *iqm;
     int shading;
     unsigned num_textures;
-    handle *textures;
     char **texture_names;
     material_t* materials;
     texture_t sky_refl, sky_env, sky_cubemap;
@@ -1594,7 +1599,8 @@ typedef struct model_t {
     renderstate_t rs[NUM_RENDER_PASSES];
     bool frustum_enabled;
     frustum frustum_state;
-    model_uniform_t *uniforms;
+    model_uniform_t* uniforms;
+    model_shaderinfo_t shaderinfo;
 } model_t;
 typedef struct model_vertex_t {
     vec3 position;
@@ -1628,6 +1634,8 @@ enum BILLBOARD_MODE {
  void model_setshader(model_t*, int shading, const char *vs, const char *fs, const char *defines);
  void model_adduniform(model_t*, model_uniform_t uniform);
  void model_adduniforms(model_t*, unsigned count, model_uniform_t *uniforms);
+ void model_addswitch(model_t*, const char *name);
+ void model_delswitch(model_t*, const char *name);
  uint32_t model_uniforms_checksum(unsigned count, model_uniform_t *uniforms);
  void model_fog(model_t*, unsigned mode, vec3 color, float start, float end, float density);
  void model_skybox(model_t*, skybox_t sky);

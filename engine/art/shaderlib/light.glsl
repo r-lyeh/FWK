@@ -1,12 +1,10 @@
 #ifndef LIGHT_GLSL
 #define LIGHT_GLSL
 
-#define MAX_LIGHTS 96
-#define MAX_SHADOW_LIGHTS 4
-#define NUM_SHADOW_CASCADES 4
-
+#ifdef FS_PASS
 #include "brdf.glsl"
 #include "parallax.glsl"
+#endif
 
 struct light_t {
     vec4 diffuse;
@@ -29,7 +27,8 @@ struct light_t {
     float penumbra_size;
     int type;
     bool processed_shadows;
-} lights;
+    bool hard_shadows;
+};
 
 layout(std140) uniform LightBuffer {
     light_t lights[MAX_LIGHTS];
@@ -90,6 +89,7 @@ vec3 shading_light(light_t l, material_t m) {
     }
 
 #ifdef SHADING_PBR
+#ifdef FS_PASS
     vec3 radiance = l.diffuse.rgb * BOOST_LIGHTING;
     vec3 V = normalize( v_to_camera );
     vec3 N = m.normal;
@@ -122,6 +122,16 @@ vec3 shading_light(light_t l, material_t m) {
 
     return ( pow((1.0 - self_shadow), parallax_shadow_power) * kD * ( m.albedo / PI ) + specular ) * radiance * NdotL * attenuation;
 #else
+    vec3 n = normalize(v_normal_ws);
+
+    float diffuse = max(dot(n, lightDir), 0.0);
+
+    vec3 halfVec = normalize(lightDir + u_cam_dir);
+    float specular = pow(max(dot(n, halfVec), 0.0), l.power);
+
+    return (attenuation*l.ambient.rgb + (diffuse*attenuation*l.diffuse.rgb + specular*attenuation*l.specular.rgb));
+#endif
+#else // TODO: ugly, figure out how to do this without repetition
     vec3 n = normalize(v_normal_ws);
 
     float diffuse = max(dot(n, lightDir), 0.0);

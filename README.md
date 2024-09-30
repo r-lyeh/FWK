@@ -5,19 +5,19 @@
 
 <p align="center">
 <img src="https://i.imgur.com/sInbRoA.gif"/><br/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-cubemap.png"    width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-font.png"       width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-instanced.png"  width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-material.png"   width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-sprite.png"     width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/99-video.png"      width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/04-actor.png"      width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/00-ui.png"         width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/01-sprite.png"     width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/02-ddraw.png"      width="204px"/>
-<!--img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/03-anims.png"      width="204px"/-->
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/demos/06-pbr.png"        width="204px"/>
-<img src="https://raw.githubusercontent.com/r-lyeh/FWK.2022/master/tools/editor/editor.png" width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/01-font.png"       width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/01-ui.png"         width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/01-demo2d.png"     width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/04-actor.png"      width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/02-ddraw.png"      width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/03-mesh.png"       width="204px"/>
+<!--img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/99-sprite.png"     width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/99-video.png"      width="204px"/-->
+<!--img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/01-sprite.png"     width="204px"/-->
+<!--img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/03-anims.png"      width="204px"/-->
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/09-cubemap.png"    width="204px"/>
+<img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/09-shadows-scene.png"        width="204px"/>
+<!--img src="https://raw.githubusercontent.com/zpl-zak/v4k-mirror/master/latest/tests/ref/editor/editor.png" width="204px"/-->
 </p>
 
 ## Goals
@@ -26,7 +26,7 @@
 
 ## Features ᕦ(ᐛ)ᕤ
 - [x] Pipeline: configurable and integrated [asset pipeline](tools/cook.ini).
-- [x] Embedded: [single-file header](engine/joint/fwk.h), all dependencies included.
+- [x] Embedded: [single-file header](engine/joint.h), all dependencies included.
 - [x] Compiler: MSVC, MINGW64, TCC, GCC, clang, clang-cl and emscripten.
 - [x] Linkage: Both static linkage and dynamic .dll/.so/.dylib support. 
 - [x] Platform: Windows, Linux and OSX. [Partial](https://github.com/r-lyeh/FWK/blob/main/demos/html5/README.md) HTML5/Web support.
@@ -303,7 +303,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 
 ## Cook
 - Assets need to be cooked before being consumed in your application. The [tools/](tools/) folder contains all the related binaries to perform any asset processing plus the [cookbook](tools/cook.ini) to do so.
-- Your game will cook your assets on demand as long as the [`tools/`](tools/) folder is next to your executable. Alternatively, cook them all just by invoking supplied [`tools/cook` standalone binary](tools/). 
+- Your game will cook your assets as long as the [`tools/`](tools/) folder is next to your executable. Alternatively, cook them all just by invoking supplied [`tools/cook` standalone binary](tools/). 
 - In both cases, assets will be cooked and packed into .zipfiles next to your executable, then mounted before entering game loop. These .zipfiles plus your executable are the only required files when releasing your game.
 - Optionally, you could also run `MAKE.bat fuse` and merge your binaries and their .zipfiles all together. Redist ready.
 
@@ -313,7 +313,7 @@ echo osx          && cc -ObjC hello.c -framework cocoa -framework iokit -framewo
 - Dropped files into game window will be imported & saved into [`import/`](engine/art/import/) folder.
 - Update the gamepad controller database by upgrading the [`gamecontrollerdb.txt`](engine/art/input/) file.
 - Depending on your IDE, you might need to browse to [`engine/split/`](engine/split/) sources when debugging FWK.
-- Cook all existing assets on depot, as opposed to cook assets on demand, by using `--cook-on-demand=0` flag.
+- Enable cooking assets on demand, by using `--cook-on-demand=1` flag. Similarly, `--vsync=0/1` can be toggled too.
 - Linux/OSX users can optionally install wine and use the Windows tools instead (by using `--cook-wine` flag).
 - Disable automatic cooking by using `--cook-jobs=0` flag (not recommended).
 - Generate a project solution by dropping `engine/fwk.h, fwk.c and fwk` files into it.

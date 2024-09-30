@@ -2,14 +2,32 @@
 #define MODEL_FS_GLSL
 #define FS_PASS
 
+struct ColorMap
+{
+    bool has_tex;
+    vec4 color;
+};
+
+#ifdef FS_PASS
+uniform ColorMap map_albedo;    uniform sampler2D map_albedo_tex;
+uniform ColorMap map_normals;   uniform sampler2D map_normals_tex;
+uniform ColorMap map_roughness; uniform sampler2D map_roughness_tex;
+uniform ColorMap map_metallic;  uniform sampler2D map_metallic_tex;
+uniform ColorMap map_ao;        uniform sampler2D map_ao_tex;
+uniform ColorMap map_ambient;   uniform sampler2D map_ambient_tex;
+uniform ColorMap map_emissive;  uniform sampler2D map_emissive_tex;
+uniform ColorMap map_parallax;  uniform sampler2D map_parallax_tex;
+#endif
+
+#define sample_colormap(ColorMap_, uv_) \
+    (ColorMap_.has_tex ? texture( ColorMap_##_tex, uv_ ) : ColorMap_.color)
+
 uniform mat4 model, view, inv_view;
-uniform sampler2D u_texture2d;
 uniform vec3 u_coefficients_sh[9];
-uniform bool u_textured; /// set:1
 uniform bool u_lit; /// set:0
 uniform bool u_matcaps; /// set:0
-uniform vec4 u_diffuse; /// set:1,1,1,1
-
+uniform float u_cutout_alpha; /// set:0.75
+uniform float u_emissive_value; /// set:1.0
 // lightmapping
 uniform sampler2D u_lightmap;
 uniform bool u_texlit;

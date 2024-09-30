@@ -1,15 +1,15 @@
-#include "fwk.h"
+#include "engine.h"
 
-int SKY_DIR = 0;
-const char *SKY_DIRS[] = {
+int SKY09_DIR = 0;
+const char *SKY09_DIRS[] = {
     "cubemaps/bridge3/",
     "cubemaps/colors/",
     "cubemaps/colors2/",
     "hdr/Tokyo_BigSight_1k.hdr",
 };
 
-int OBJ_MDL = 0;
-const char *OBJ_MDLS[] = {
+int OBJ09_MDL = 0;
+const char *OBJ09_MDLS[] = {
     "meshes/CornellBox-Original.obj",
     "meshes/sphere.obj",
     "meshes/suzanne.obj",
@@ -44,9 +44,9 @@ int main(int argc, char** argv) {
         }
         if( !initialized ) {
             initialized = 1;
-            sky = skybox(flag("--mie") ? 0 : SKY_DIRS[SKY_DIR], 0);
+            sky = skybox(flag("--mie") ? 0 : SKY09_DIRS[SKY09_DIR], 0);
             env_probe = skybox(0, 0);
-            mdl = model(OBJ_MDLS[OBJ_MDL], 0);
+            mdl = model(OBJ09_MDLS[OBJ09_MDL], 0);
         }
 
         // fps camera
@@ -108,10 +108,10 @@ int main(int argc, char** argv) {
         }
 
         if( ui_panel("Scene", 0)) {
-            if( ui_list("Skybox", SKY_DIRS, countof(SKY_DIRS), &SKY_DIR) ) {
+            if( ui_list("Skybox", SKY09_DIRS, countof(SKY09_DIRS), &SKY09_DIR) ) {
                 must_reload = 1;
             }
-            if( ui_list("Model", OBJ_MDLS, countof(OBJ_MDLS), &OBJ_MDL) ) {
+            if( ui_list("Model", OBJ09_MDLS, countof(OBJ09_MDLS), &OBJ09_MDL) ) {
                 must_reload = 1;
             }
             ui_separator();
