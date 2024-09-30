@@ -21,15 +21,7 @@ struct surface_t {
 
 vec4 get_diffuse_map() {
     vec4 result;
-    if (map_albedo.has_tex) {
-        result = sample_colormap(map_albedo, v_texcoord);
-    } else if (map_diffuse.has_tex) {
-        result = sample_colormap(map_diffuse, v_texcoord);
-    } else if(u_textured) {
-        result = texture(u_texture2d, v_texcoord);
-    } else {
-        result = u_diffuse;
-    }
+    result = sample_colormap(map_albedo, v_texcoord);
     result.a *= u_global_alpha*u_global_opacity;
     return result;
 }
@@ -71,13 +63,10 @@ surface_t surface() {
     }
 
     vec4 baseColor_alpha;
-    if ( map_albedo.has_tex )
-        baseColor_alpha = sample_colormap( map_albedo, uvs );
-    else
-        baseColor_alpha = sample_colormap( map_diffuse, uvs );
+    baseColor_alpha = sample_colormap( map_albedo, uvs );
     s.albedo = baseColor_alpha;
 
-    if (!map_albedo.has_tex && !map_diffuse.has_tex) {
+    if (!map_albedo.has_tex) {
         s.albedo.rgb = pow(s.albedo.rgb, vec3(2.2));
     }
 
@@ -204,11 +193,9 @@ surface_t surface() {
 #else
     if(u_matcaps) {
         vec2 muv = vec2(view * vec4(v_normal_ws, 0))*0.5+vec2(0.5,0.5); // normal (model space) to view space
-        s.albedo = texture(u_texture2d, vec2(muv.x, 1.0-muv.y));
-    } else if(u_textured) {
-        s.albedo = texture(u_texture2d, uvs);
+        s.albedo = sample_colormap(map_albedo, vec2(muv.x, 1.0-muv.y));
     } else {
-        s.albedo = u_diffuse;
+        s.albedo = sample_colormap(map_albedo, uvs);
     }
 #endif
 

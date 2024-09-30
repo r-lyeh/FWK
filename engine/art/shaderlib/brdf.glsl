@@ -1,27 +1,6 @@
 #ifndef BRDF_GLSL
 #define BRDF_GLSL
 
-struct ColorMap
-{
-    bool has_tex;
-    vec4 color;
-};
-
-uniform ColorMap map_diffuse;   uniform sampler2D map_diffuse_tex;
-uniform ColorMap map_albedo;    uniform sampler2D map_albedo_tex;
-uniform ColorMap map_specular;  uniform sampler2D map_specular_tex; // not used
-uniform ColorMap map_normals;   uniform sampler2D map_normals_tex;
-uniform ColorMap map_roughness; uniform sampler2D map_roughness_tex;
-uniform ColorMap map_metallic;  uniform sampler2D map_metallic_tex;
-uniform ColorMap map_ao;        uniform sampler2D map_ao_tex;
-uniform ColorMap map_ambient;   uniform sampler2D map_ambient_tex;
-uniform ColorMap map_emissive;  uniform sampler2D map_emissive_tex;
-uniform ColorMap map_parallax;  uniform sampler2D map_parallax_tex;
-
-#define sample_colormap(ColorMap_, uv_) \
-    (ColorMap_.has_tex ? texture( ColorMap_##_tex, uv_ ) : ColorMap_.color)
-
-
 #ifdef SHADING_PBR
 
 #include "utils.glsl"

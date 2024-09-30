@@ -42,21 +42,21 @@ if [ "$1" = "join" ]; then
     exit
 fi
 if [ "$1" = "joint" ]; then
-    echo // This file is intended to be consumed by a compiler. Do not read.  > engine/joint/fwk.h
-    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine/joint/fwk.h
-    echo // ---------------------------------------------------------------- >> engine/joint/fwk.h
-    echo // \#define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine/joint/fwk.h
-    echo // implementation. The symbol must be defined in a C \(not C++\) file>> engine/joint/fwk.h
-    echo // ---------------------------------------------------------------- >> engine/joint/fwk.h
-    echo \#pragma once                                                       >> engine/joint/fwk.h
-     cat engine/split/3rd_icon_md.h                                          >> engine/joint/fwk.h
-     cat engine/split/3rd_glad.h                                             >> engine/joint/fwk.h
-     cat engine/fwk.h                                                        >> engine/joint/fwk.h
-    echo \#ifdef FWK_IMPLEMENTATION                                          >> engine/joint/fwk.h
-    echo \#define FWK_3RD                                                    >> engine/joint/fwk.h
-     cat engine/fwk                                                          >> engine/joint/fwk.h
-     cat engine/fwk.c                                                        >> engine/joint/fwk.h
-    echo \#endif // FWK_IMPLEMENTATION                                       >> engine/joint/fwk.h
+    echo // This file is intended to be consumed by a compiler. Do not read.  > engine/joint.h
+    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine/joint.h
+    echo // ---------------------------------------------------------------- >> engine/joint.h
+    echo // \#define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine/joint.h
+    echo // implementation. The symbol must be defined in a C \(not C++\) file>> engine/joint.h
+    echo // ---------------------------------------------------------------- >> engine/joint.h
+    echo \#pragma once                                                       >> engine/joint.h
+     cat engine/split/3rd_icon_md.h                                          >> engine/joint.h
+     cat engine/split/3rd_glad.h                                             >> engine/joint.h
+     cat engine/fwk.h                                                        >> engine/joint.h
+    echo \#ifdef FWK_IMPLEMENTATION                                          >> engine/joint.h
+    echo \#define FWK_3RD                                                    >> engine/joint.h
+     cat engine/fwk                                                          >> engine/joint.h
+     cat engine/fwk.c                                                        >> engine/joint.h
+    echo \#endif // FWK_IMPLEMENTATION                                       >> engine/joint.h
     exit
 fi
 # cook
@@ -311,9 +311,9 @@ if "%1"=="help" (
     echo %0 [sync]            ; sync repo to latest
     echo %0 [tidy]            ; clean up temp files
     echo %0 [test]            ; perform different checks
-    echo %0 [join]            ; merge engine/* ^<- engine/joint/* ^<- engine/split/*
-    echo %0 [split]           ; merge engine/* -^> engine/joint/* -^> engine/split/*
-    echo %0 [joint]           ; merge engine/* -^> engine/joint/*
+    echo %0 [join]            ; merge engine/* ^<- engine/joint ^<- engine/split/*
+    echo %0 [split]           ; merge engine/* -^> engine/joint -^> engine/split/*
+    echo %0 [joint]           ; merge engine/* -^> engine/joint
     echo %0 [cl^|tcc^|cc^|gcc^|clang^|clang-cl] [dbg^|dev^|rel^|ret] [static^|dll] [nofwk^|nodemos^|editor] [-- args]
     echo    cl       \
     echo    tcc      ^|
@@ -350,8 +350,8 @@ rem cook asset files
 if "%1"=="cook" (
     echo Cooking assets...
     rem generate cooker twice: use multi-threaded version if available (cl). then cook.
-    rem call tools\tcc tools\cook.c -Iengine engine\fwk.c
-    rem             cl tools\cook.c -Iengine engine\fwk.c
+    rem call tools\tcc tools\cook.c -Iengine engine\engine.c
+    rem             cl tools\cook.c -Iengine engine\engine.c
     rem cook
     del cook*.csv 2> nul
     tools\cook --cook-stats
@@ -382,8 +382,8 @@ if "%1"=="docs" (
     set /p LAST_MODIFIED=<info.obj
 
     rem ...and generate docs
-    cl tools\docs\docs.c engine\fwk.c -Iengine %2
-    docs engine\fwk.h --excluded=3rd_glad.h,fwk.h,fwk_compat.h, > fwk.html
+    cl tools\docs\docs.c engine\engine.c -Iengine %2
+    docs engine\engine.h --excluded=3rd_glad.h,engine.h,engine_compat.h, > fwk.html
     move /y fwk.html engine\
 
     exit /b
@@ -401,21 +401,21 @@ if "%1"=="test" (
 
 rem generate single-header distribution
 if "%1"=="joint" (
-    echo // This file is intended to be consumed by a compiler. Do not read.  > engine\joint\fwk.h
-    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine\joint\fwk.h
-    echo // ---------------------------------------------------------------- >> engine\joint\fwk.h
-    echo // #define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine\joint\fwk.h
-    echo // implementation. The symbol must be defined in a C (not C++^) file>> engine\joint\fwk.h
-    echo // ---------------------------------------------------------------- >> engine\joint\fwk.h
-    echo #pragma once                                                        >> engine\joint\fwk.h
-    type engine\split\3rd_icon_md.h                                          >> engine\joint\fwk.h
-    type engine\split\3rd_glad.h                                             >> engine\joint\fwk.h
-    type engine\fwk.h                                                        >> engine\joint\fwk.h
-    echo #ifdef FWK_IMPLEMENTATION                                           >> engine\joint\fwk.h
-    echo #define FWK_3RD                                                     >> engine\joint\fwk.h
-    type engine\fwk                                                          >> engine\joint\fwk.h
-    type engine\fwk.c                                                        >> engine\joint\fwk.h
-    echo #endif // FWK_IMPLEMENTATION                                        >> engine\joint\fwk.h
+    echo // This file is intended to be consumed by a compiler. Do not read.  > engine\joint.h
+    echo // **Browse to any of the sources in engine/split/ folder instead** >> engine\joint.h
+    echo // ---------------------------------------------------------------- >> engine\joint.h
+    echo // #define FWK_IMPLEMENTATION early in **one** C file to unroll the >> engine\joint.h
+    echo // implementation. The symbol must be defined in a C (not C++^) file>> engine\joint.h
+    echo // ---------------------------------------------------------------- >> engine\joint.h
+    echo #pragma once                                                        >> engine\joint.h
+    type engine\split\3rd_icon_md.h                                          >> engine\joint.h
+    type engine\split\3rd_glad.h                                             >> engine\joint.h
+    type engine\engine.h                                                     >> engine\joint.h
+    echo #ifdef FWK_IMPLEMENTATION                                           >> engine\joint.h
+    echo #define FWK_3RD                                                     >> engine\joint.h
+    type engine\fwk                                                          >> engine\joint.h
+    type engine\engine.c                                                     >> engine\joint.h
+    echo #endif // FWK_IMPLEMENTATION                                        >> engine\joint.h
     exit /b
 )
 
@@ -428,19 +428,6 @@ if "%1"=="github" (
     rem call make.bat dll
     call make.bat docs
     call make.bat bind
-
-rem rd /q /s engine\split
-rem md engine\split
-rem move /y fwk_*.? engine\split\
-rem move /y 3rd_*.? engine\split\
-
-rem pushd tools
-rem cl  cook.c      -I..\engine /Os /Ox /O2 /Oy /MT /DNDEBUG /GL /GF /Gw /arch:AVX2 /link /OPT:ICF /LTCG
-rem del cook.exp
-rem del cook.lib
-rem del cook.obj
-rem del cook.pdb
-rem popd
 
     call make.bat tidy
 
@@ -474,11 +461,11 @@ if "%1"=="fuse" (
 
 rem check memory api calls
 if "%1"=="test" (
-    findstr /RNC:"[^_xv]realloc[(]" engine\fwk.c engine\split\fwk*
-    findstr /RNC:"[^_xv]malloc[(]"  engine\fwk.c engine\split\fwk*
-    findstr /RNC:"[^_xv]free[(]"    engine\fwk.c engine\split\fwk*
-    findstr /RNC:"[^_xv]calloc[(]"  engine\fwk.c engine\split\fwk*
-    findstr /RNC:"[^_xv]strdup[(]"  engine\fwk.c engine\split\fwk*
+    findstr /RNC:"[^_xv]realloc[(]" engine\engine.c engine\split\fwk*
+    findstr /RNC:"[^_xv]malloc[(]"  engine\engine.c engine\split\fwk*
+    findstr /RNC:"[^_xv]free[(]"    engine\engine.c engine\split\fwk*
+    findstr /RNC:"[^_xv]calloc[(]"  engine\engine.c engine\split\fwk*
+    findstr /RNC:"[^_xv]strdup[(]"  engine\engine.c engine\split\fwk*
     exit /b
 )
 
@@ -849,7 +836,7 @@ if "!cc!"=="tcc" set "cc=call tools\tcc"
 rem framework
 if "!fwk!"=="yes" (
 
-    tools\file2hash engine\fwk.c engine\fwk.h engine\fwk. engine\joint\fwk.h -- !build! !import! !export! !args! !dll! > nul
+    tools\file2hash engine\engine.c engine\engine.h engine\fwk. engine\joint.h -- !build! !import! !export! !args! !dll! > nul
     set cache=_cache\.!errorlevel!
     md _cache 2>nul >nul
 
@@ -862,7 +849,7 @@ if "!fwk!"=="yes" (
     if exist !cache!.pdb copy /y !cache!.pdb fwk.pdb 2>nul >nul
 
     if not exist "!cache!" (
-        !echo! fwk          && !cc! engine\fwk.c !export! !args!   && if "!dll!"=="dll" copy /y fwk.dll demos\lua  > nul || set rc=1
+        !echo! fwk          && !cc! engine\engine.c !export! !args!   && if "!dll!"=="dll" copy /y fwk.dll demos\lua  > nul || set rc=1
         echo. > !cache!
         if exist fwk.o   copy /y fwk.o   !cache!.o   2>nul >nul
         if exist fwk.obj copy /y fwk.obj !cache!.obj 2>nul >nul

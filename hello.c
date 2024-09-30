@@ -11,8 +11,8 @@
 // - linux/tcc    : tcc hello.c -lm -ldl -lpthread -lX11 -D__STDC_NO_VLA__
 // - osx          : cc -ObjC hello.c -framework cocoa -framework iokit -framework audiotoolbox
 
-#define FWK_IMPLEMENTATION      // unrolls single-header implementation
-#include "engine/joint/fwk.h"   // single-header file
+#define FWK_IMPLEMENTATION  // unrolls single-header implementation
+#include "engine/joint.h"   // single-header file
 
 int main() {
     // options

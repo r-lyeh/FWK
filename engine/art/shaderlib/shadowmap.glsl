@@ -28,12 +28,18 @@ vec2 shadow_vsm_variance(vec3 dir, int light_index, float distance, float min_va
     return (vec2(linstep(variance_transition, 1.0, variance / (variance + d * d)), moments.x));
 }
 
-float shadow_vsm(float distance, vec3 dir, int light_index, float min_variance, float variance_transition, float shadow_softness_raw, float penumbra_size) {
+float shadow_vsm(float distance, vec3 dir, int light_index, float min_variance, float variance_transition, float shadow_softness_raw, float penumbra_size, bool hard_shadows) {
     float clamped_distance = clamp(distance, 0.0, 200.0);
     float shadow_softness = shadow_softness_raw * 10.0;
     shadow_softness = mix(shadow_softness, distance * 10.0, penumbra_size);
     distance = distance / 200;
     
+    if (hard_shadows) {
+        // Sample the shadowmap directly
+        float alpha;
+        vec2 variance = shadow_vsm_variance(dir, light_index, distance, min_variance, variance_transition, alpha);
+        return min(max(step(distance * alpha, variance.y), variance.x), 1.0);
+    }
 
     // Get the offset coordinates
     ivec3 ofs_coord = ivec3(0);
@@ -99,7 +105,7 @@ float shadowmap_cascade_sample(vec2 sc, int cascade_index, float blend_factor, o
     return s1;//mix(s1, s2, blend_factor);
 }
 
-float shadow_csm(float distance, vec3 lightDir, int light_index, float shadow_bias, float normal_bias, float shadow_softness) {
+float shadow_csm(float distance, vec3 lightDir, int light_index, float shadow_bias, float normal_bias, float shadow_softness, bool hard_shadows) {
     // Determine which cascade to use
     int cascade_index = -1;
     int min_cascades_range = 0;
@@ -150,6 +156,11 @@ float shadow_csm(float distance, vec3 lightDir, int light_index, float shadow_bi
     float shadow = 0.0;
     vec2 texelSize = 1.0 / textureSize(shadowMap2D[cascade_index], 0);
 
+    if (hard_shadows) {
+        float csmDepth = texture(shadowMap2D[cascade_index], projCoords.xy).r;
+        return currentDepth - bias > csmDepth ? 0.0 : 1.0;
+    }
+
     // Get the offset coordinates
     ivec3 ofs_coord = ivec3(0);
     vec2 ofs = mod(gl_FragCoord.xy, vec2(shadow_window_size));
@@ -198,12 +209,12 @@ vec4 shadowmap(int idx, in vec4 peye, in vec4 neye) {
 
     if (light.processed_shadows) {
         if (light.type == LIGHT_DIRECTIONAL) {
-            shadowFactor = shadow_csm(-peye.z, light.dir.xyz, idx, light.shadow_bias, light.normal_bias, light.shadow_softness);
+            shadowFactor = shadow_csm(-peye.z, light.dir.xyz, idx, light.shadow_bias, light.normal_bias, light.shadow_softness, light.hard_shadows);
         } else if (light.type == LIGHT_POINT || light.type == LIGHT_SPOT) {
             vec3 light_pos = (view * vec4(light.pos.xyz, 1.0)).xyz;
             vec3 dir = light_pos - fragment;
             vec4 sc = inv_view * vec4(dir, 0.0);
-            shadowFactor = shadow_vsm(length(dir), -sc.xyz, idx, light.min_variance, light.variance_transition, light.shadow_softness, light.penumbra_size);
+            shadowFactor = shadow_vsm(length(dir), -sc.xyz, idx, light.min_variance, light.variance_transition, light.shadow_softness, light.penumbra_size, light.hard_shadows);
         }
     }
 
