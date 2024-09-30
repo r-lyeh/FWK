@@ -5,7 +5,7 @@
 //    `make     demos\01-ui.c` (windows)
 // `sh MAKE.bat demos/01-ui.c` (linux, osx)
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     float    app_volume = 1.00f;
@@ -40,7 +40,7 @@ int main() {
         int choice1 = ui_menu("File;Shell;Exit");
         int choice2 = ui_menu("Help;About");
         if( choice1 == 1 ) system(ifdef(win32, "start \"\" cmd", ifdef(osx, "open sh", "xdg-open sh")));
-        if( choice1 == 2 ) exit(0);
+        if( choice1 == 2 ) break;
 
         // showcase a few ui widgets
         ui_demo(0);

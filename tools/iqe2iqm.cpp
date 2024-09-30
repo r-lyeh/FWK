@@ -130,6 +130,8 @@ char *callstack( int traces ) {
 
      return output ? output : "";
 }
+#else
+#define callstack(N) ""
 #endif
 
 

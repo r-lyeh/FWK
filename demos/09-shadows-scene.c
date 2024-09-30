@@ -3,10 +3,10 @@
 //
 // @todo: object_print(obj, "");
 
-#include "fwk.h"
+#include "engine.h"
 
 
-const char *skyboxes[][2] = { // reflection, env, metadata
+const char *skyboxes09a[][2] = { // reflection, env, metadata
     {"hdr/Tokyo_BigSight_1k.hdr","hdr/Tokyo_BigSight_Env.hdr"},
 #if 0
     {"hdr/GCanyon_C_YumaPoint_1k.hdr","hdr/GCanyon_C_YumaPoint_Env.hdr"},
@@ -111,7 +111,7 @@ int main() {
 
 
     // load skybox
-    scene_get_active()->skybox = skybox_pbr(skyboxes[0][0], skyboxes[0][0], skyboxes[0][1]);
+    scene_get_active()->skybox = skybox_pbr(skyboxes09a[0][0], skyboxes09a[0][0], skyboxes09a[0][1]);
 
 
     while(window_swap() && !input(KEY_ESC)) {
@@ -122,15 +122,15 @@ int main() {
         video_decode( v );
 
         // update light position
-        // light_teleport(l, cam.position);
+        // light_pos(l, cam.position);
 
         // update shadertoy
         shadertoy_render(&sh, window_delta());
 
         // draw scene
         fx_begin();
-        scene_render(SCENE_FOREGROUND|SCENE_BACKGROUND|SCENE_UPDATE_SH_COEF|SCENE_CAST_SHADOWS);
-        fx_end();
+        scene_render(SCENE_FOREGROUND|SCENE_BACKGROUND|SCENE_UPDATE_SH_COEF|SCENE_SHADOWS);
+        fx_end(0,0);
 
         // fps camera
         bool active = ui_active() || ui_hover() || gizmo_active() ? false : input(MOUSE_L) || input(MOUSE_M) || input(MOUSE_R);

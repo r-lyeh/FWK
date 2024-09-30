@@ -3,7 +3,7 @@
 //
 // @todo: use 2d sprites instead, will shorten things
 
-#include "fwk.h"
+#include "engine.h"
 
 bool topdown_cam = 1;
 
@@ -23,18 +23,6 @@ int main() {
         if( input_down(MOUSE_R) ) topdown_cam ^= 1;
     }
 }
-
-struct player_t {
-    const char *name;
-    model_t mdl;
-    anim_t idle, run;     // anim clips
-    float keys[4], scale; // up,down,left,right
-    vec2 inertia;         // [forward,yaw]
-    vec3 pivot, speed;    // [pitch,yaw,roll] [turn speed,forward speed,anim speed fps]
-    vec3 pos, dir, pad;   // [position] [facing dir] [gamepad accumulator]
-    bool notified;
-    float brain[4];       // AI
-};
 
 // every chunk is a 2D grid [200x200 units], center at (W/2,H/2), bit:1 means traversable
 array(unsigned) chunk = 0;    // chunk partition in world
@@ -107,16 +95,26 @@ void draw_scene() {
 
 void move_players() {
 
-    static struct player_t player[3];
+    static struct player_t {
+        const char *name;
+        model_t mdl;
+        anim_t idle, run;     // anim clips
+        float keys[4], scale; // up,down,left,right
+        vec2 inertia;         // [forward,yaw]
+        vec3 pivot, speed;    // [pitch,yaw,roll] [turn speed,forward speed,anim speed fps]
+        vec3 pos, dir, pad;   // [position] [facing dir] [gamepad accumulator]
+        bool notified;
+        float brain[4];       // AI
+    } player[3];
     do_once
         player[0] = (struct player_t)
-            { "PLAYER-1", model("kgirls01.fbx", 0), loop(0,60,0.25,0), loop(66,85,0.25,0), // idle anim [0..60], run anim [66..85]
+            { "PLAYER-1", model("kgirls01.fbx", MODEL_NO_PBR), loop(0,60,0.25,0), loop(66,85,0.25,0), // idle anim [0..60], run anim [66..85]
                 {KEY_UP,KEY_DOWN,KEY_LEFT,KEY_RIGHT}, 2, {0.90,0.80}, {0,90,-90}, {3, 0.30, 30}, {0}, {1} },
         player[1] = (struct player_t)
-            { "PLAYER-2", model("george.fbx", 0), loop(0,100,0.25,0), loop(372,396,0.25,0), // idle anim [0..100], run anim [372..396]
+            { "PLAYER-2", model("george.fbx", MODEL_NO_PBR), loop(0,100,0.25,0), loop(372,396,0.25,0), // idle anim [0..100], run anim [372..396]
                 {KEY_I,KEY_K,KEY_J,KEY_L}, 1, {0.95,0.90}, {0,90}, {1.75, 0.25, 24}, {-5}, {1} },
         player[2] = (struct player_t)
-            { "PLAYER-3", model("alien.fbx", 0), loop(110,208,0.25,0), loop(360,380,0.25,0), // idle anim [110..208], run anim [360..380]
+            { "PLAYER-3", model("alien.fbx", MODEL_NO_PBR), loop(110,208,0.25,0), loop(360,380,0.25,0), // idle anim [110..208], run anim [360..380]
                 {KEY_W,KEY_S,KEY_A,KEY_D}, 0.85, {0.85,0.75}, {0,90}, {3.5, 0.35, 60}, {5}, {1} };
 
     static camera_t cam; do_once cam = camera();

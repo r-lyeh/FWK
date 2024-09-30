@@ -1,8 +1,8 @@
-#include "fwk.h"
+#include "engine.h"
 
 
-int SKY_DIR = 0;
-const char *SKY_DIRS[] = {
+int SKY09b_DIR = 0;
+const char *SKY09b_DIRS[] = {
     "cubemaps/bridge3/",
     "cubemaps/colors/",
     "cubemaps/colors2/",
@@ -13,6 +13,8 @@ int main(int argc, char** argv) {
     window_create(85, 0);
     window_title(__FILE__);
     // window_fps_unlock();
+
+    fx_load("demos/art/fx/**.fs");
 
     camera_t cam = camera(); {
         cam.position = vec3(0, 500, 0);
@@ -49,7 +51,7 @@ int main(int argc, char** argv) {
         }
         if( !initialized ) {
             initialized = 1;
-            sky = skybox(flag("--mie") ? 0 : SKY_DIRS[SKY_DIR], 0);
+            sky = skybox(flag("--mie") ? 0 : SKY09b_DIRS[SKY09b_DIR], 0);
             mdl = model("plane.obj", 0);
             scale44(mdl.pivot, 150, 1, 150);
             model_skybox(&mdl, sky);
@@ -71,7 +73,7 @@ int main(int argc, char** argv) {
         }
 
         if( ui_panel("Scene", 0)) {
-            if( ui_list("Skybox", SKY_DIRS, countof(SKY_DIRS), &SKY_DIR) ) {
+            if( ui_list("Skybox", SKY09b_DIRS, countof(SKY09b_DIRS), &SKY09b_DIR) ) {
                 must_reload = 1;
             }
             ui_separator();

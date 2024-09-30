@@ -4,7 +4,7 @@
 // credits: original lovely demo by rxi (MIT License).
 // see https://github.com/rxi/autobatch/tree/master/demo/cats
 
-#include "fwk.h"
+#include "engine.h"
 
 texture_t kids, catImage, shadowImage, inputs;
 int NUM_SPRITES = 100, NUM_SPRITES_CHANGED = 1;
@@ -141,7 +141,7 @@ void demo_kids() {
 
 int main(int argc, char **argv) {
     window_create(75.f, 0);
-    window_title("FWK - Sprite");
+    window_title("Sprites");
     window_color( SILVER );
 
     // options
@@ -182,13 +182,13 @@ int main(int argc, char **argv) {
                 if(do_cats) demo_cats(); else demo_kids();
             }
 
-            // flush retained renderer, so we ensure the fbos are up to date before fx_end()
+            // flush retained renderer, so we ensure the fbos are up to date before fx_end(0,0)
             profile("Sprite flushing") {
                 sprite_flush();
             }
 
         // post-fxs end here
-        fx_end();
+        fx_end(0,0);
 
         // draw pixel-art hud, 16x16 ui element, scaled and positioned in resolution-independant way
         {

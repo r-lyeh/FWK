@@ -9,8 +9,8 @@ void main() {
     if( texel.a == 0.0 ) {
         for( int x = -thickness; x <= thickness; x++ ) {
             for( int y = -thickness;y <= thickness; y++ ) {
-                float sample = texture(iChannel0, uv+vec2(float(x)/iWidth, float(y)/iHeight)).a;
-                if( sample > 0.0 ) {
+                float sampleVal = texture(iChannel0, uv+vec2(float(x)/iWidth, float(y)/iHeight)).a;
+                if( sampleVal > 0.0 ) {
                     outline = 1.0;
                 }
             }

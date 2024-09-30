@@ -1,4 +1,4 @@
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     window_create(75.0, WINDOW_MSAA8);
@@ -105,7 +105,7 @@ int main() {
         static int counter = 0;
         counter += input_down(KEY_RIGHT)-input_down(KEY_LEFT);
         counter += counter < 0 ? array_count(lines) : 0;
-        font_print( va("<< %s >>\n", lines[counter % array_count(lines)]) );
+        font_print( va(FONT_LEFT "<< %s >>\n", lines[counter % array_count(lines)]) );
 
         // this does not work yet. you cant chain alignments yet...
         //font_print(FONT_TOP "Top" FONT_MIDDLE "Middle" FONT_BASELINE "Baseline" FONT_BOTTOM "Bottom\n");

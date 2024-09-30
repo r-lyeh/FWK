@@ -5,9 +5,9 @@
 //    `make     demos\01-demo2d.c` (windows)
 // `sh MAKE.bat demos/01-demo2d.c` (linux, osx)
 
-#include "fwk.h"
+#include "engine.h"
 
-void demo_kids(vec3 offs) {
+void draw_kids(vec3 offs) {
     // init
     static texture_t kids; do_once kids = texture( "spriteSheetExample.png", TEXTURE_LINEAR );
     static vec3 pos[2] = {{490,362},{442,362}}, vel[2] = {0};
@@ -74,10 +74,10 @@ int main() {
     // font config: faces (6 max) and colors (10 max)
     #define FONT_CJK       FONT_FACE3
     #define FONT_YELLOW    FONT_COLOR2
-    #define FONT_LIME      FONT_COLOR3
+    #define FONT_LIME2     FONT_COLOR3
     font_face(FONT_CJK,      "mplus-1p-medium.ttf", 48.f, FONT_JP|FONT_2048); // CJK|FONT_2048|FONT_OVERSAMPLE_Y);
     font_color(FONT_YELLOW,  RGB4(255,255,0,255));
-    font_color(FONT_LIME,    RGB4(128,255,0,255));
+    font_color(FONT_LIME2,   RGB4(128,255,0,255));
 
     // fx: load all post fx files in all subdirs. enable a few filters by default
     fx_load("fx**.fs");
@@ -114,7 +114,7 @@ int main() {
                 // render tiled map
                 tiled_render(tmx, center);
                 //
-                demo_kids(vec3(0,0,1));
+                draw_kids(vec3(0,0,1));
                 demo_hud();
                 // render spine model
                 // spine_animate(spn, !window_has_pause() * window_delta());
@@ -126,11 +126,11 @@ int main() {
             font_print(
                 FONT_BOTTOM FONT_CENTER
                 FONT_CJK FONT_H1
-                FONT_YELLOW "私はガラスを食べられます。" FONT_LIME "それは私を傷つけません。\n"
+                FONT_YELLOW "私はガラスを食べられます。" FONT_LIME2 "それは私を傷つけません。\n"
             );
 
         // post-fxs end here
-        fx_end();
+        fx_end(0,0);
 
         // ui
         if( ui_panel("Audio", 0)) {

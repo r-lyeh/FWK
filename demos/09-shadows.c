@@ -1,7 +1,7 @@
- #include "fwk.h"
+ #include "engine.h"
 
 
-const char *skyboxes[][3] = { // reflection, rad, env
+const char *skyboxes09b[][3] = { // reflection, rad, env
     {"hdr/Tokyo_BigSight_1k.hdr","hdr/Tokyo_BigSight_1k.hdr","hdr/Tokyo_BigSight_Env.hdr"},
 #if 0
     {"hdr/GCanyon_C_YumaPoint_1k.hdr","hdr/GCanyon_C_YumaPoint_1k.hdr","hdr/GCanyon_C_YumaPoint_Env.hdr"},
@@ -16,8 +16,8 @@ const char *skyboxes[][3] = { // reflection, rad, env
 };
 
 
-int OBJ_MDL = 0;
-const char *OBJ_MDLS[] = {
+int OBJ09s_MDL = 0;
+const char *OBJ09s_MDLS[] = {
     "meshes/ShadowsTest.obj",
     "meshes/sphere.obj",
     "meshes/suzanne.obj",
@@ -119,9 +119,9 @@ int main(int argc, char** argv) {
         }
         if( !initialized ) {
             initialized = 1;
-            sky = skybox_pbr(skyboxes[0][0], skyboxes[0][1], skyboxes[0][2]);
+            sky = skybox_pbr(skyboxes09b[0][0], skyboxes09b[0][1], skyboxes09b[0][2]);
             sm = shadowmap(512, 4096);
-            mdl = model(OBJ_MDLS[OBJ_MDL], 0);
+            mdl = model(OBJ09s_MDLS[OBJ09s_MDL], 0);
             model_skybox(&mdl, sky);
         }
 
@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         enum {
             POINT, SPOT, DIR, ALL
         };
-        static unsigned mode = DIR;
+        static unsigned mode = ALL;
 
         if (!ui_active()) {
             if (input_down(KEY_1)) mode = POINT;
@@ -222,25 +222,25 @@ int main(int argc, char** argv) {
             model_light(&mdl, array_count(lights), lights);
             model_render(mdl, cam.proj, cam.view, mdl.pivot);
         }
-        fx_end();
+        fx_end(0,0);
 
         // {
-        //     quad_render_id(GL_TEXTURE_2D, sm.maps[0].texture_2d[0], vec2(sm.csm_texture_width, sm.csm_texture_width), vec2(0,0), vec2(4096,4096), 0xFFFFFFFF, vec2(0,0), vec2(512,512));
+            // quad_render_id(GL_TEXTURE_2D, sm.maps[0].texture_2d[0], vec2(sm.csm_texture_width, sm.csm_texture_width), vec2(0,0), vec2(4096,4096), 0xFFFFFFFF, vec2(0,0), vec2(512,512));
         // }
 
         if( ui_panel("Scene", 0)) {
             // if( ui_list("Skybox", SKY_DIRS, countof(SKY_DIRS), &SKY_DIR) ) {
             //     must_reload = 1;
             // }
-            if( ui_list("Model", OBJ_MDLS, countof(OBJ_MDLS), &OBJ_MDL) ) {
+            if( ui_list("Model", OBJ09s_MDLS, countof(OBJ09s_MDLS), &OBJ09s_MDL) ) {
                 must_reload = 1;
             }
             ui_separator();
-            for( int i = 0; i < countof(skyboxes); i++ ) {
-                const char *filename = skyboxes[i][0];
+            for( int i = 0; i < countof(skyboxes09b); i++ ) {
+                const char *filename = skyboxes09b[i][0];
                 bool selected = false;
                 if( ui_bool( filename, &selected ) ) {
-                    sky = skybox_pbr(skyboxes[i][0], skyboxes[i][1], skyboxes[i][2]);
+                    sky = skybox_pbr(skyboxes09b[i][0], skyboxes09b[i][1], skyboxes09b[i][2]);
                     model_skybox(&mdl, sky);
                 }
             }

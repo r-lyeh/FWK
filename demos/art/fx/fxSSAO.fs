@@ -1,9 +1,8 @@
 // based on code by arkano22. See: http://www.gamedev.net/forums/topic/550699-ssao-no-halo-artifacts/
 // - rlyeh, public domain
 
-uniform vec2 camerarange; /// set:1,1024 min:0.1,1000 max:1000,10000
-
-// uniform sampler2D som; // Depth texture (iChannel1)
+uniform vec2 camerarange; /// set:150,850 min:0.1,500 max:1000,10000
+uniform float strength; /// set:16 min:1 max:64
 
 #if 0
 
@@ -126,7 +125,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     //final values, some adjusting:
     vec4 texel = texture(iChannel0, uv);
-    float finalAO = 1.0-(ao/32.0); finalAO = 0.5+finalAO*0.5; 
+    float finalAO = 1.0-(ao/strength); finalAO = 0.5+finalAO*0.5; 
     fragColor = vec4(texel.rgb * vec3(finalAO), texel.a);
     //fragColor = vec4(vec3(finalAO), texel.a); // << debug
 }

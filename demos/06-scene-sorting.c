@@ -1,6 +1,6 @@
 // render map
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     window_create(80, WINDOW_MSAA8);
@@ -12,8 +12,8 @@ int main() {
 
     // load static scene
     model_t map, prop;
-    map = model(option("--model","sorting_test.obj"), 0); // MODEL_NO_TEXTURES);
-    prop = model(option("--model","sorting_test2.obj"), 0); // MODEL_NO_TEXTURES);
+    map = model(option("--model","sorting_test.obj"), MODEL_NO_PBR); // MODEL_NO_TEXTURES);
+    prop = model(option("--model","sorting_test2.obj"), MODEL_NO_PBR); // MODEL_NO_TEXTURES);
 
     // define scene
     object_t *prop_obj = scene_spawn();

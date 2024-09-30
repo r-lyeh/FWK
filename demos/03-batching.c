@@ -8,20 +8,7 @@
 // @todo: instanced poses, instanced render_bones
 // @todo: ik, modify bone transform (bone space)
 
-#include "fwk.h"
-
-typedef struct anims_t {
-    int   inuse; // animation number in use
-    float speed; // x1.00
-    array(anim_t) anims; // [begin,end,flags] frames of every animation in set
-} anims_t;
-
-anims_t animations(const char *pathfile, int flags) {
-    anims_t a = {0};
-    a.anims = animlist(pathfile);
-    if(a.anims) a.speed = 1.0;
-    return a;
-}
+#include "engine.h"
 
 int main() {
     bool do_showaabb = 0;
@@ -42,8 +29,8 @@ int main() {
         camera_fps(&cam, 0, 0);
     }
     skybox_t sky = skybox("cubemaps/stardust", 0);
-    model_t  mdl = model("cube.obj", 0);
-    model_t  plane = model("plane.obj", 0);
+    model_t  mdl = model("cube.obj", MODEL_NO_PBR);
+    model_t  plane = model("plane.obj", MODEL_NO_PBR);
     scene_skybox(sky);
 
     light_t *light = scene_spawn_light();
@@ -55,7 +42,7 @@ int main() {
             if (i >= NUM_INSTANCES) break;
             object_t *obj = scene_spawn();
             vec3 pos = vec3(-x*3,1.05,-z*3);
-            vec3 rot = vec3(0,180,0); 
+            vec3 rot = vec3(0,180,0);
             vec3 sca = vec3(1,1,1);
             object_teleport(obj, pos);
             object_rotate(obj, rot);
@@ -84,8 +71,11 @@ int main() {
 
         // ground
         ddraw_ground(0);
-        ddraw_flush();
-        scene_render(SCENE_FOREGROUND|SCENE_BACKGROUND|SCENE_CAST_SHADOWS);
+        // ddraw_flush();
+        
+        scene_render(SCENE_FOREGROUND|SCENE_BACKGROUND|SCENE_SHADOWS|SCENE_POSTFX);
+
+        // fullscreen_quad_rgb_flipped(fb_tex);
 
         if (ui_panel("Scene", 0)) {
             ui_separator();

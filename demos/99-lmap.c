@@ -1,4 +1,6 @@
-#include "fwk.h"
+#include "engine.h"
+
+#if 0 // we dont support lightmap_t anymore right now
 
 model_t litm;
 
@@ -77,3 +79,4 @@ int main()
         }
     }
 }
+#endif

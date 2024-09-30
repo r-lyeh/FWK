@@ -5,7 +5,7 @@
 //    `make     demos\99-controller.c` (windows)
 // `sh MAKE.bat demos/99-controller.c` (linux, osx)
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     // whether modern locomotion controller (mario 3d)
@@ -23,12 +23,12 @@ int main() {
     camera_enable(&cam);
 
     // config 3d model #1
-    model_t witch = model("witch/witch.obj", 0);
+    model_t witch = model("witch/witch.obj", MODEL_NO_PBR);
     model_set_texture(&witch, texture("witch/witch_diffuse.tga.png", 0));
     mat44 witch_pivot; vec3 witch_p = {-5,0,-5}, witch_r={0,0,-90}, witch_s={0.1,-0.1,0.1};
 
     // config 3d model #2
-    model_t girl = model("kgirl/kgirls01.fbx", 0);
+    model_t girl = model("kgirl/kgirls01.fbx", MODEL_NO_PBR);
     mat44 girl_pivot; vec3 girl_p = {0,0,0}, girl_r = {0,0,-90}, girl_s = {2,2,2};
 
     // skybox
@@ -73,7 +73,7 @@ int main() {
             model_render(witch, cam.proj, cam.view, witch.pivot);
 
         // render end (postfx)
-        fx_end();
+        fx_end(0,0);
 
         // input controllers
 

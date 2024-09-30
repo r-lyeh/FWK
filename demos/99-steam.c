@@ -1,7 +1,7 @@
 // steamworks demo
 // - rlyeh, public domain
 
-#include "fwk.h"
+#include "engine.h"
 
 main() {
     steam_init(0); // steam_appid: 0 to use SpaceWar vanilla project from Valve

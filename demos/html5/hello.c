@@ -1,4 +1,4 @@
-// playground tests for FWK
+// playground tests
 // - rlyeh, public domain
 //
 // # quickstart
@@ -11,7 +11,7 @@
 // - linux/tcc    : tcc hello.c -lm -ldl -lpthread -lX11 -D__STDC_NO_VLA__
 // - osx          : cc -ObjC hello.c -framework cocoa -framework iokit -framework audiotoolbox
 
-#include "fwk.h"
+#include "engine.h"
 
 // options
 unsigned no_flags = 0;
@@ -60,7 +60,7 @@ void gameloop(void *userdata)
         girl.curframe = model_animate(girl, girl.curframe + delta);
 
         // draw girl
-        model_render(girl, cam.proj, cam.view, girl.pivot, no_flags);
+        model_render(girl, cam.proj, cam.view, girl.pivot);
 
     // post-fxs end here
     //fx_end();

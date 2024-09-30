@@ -5,7 +5,7 @@
 //    `make     demos\02-ddraw.c` (windows)
 // `sh MAKE.bat demos/02-ddraw.c` (linux, osx)
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     bool do_boids_demo = 1;

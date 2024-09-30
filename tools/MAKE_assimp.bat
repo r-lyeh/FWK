@@ -2,23 +2,31 @@
 
 # linux + osx -----------------------------------------------------------------
 cd `dirname $0`
+ 
+git clone https://github.com/assimp/assimp
 
-git clone https://github.com/assimp/assimp && cd assimp && git checkout 05115b07
+cd assimp && git checkout 05115b07
 cmake -DCMAKE_BUILD_TYPE=Release -DASSIMP_BUILD_TESTS=OFF -D_FORTIFY_SOURCE=0 .
 make -j 8
-cp bin/libassimp.so    ../libassimp.so
-cp bin/libassimp.so    ../libassimp.so.5
-cp bin/libassimp.so    ../libassimp.so.5.1.4
-cp bin/libassimp.dylib ../libassimp.dylib
-cp bin/libassimp.dylib ../libassimp.5.dylib
-cp bin/libassimp.dylib ../libassimp.5.0.1.dylib
 cd ..
 
-cc ass2iqe.c -o ass2iqe.linux -O2 -I. -I ../engine/split -I assimp/include/ libassimp.so    -lm
-cc ass2iqe.c -o ass2iqe.osx   -O2 -I. -I ../engine/split -I assimp/include/ libassimp.dylib -lm
+if [ "$(uname)" != "Darwin" ]; then
 
-cc iqe2iqm.cpp -o iqe2iqm.linux -O2 -I. -I ../engine/split -lm
-cc iqe2iqm.cpp -o iqe2iqm.osx   -O2 -I. -I ../engine/split -lm
+cp assimp/bin/libassimp.so libassimp.so
+cp assimp/bin/libassimp.so libassimp.so.5
+cp assimp/bin/libassimp.so libassimp.so.5.1.4
+cc ass2iqe.c -o ass2iqe.linux -O2 -I. -I ../engine/split -I assimp/include/ libassimp.so    -lm
+cc iqe2iqm.cpp -o iqe2iqm.linux -O2 -I. -I ../engine/split -lm -lstdc++
+
+else
+
+cp assimp/bin/libassimp.dylib libassimp.dylib
+cp assimp/bin/libassimp.dylib libassimp.5.dylib
+cp assimp/bin/libassimp.dylib libassimp.5.0.1.dylib
+cc ass2iqe.c -o ass2iqe.osx   -O2 -I. -I ../engine/split -I assimp/include/ libassimp.dylib -lm
+cc iqe2iqm.cpp -o iqe2iqm.osx   -O2 -I. -I ../engine/split -lm -lstdc++	
+
+fi
 
 exit
 

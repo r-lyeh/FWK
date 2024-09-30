@@ -1,4 +1,4 @@
-# Blender 4.2.1 LTS MTL File: 'None'
+# Blender 4.2.2 LTS MTL File: 'None'
 # www.blender.org
 
 newmtl DefaultMaterial
@@ -18,7 +18,7 @@ Ks 0.500000 0.500000 0.500000
 Ke 0.000000 0.000000 0.000000
 Ni 1.500000
 illum 2
-map_Kd fence_PNG28.png
+map_Kd fence_albedo.png
 map_d fence_PNG28.png
 
 newmtl floor

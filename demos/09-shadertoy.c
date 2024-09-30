@@ -1,7 +1,7 @@
 // shadertoy viewer
 // - rlyeh, public domain
 
-#include "fwk.h"
+#include "engine.h"
 
 int main() {
     window_create(75, 0); // WINDOW_MSAA8);
